@@ -1,0 +1,74 @@
+# ZOUWUCODE 配置模板
+# 复制本文件为 config.yaml 并填入你的 API Key。
+# config.yaml 含密钥，已被 .gitignore 排除，切勿提交到版本库。
+
+default_provider: deepseek
+language: zh
+theme: dark
+show_thinking: true            # 流式显示思考过程（/thinking 切换）
+data_dir: ""                   # 数据目录（留空使用默认 zouwucode_data/）
+reasoning_intensity: medium   # low | medium | max
+
+providers:
+  deepseek:
+    api_key: "sk-your-api-key-here"     # 必填：你的 DeepSeek API Key
+    model: "deepseek-v4-flash"
+    base_url: "https://api.deepseek.com"
+    api_type: deepseek
+  # openai:
+  #   api_key: "sk-your-openai-key"
+  #   model: "gpt-4o"
+  #   base_url: "https://api.openai.com/v1"
+  #   api_type: openai
+
+# 引擎安全限制 — 防止死循环与执行停顿
+engine:
+  max_tool_rounds: 25               # 单次任务最多工具轮数
+  turn_timeout_seconds: 300         # 单次 LLM 请求超时（秒）
+  task_timeout_seconds: 1800        # 单次任务总耗时上限（秒）
+  max_consecutive_tool_errors: 3    # 工具连续失败终止阈值
+  max_llm_retries: 2                # 瞬时故障（429/5xx/网络）重试次数（0=关闭）
+  retry_base_delay_seconds: 1.0     # 指数退避基数（第 n 次重试等待 base*2^(n-1) 秒）
+
+cache:
+  enabled: true
+  append_only: true
+  max_prefix_tokens: 128000
+  stats_window: 50
+
+sandbox:
+  enabled: true
+  default_mode: agent               # plan | agent | yolo
+  allow_shell: true
+  allow_file_write: true
+  allow_network: true
+  allow_git: true
+  allowed_paths:
+    - .
+
+session:
+  save_enabled: true
+  auto_save_interval: 60
+  max_sessions: 50
+  rollback_enabled: true
+
+# 多智能体编排模块（hello-my-zouwucode）
+hello_my_zouwucode:
+  enabled: true
+  state_dir: ".hello-my-zouwucode"
+  default_category: deep
+  max_review_rounds: 2
+  interactive_planning: true
+
+# 子 Agent 系统
+subagent:
+  max_agents: 8                 # 并行子 Agent 数量上限
+  default_timeout: 600          # 单个子 Agent 默认超时（秒）
+
+# 扩展层（MCP/LSP — 默认不激活，配置后自动启用）
+extensions:
+  mcp_servers: []               # 示例：
+  #  - name: filesystem
+  #    command: npx
+  #    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+  lsp_enabled: false            # 启用后注册 check_diagnostics 诊断工具

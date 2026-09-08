@@ -1,0 +1,33 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+version.txt
+
+# ── Testing ─────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Runtime data (sessions / project memory / workspace skills) ──
+zouwucode_data/
+.hello-my-zouwucode/
+.omo/
+.zouwucode/
+
+# ── Secrets & local config ──────────────────────────────
+config.yaml
+.env
+*.key
+
+# ── OS / editor ─────────────────────────────────────────
+z.lnk
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/

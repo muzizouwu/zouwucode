@@ -1,0 +1,130 @@
+/* ── ZOUWUCODE Textual Theme ──────────────────────────────────────────────── */
+
+Screen {
+    background: #1a1a2e;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+#header {
+    height: 3;
+    background: #16213e;
+    border-bottom: solid #0f3460;
+    padding: 0 1;
+}
+
+#header-title {
+    content-align: center middle;
+    text-style: bold;
+    color: #e94560;
+}
+
+#header-mode {
+    content-align: right middle;
+    color: #4ade80;
+    text-style: bold;
+}
+
+/* ── Chat Container ───────────────────────────────────────────────────────── */
+#chat-container {
+    height: 1fr;
+    border: none;
+    padding: 0 1;
+}
+
+#chat-view {
+    background: #1a1a2e;
+    border: solid #0f3460;
+    border-title-color: #0f3460;
+    padding: 0 1;
+}
+
+/* ── Message Styles ───────────────────────────────────────────────────────── */
+.message-box {
+    margin: 0 0 1 0;
+    padding: 1 2;
+    min-height: 1;
+}
+
+.message-user {
+    background: #0f3460;
+    color: #eee;
+    margin-left: 4;
+}
+
+.message-assistant {
+    background: #16213e;
+    color: #eee;
+    margin-right: 4;
+}
+
+.message-thinking {
+    background: #1a1a2e;
+    color: #888;
+    text-style: italic;
+    border-left: solid #e94560;
+}
+
+.message-system {
+    background: transparent;
+    color: #666;
+    text-align: center;
+}
+
+/* ── Input Area ───────────────────────────────────────────────────────────── */
+#input-area {
+    height: 5;
+    background: #16213e;
+    border-top: solid #0f3460;
+    padding: 0 1 1 1;
+}
+
+#input-box {
+    height: 3;
+    background: #1a1a2e;
+    color: #eee;
+    border: solid #333;
+    padding: 0 1;
+}
+
+#input-box:focus {
+    border: solid #e94560;
+}
+
+/* ── Status Bar ───────────────────────────────────────────────────────────── */
+#status-bar {
+    height: 1;
+    background: #0d0d1a;
+    color: #666;
+    padding: 0 1;
+}
+
+#status-left {
+    width: 1fr;
+}
+
+#status-right {
+    width: 1fr;
+    content-align: right middle;
+}
+
+/* ── Footer / Help ────────────────────────────────────────────────────────── */
+#footer {
+    height: 1;
+    background: #16213e;
+    color: #555;
+    padding: 0 1;
+}
+
+/* ── Keyboard Shortcuts Display ───────────────────────────────────────────── */
+#shortcuts {
+    width: 1fr;
+    color: #555;
+    content-align: left middle;
+}
+
+#footer-progress {
+    width: auto;
+    color: #4ade80;
+    content-align: right middle;
+    text-style: bold;
+}
