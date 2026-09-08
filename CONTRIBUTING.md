@@ -6,7 +6,7 @@
 
 ```bash
 # Python 3.10+
-git clone https://github.com/zouwustudio/zouwucode.git
+git clone https://github.com/muzizouwu/zouwucode.git
 cd zouwucode
 pip install -e ".[tui,dev]"
 ```

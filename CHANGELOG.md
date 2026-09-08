@@ -33,5 +33,5 @@
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
-[Unreleased]: https://github.com/zouwustudio/zouwucode/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/zouwustudio/zouwucode/releases/tag/v1.0.0
+[Unreleased]: https://github.com/muzizouwu/zouwucode/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.0
