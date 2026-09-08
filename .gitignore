@@ -23,6 +23,8 @@ zouwucode_data/
 config.yaml
 .env
 *.key
+*.log
+logs/
 
 # ── OS / editor ─────────────────────────────────────────
 z.lnk
