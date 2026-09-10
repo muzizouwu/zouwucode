@@ -5,6 +5,14 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Force UTF-8 console output — Windows CI runners default to cp437 and raise
+# UnicodeEncodeError on the CJK strings printed below.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
