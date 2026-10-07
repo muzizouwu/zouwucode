@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 251 passed](https://img.shields.io/badge/tests-251%20passed-green)](tests/)
+[![Tests: 278 passed](https://img.shields.io/badge/tests-278%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -32,6 +32,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **安全沙箱** | 危险命令检测、零宽字符防护、路径白名单 |
 | **任务打断** | 三端统一：TUI/WebUI 按 `Esc`（带确认弹窗）、CLI 按 `Ctrl+C`，打断后可「继续」恢复或放弃 |
 | **子 Agent 系统** | 主 Agent 通过 `task` 工具分解任务并并行委派：每个子 Agent 独立引擎/缓存，支持工具白名单、独立超时、级联打断 |
+| **Devin 式 dev 模式** | `zouwucode dev <issue>` 自主完成 issue→隔离 worktree→实现→验证→Draft PR 全流程；支持队列并行、watch 自动认领、成本熔断 |
 | **扩展层（MCP/LSP 预留）** | 统一 Extension 接口：MCP 服务器工具桥接、LSP 诊断工具，配置即启用，零配置零开销 |
 | **引擎安全限制** | 工具轮数上限、单请求/单任务超时、连续工具错误熔断 — 杜绝死循环与执行停顿 |
 | **会话管理** | 自动保存、恢复、回滚 |
@@ -108,6 +109,23 @@ python -m zouwucode --web
 | Plan | `/plan` | Ctrl+S 循环 | 只读探索，不能修改代码 |
 | Agent | `/agent` | Ctrl+S 循环 | 交互审批，工具调用需确认（默认） |
 | YOLO | `/yolo` | Ctrl+S 循环 | 自动执行，工具调用无需确认 |
+
+### Devin 式 dev 模式（issue → Draft PR）
+
+把 ZOUWUCODE 变成自主异步工程师：给它一个 GitHub issue，它在隔离的 git worktree 里独立完成实现、跑测试验证，成功后自动创建 **Draft PR**（永远需人工 review 后合并）。
+
+```bash
+# 前置：export GITHUB_TOKEN=ghp_xxx（最小权限 contents:write + pull_requests:write）
+
+zouwucode dev https://github.com/you/repo/issues/42   # 处理一个 issue → Draft PR
+zouwucode dev "给 README 加安装说明"                    # 自由文本任务（本地分支，不建 PR）
+zouwucode dev --queue <issue-url>                      # 提交到任务队列
+zouwucode dev --workers 3                              # 3 个 worker 进程并行排空队列
+zouwucode dev --watch you/repo                         # 轮询 `zouwucode:do` 标签 issue 自动认领
+zouwucode dev --status                                 # 查看队列状态
+```
+
+安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 被沙箱限定在 worktree 内、任务超时/成本熔断（`engine.max_cost_usd`）、失败自动回帖 issue 请求人工介入。详见 [dev 模式说明](docs/dev模式使用说明.md)。
 
 ### 常用命令
 
@@ -335,6 +353,13 @@ zouwucode/                       # 核心包
 │   ├── coordinator.py           # 工具调用协调器（引擎 ↔ 工具注册中心）
 │   └── subagent.py              # 子 Agent 系统（隔离引擎/并行/白名单/级联打断）
 │
+├── dev/                         # Devin 式自主开发模式（issue → Draft PR）
+│   ├── github.py                # GitHub REST 客户端（issue/PR/评论/标签）
+│   ├── workspace.py             # git worktree 隔离 + dev/* 分支白名单
+│   ├── pipeline.py              # 端到端管线（实现→验证→PR）
+│   ├── queue.py                 # SQLite 任务队列（异步托管）
+│   └── cli.py                   # dev 子命令路由/worker/watch
+│
 ├── extensions/                  # 扩展层（MCP/LSP 预留接口）
 │   ├── host.py                  # ExtensionHost + Extension 基类
 │   ├── mcp_ext.py               # MCP 服务器工具桥接
@@ -429,6 +454,7 @@ hello_my_zouwucode/              # 多智能体编排模块（复刻自 oh-my-op
 
 - [打断功能使用说明](docs/打断功能使用说明.md) — 触发方式、安全点、恢复选项、接口说明
 - [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md) — 任务分解与并行委派、MCP/LSP 预留接口
+- [dev模式使用说明](docs/dev模式使用说明.md) — Devin 式自主 issue → Draft PR 工作流
 
 hello-my-zouwucode 多智能体编排模块相关文档：
 

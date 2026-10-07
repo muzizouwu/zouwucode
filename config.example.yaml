@@ -29,6 +29,7 @@ engine:
   max_consecutive_tool_errors: 3    # 工具连续失败终止阈值
   max_llm_retries: 2                # 瞬时故障（429/5xx/网络）重试次数（0=关闭）
   retry_base_delay_seconds: 1.0     # 指数退避基数（第 n 次重试等待 base*2^(n-1) 秒）
+  max_cost_usd: 0                   # 单任务成本熔断（美元，0=不限制；dev 模式建议设置）
 
 cache:
   enabled: true
@@ -72,3 +73,19 @@ extensions:
   #    command: npx
   #    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
   lsp_enabled: false            # 启用后注册 check_diagnostics 诊断工具
+
+# GitHub 集成（dev 模式：issue → Draft PR）
+github:
+  token: ""                     # 建议用环境变量 GITHUB_TOKEN（优先于此）
+  api_base: "https://api.github.com"
+
+# Devin 式自主开发工作流（zouwucode dev）
+dev:
+  branch_prefix: dev            # 只允许操作 dev/* 分支（安全白名单）
+  worktree_dir: ".zouwucode_worktrees"
+  test_command: ""              # 留空自动探测（pytest / npm test）
+  verify_retries: 2             # 测试失败后自动迭代修复次数
+  max_concurrent_tasks: 3       # 队列模式并行 worker 上限
+  task_timeout_seconds: 3600    # 单个 dev 任务总超时（秒）
+  watch_label: "zouwucode:do"   # watch 模式认领的 issue 标签
+  draft_pr: true                # PR 始终为 Draft，人工 review 后合并

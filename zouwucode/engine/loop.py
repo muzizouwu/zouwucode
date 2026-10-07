@@ -381,6 +381,7 @@ class EngineLoop:
         consecutive_tool_errors = 0
         response: Optional[ModelResponse] = None
         assistant_appended = False
+        cost_at_start = self.stats.total_cost  # 成本熔断按任务增量计
 
         logger.info(
             "Task start | mode=%s | rounds_cap=%d | task_timeout=%.0fs | "
@@ -447,6 +448,20 @@ class EngineLoop:
 
                 # Record cache statistics
                 self.stats.record_turn(response.cache_hit, response.usage)
+
+                # ── Safety check: per-task cost budget (dev mode guard) ──
+                if engine_cfg.max_cost_usd > 0:
+                    task_cost = self.stats.total_cost - cost_at_start
+                    if task_cost >= engine_cfg.max_cost_usd:
+                        logger.error(
+                            "Round %d — task cost $%.4f exceeded budget "
+                            "$%.4f — aborting to avoid runaway spend.",
+                            round_no, task_cost, engine_cfg.max_cost_usd,
+                        )
+                        raise TurnLimitExceeded(
+                            f"Task cost ${task_cost:.4f} exceeded budget "
+                            f"${engine_cfg.max_cost_usd:.2f} (round {round_no})."
+                        )
 
                 # Append assistant response to cache so tool results are valid
                 assistant_msg = {"role": "assistant", "content": response.content or ""}

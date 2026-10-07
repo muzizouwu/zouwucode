@@ -18,6 +18,7 @@ zouwucode_data/
 .hello-my-zouwucode/
 .omo/
 .zouwucode/
+.zouwucode_worktrees/
 
 # ── Secrets & local config ──────────────────────────────
 config.yaml

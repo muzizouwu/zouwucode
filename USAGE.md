@@ -766,6 +766,24 @@ ZOUWUCODE 支持在任务执行过程中随时打断：
 
 ---
 
+### 11.7 Devin 式 dev 模式（自主 issue → Draft PR）
+
+`zouwucode dev` 把 ZOUWUCODE 变成自主异步软件工程师：给定 GitHub issue，它在隔离的 git worktree 内独立完成实现、跑测试验证，成功后自动创建 **Draft PR**（永远需人工 review 后合并）。
+
+```bash
+export GITHUB_TOKEN=ghp_xxx                              # issue→PR 流程需要
+zouwucode dev https://github.com/you/repo/issues/42       # 处理一个 issue
+zouwucode dev "给 README 加安装说明"                       # 自由文本（本地分支，不建 PR）
+zouwucode dev --queue <issue-url>                        # 提交到任务队列
+zouwucode dev --workers 3                                # 3 worker 并行排空队列
+zouwucode dev --watch you/repo                           # 轮询 zouwucode:do 标签自动认领
+zouwucode dev --status                                   # 查看队列状态
+```
+
+安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 沙箱限定在 worktree 内、任务超时与成本熔断（建议设 `engine.max_cost_usd`）、失败自动回帖 issue。配置详见 15.2 节 `github:` / `dev:` 段；完整说明见 [dev模式使用说明](docs/dev模式使用说明.md)。
+
+---
+
 ## 12. 工具系统
 
 ZOUWUCODE 内置 9 个工具 + task 委派工具（子 Agent 并行任务分解），覆盖日常开发需求：
@@ -912,6 +930,22 @@ subagent:
 extensions:
   mcp_servers: []               # MCP 服务器列表（stdio），配置后自动连接
   lsp_enabled: false            # 启用后注册 check_diagnostics 诊断工具
+
+# GitHub 集成（dev 模式：issue → Draft PR）
+github:
+  token: ""                     # 推荐用环境变量 GITHUB_TOKEN（优先于此）
+  api_base: "https://api.github.com"
+
+# Devin 式自主开发工作流（zouwucode dev）
+dev:
+  branch_prefix: dev            # 只允许操作 dev/* 分支（安全白名单）
+  worktree_dir: ".zouwucode_worktrees"
+  test_command: ""              # 留空自动探测（pytest / npm test）
+  verify_retries: 2             # 测试失败后自动迭代修复次数
+  max_concurrent_tasks: 3       # 队列模式并行 worker 上限
+  task_timeout_seconds: 3600    # 单个 dev 任务总超时（秒）
+  watch_label: "zouwucode:do"   # watch 模式认领的 issue 标签
+  draft_pr: true                # PR 始终为 Draft，人工 review 后合并
 
 # 沙箱配置
 sandbox:

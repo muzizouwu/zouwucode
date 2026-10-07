@@ -42,6 +42,27 @@ class EngineConfig(BaseModel):
     # 瞬时故障（429/5xx/网络错误）的指数退避重试；非瞬时错误（401/400）不重试
     max_llm_retries: int = 2               # 单次 LLM 请求失败后的最大重试次数（0=关闭）
     retry_base_delay_seconds: float = 1.0  # 退避基数：第 n 次重试等待 base * 2^(n-1) 秒
+    max_cost_usd: float = 0.0              # 单任务成本熔断（美元，0=不限制）
+
+
+class GithubConfig(BaseModel):
+    """GitHub integration (dev mode: issue → PR workflow)."""
+
+    token: str = ""                        # 也可用 GITHUB_TOKEN 环境变量（优先）
+    api_base: str = "https://api.github.com"
+
+
+class DevConfig(BaseModel):
+    """Devin-style autonomous dev workflow (zouwucode dev)."""
+
+    branch_prefix: str = "dev"             # 只允许操作 dev/* 分支
+    worktree_dir: str = ".zouwucode_worktrees"
+    test_command: str = ""                 # 空=自动探测（pytest / npm test）
+    verify_retries: int = 2                # 测试失败后自动迭代修复次数（阶段3）
+    max_concurrent_tasks: int = 3          # 队列模式并行 worker 上限
+    task_timeout_seconds: float = 3600.0   # 单个 dev 任务总超时
+    watch_label: str = "zouwucode:do"      # watch 模式认领的 issue 标签
+    draft_pr: bool = True                  # PR 始终为 Draft，人工 review 后合并
 
 
 class CacheConfig(BaseModel):
@@ -121,6 +142,8 @@ class ZOUWUCODEConfig(BaseModel):
     session: SessionConfig = Field(default_factory=SessionConfig)
     subagent: SubAgentConfig = Field(default_factory=SubAgentConfig)
     extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig)
+    github: GithubConfig = Field(default_factory=GithubConfig)
+    dev: DevConfig = Field(default_factory=DevConfig)
     hello_my_zouwucode: HelloMyZouwucodeConfig = Field(default_factory=HelloMyZouwucodeConfig)
     reasoning_intensity: str = "medium"  # low | medium | max
     show_thinking: bool = True           # 流式显示思考过程（/thinking 三端切换，默认开）

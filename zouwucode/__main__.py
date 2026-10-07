@@ -11,6 +11,11 @@ def main():
     """Main entry point for the CLI application."""
     import argparse
 
+    # ── dev subcommand: `zouwucode dev ...` (Devin-style autonomous workflow) ─
+    if len(sys.argv) > 1 and sys.argv[1] == "dev":
+        from .dev.cli import dev_main
+        sys.exit(dev_main(sys.argv[2:]))
+
     parser = argparse.ArgumentParser(
         prog="zouwucode",
         description="ZOUWUCODE - DeepSeek-native AI coding agent for your terminal",
@@ -19,6 +24,9 @@ def main():
                "  zouwucode --tui              # Start Textual TUI (full-featured)\n"
                "  zouwucode --web              # Start browser UI\n"
                "  zouwucode --mode plan        # Start in plan mode\n"
+               "  zouwucode dev <issue-url>    # Devin-style: issue → draft PR\n"
+               "  zouwucode dev --workers 3    # Drain dev task queue\n"
+               "  zouwucode dev --watch o/r    # Auto-claim labeled issues\n"
                "  z                            # Quick launch (after install)\n"
                "  z --tui                      # Quick launch TUI\n"
                "  z --init                     # Init project memory\n"
