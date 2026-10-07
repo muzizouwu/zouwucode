@@ -455,6 +455,7 @@ hello_my_zouwucode/              # 多智能体编排模块（复刻自 oh-my-op
 - [打断功能使用说明](docs/打断功能使用说明.md) — 触发方式、安全点、恢复选项、接口说明
 - [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md) — 任务分解与并行委派、MCP/LSP 预留接口
 - [dev模式使用说明](docs/dev模式使用说明.md) — Devin 式自主 issue → Draft PR 工作流
+- [dev模式快速上手](docs/dev模式快速上手.md) — 5 分钟跑通第一个自主任务
 
 hello-my-zouwucode 多智能体编排模块相关文档：
 

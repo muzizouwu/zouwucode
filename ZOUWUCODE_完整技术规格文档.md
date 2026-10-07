@@ -92,7 +92,7 @@
 | 三档推理强度 | low / medium / max 映射 reason_effort | `deepseek.py` + `config.py` |
 | 流式思考显示 | 思考过程增量实时推送（opencode 风格），`/thinking` 三端开关 | `loop.py` + CLI/TUI/Web |
 | 任务打断 | Esc（TUI/Web）/ Ctrl+C（CLI）请求打断，在安全点（流 chunk / 轮边界 / 工具执行前）生效，抛出 `TaskInterrupted` | `engine/loop.py` |
-| 引擎安全限制 | 工具轮数上限、LLM/任务超时、连续工具错误熔断，超限抛出 `TurnLimitExceeded` | `engine/loop.py` + `config.py`（EngineConfig） |
+| 引擎安全限制 | 工具轮数上限、LLM/任务超时、连续工具错误熔断、单任务成本熔断（`max_cost_usd`），超限抛出 `TurnLimitExceeded` | `engine/loop.py` + `config.py`（EngineConfig） |
 | 多模型支持 | DeepSeek + OpenAI 兼容 | `engine/providers/` |
 
 ### 3.2 界面特性
@@ -129,6 +129,7 @@
 | 会话管理 | 自动保存、恢复、回滚 | `session/manager.py` |
 | 子 Agent 系统 | 主 Agent + 隔离子 Agent 并行执行（task 工具委派） | `agent/subagent.py`, `tools/agent_tools.py` |
 | 扩展层 | ExtensionHost 统一宿主，MCP / LSP 扩展默认不激活 | `extensions/` |
+| Devin 式 dev 模式 | `zouwucode dev`：issue→worktree→自主管线→验证→Draft PR；SQLite 队列 + 并行 worker + watch 标签轮询 | `dev/` |
 | Rules & Skills | `.zouwucode/rules.md` 项目规则 + `.zouwucode/skills/*.md` 技能包 | `skills/manager.py` |
 | 模块系统 | 可加载扩展模块，内置 hello-my-zouwucode 多智能体编排 | `modules/manager.py`, `hello_my_zouwucode/` |
 | MCP 协议 | 支持 Model Context Protocol 扩展 | `mcp/client.py` |
@@ -652,7 +653,7 @@
 
 **配置模型**：
 - `ProviderConfig`：LLM 提供商配置（api_key、base_url、model、api_type）
-- `EngineConfig`：引擎安全限制（max_tool_rounds=25、turn_timeout_seconds=300、task_timeout_seconds=1800、max_consecutive_tool_errors=3）
+- `EngineConfig`：引擎安全限制（max_tool_rounds=25、turn_timeout_seconds=300、task_timeout_seconds=1800、max_consecutive_tool_errors=3、max_llm_retries=2、max_cost_usd=0 成本熔断）
 - `CacheConfig`：缓存配置（enabled、max_prefix_tokens、append_only、stats_window）
 - `SandboxConfig`：沙箱配置（enabled、default_mode、allow_*、allowed_paths）
 - `SessionConfig`：会话配置（save_enabled、auto_save_interval、max_sessions、rollback_enabled）
@@ -660,7 +661,9 @@
 - `McpServerConfig`：单个 MCP 服务器连接（name、command、args）
 - `ExtensionsConfig`：扩展层配置（mcp_servers=[]、lsp_enabled=false，默认不激活）
 - `HelloMyZouwucodeConfig`：hello-my-zouwucode 模块配置（enabled、state_dir、default_category、max_review_rounds、interactive_planning）
-- `ZOUWUCODEConfig`：根配置（providers、default_provider、engine、cache、sandbox、session、subagent、extensions、hello_my_zouwucode、reasoning_intensity、show_thinking、data_dir、theme、language）
+- `GithubConfig`：GitHub 集成（token、api_base；GITHUB_TOKEN 环境变量优先）
+- `DevConfig`：dev 模式（branch_prefix="dev"、worktree_dir、test_command、verify_retries=2、max_concurrent_tasks=3、task_timeout_seconds=3600、watch_label="zouwucode:do"、draft_pr=true）
+- `ZOUWUCODEConfig`：根配置（providers、default_provider、engine、cache、sandbox、session、subagent、extensions、hello_my_zouwucode、github、dev、reasoning_intensity、show_thinking、data_dir、theme、language）
 
 **配置加载优先级**：
 1. 当前工作目录的 `config.yaml`
@@ -671,6 +674,8 @@
 ### 5.14 `__main__.py` — 入口点
 
 **职责**：CLI 入口，解析命令行参数，启动对应界面。
+
+**dev 子命令前置路由**：`main()` 开头检查 `sys.argv[1] == "dev"`，命中则把 `sys.argv[2:]` 交给 `dev.cli.dev_main()` 并 `sys.exit()`，不进入主 argparse——dev 模式因此拥有完全独立的参数空间（`--queue/--workers/--watch/--status` 等，见 5.19）。
 
 **支持的参数**（完整列表）：
 - `--config` / `-c`：配置文件路径
@@ -719,6 +724,75 @@
 ### 5.18 `modules/` — 模块系统
 
 **职责**：`ModuleManager` 注册并派发可加载扩展模块。核心（CLI/TUI/Web）不硬编码模块内部，而是通过 `dispatch_message` / `dispatch_command` / 事件回调委托给模块；模块返回可渲染结果 dict（title/content/details），返回 None 则回落到内置处理。内置模块为 `hello_my_zouwucode/`（多智能体编排：Prometheus 规划、Atlas 执行、Momus 审查、11 个内置 Agent 等），由 `config.hello_my_zouwucode.enabled` 控制。
+
+### 5.19 `dev/` — Devin 式自主开发工作流
+
+**职责**：把 Devin（Cognition AI 的自主 AI 工程师）的「issue → 自主编码 → PR」概念落地为本地命令 `zouwucode dev`。一次任务 = 一条端到端闭环：
+
+```
+issue URL / owner/repo#N / 自由文本任务
+    → 隔离 git worktree（dev/* 分支，绝不触碰主检出）
+    → 自主 agent 会话（EngineLoop，yolo 模式，成本/轮数/超时熔断全生效）
+    → 验证循环：跑项目测试；失败则把测试输出回灌同一会话让 agent 修复（有界重试）
+    → 成功：commit + push dev/* + Draft PR（永不自动合并，人工 review 边界）
+      失败：不建 PR；以 issue 评论回帖（本地任务则输出到控制台）
+```
+
+#### `dev/pipeline.py` — DevPipeline
+
+核心编排器，`run(task_ref)` 执行单任务全流程。
+
+**关键设计**：
+- 任务引用三态解析（`resolve_task`）：`https://github.com/o/r/issues/N` → API 拉取标题+正文；`o/r#N` → 同 API；自由文本 → 本地任务不关联 GitHub
+- **chdir 顺序安全**：先 `os.chdir(worktree)` 再 `_build_engine()`，使沙箱 workspace 根 = worktree 本身，agent 被路径白名单锁在该检出内
+- 每任务全新 EngineLoop（独立缓存、yolo 模式），子 Agent 系统对 dev worker 同样可用
+- 验证循环 `for iteration in range(verify_retries + 1)`：测试命令显式配置或自动探测（pytest / npm test）；失败输出以 `## Verification result (FAILED)` 块回灌
+- 成功后 `commit_all → push_branch → create_pr_from_issue`，PR body 追加 `Closes #N` 自动关联 issue
+- 失败路径 `_report_failure` 回帖 issue；`_harvest_learning` 把经验沉淀进 ProjectMemory
+
+#### `dev/workspace.py` — WorktreeManager（安全关键层）
+
+**职责**：git worktree 的创建/提交/推送/清理，独立于 LLM 决策的分支安全白名单。
+
+**安全规则（`validate_branch`）**：
+- 拒绝 `main`/`master`/`develop`/`release`/`stable` 等保护分支（即使带前缀）
+- 分支必须以 `<branch_prefix>/`（默认 `dev/`）开头
+- 字符白名单正则 `[\w./@-]+`，拒绝空格/分号等破坏 shell 引号假设的字符
+- `push_branch` 在 `--force` 前再次校验分支——非 dev/* 分支的强推在该层被拒绝
+
+**worktree 语义**：`create(task_id, branch)` 分支已存在则复用（幂等重跑/断点续作）；`_safe_task_dir` 清洗 task_id 作目录名；`commit_all` 通过 `git -c user.name/-c user.email` 注入 dev 机器人身份（不依赖用户级 git 配置——CI runner 无全局身份时 `git commit` 会报 "Author identity unknown"）。
+
+#### `dev/queue.py` — DevQueue（SQLite 持久队列）
+
+**职责**：异步托管场景的任务账本（Devin 式 backlog），每个工作区一个 SQLite 文件。
+
+**关键设计**：
+- 状态机：`pending → running → done | failed`
+- 原子认领：单条 `UPDATE ... WHERE id=(SELECT ... WHERE status='pending' ORDER BY created_at LIMIT 1) RETURNING ...`，并行 worker 进程永不抢到同一任务
+- 崩溃恢复：`requeue_stale()` 把超时未完成的 running 行重置为 pending
+- autocommit + 30s busy timeout，多进程共享安全
+
+#### `dev/github.py` — GitHubClient
+
+**职责**：GitHub REST API 轻封装（httpx），无第三方 SDK 依赖。
+
+- `from_config`：`GITHUB_TOKEN` 环境变量优先于 `config.github.token`
+- `get_issue` / `list_issues_by_label`（watch 轮询）/ `create_pr_from_issue`（Draft PR + `Closes #N`）/ `comment_issue`（失败回帖）/ `remove_label`
+- `parse_issue_url` / `parse_repo_slug` 纯函数解析任务引用
+
+#### `dev/cli.py` — 命令入口
+
+`zouwucode/__main__.py` 前置路由：`sys.argv[1] == "dev"` 时交给 `dev_main`，不进入主 argparse。
+
+| 命令 | 说明 |
+|------|------|
+| `zouwucode dev <issue-url\|task-text>` | 前台执行单任务 |
+| `zouwucode dev --queue <ref>` | 任务入队 |
+| `zouwucode dev --workers N` | N 个 worker 子进程排空队列 |
+| `zouwucode dev --watch [owner/repo]` | 轮询带 `dev.watch_label` 标签的 open issue，自动入队并执行（缺省从 origin 远程推断仓库） |
+| `zouwucode dev --status` | 队列统计 + 最近任务 |
+
+**并行模型**：每个 worker 是独立 `python -m zouwucode dev --worker` 子进程——进程隔离天然带来每任务独立 CWD（worktree）、崩溃隔离、干净的 Ctrl+C 语义。认领后 `asyncio.wait_for(pipeline.run(ref), timeout)` 强制任务级超时；worker 在任务崩溃时仍存活并继续下一个。
 
 ---
 
@@ -792,6 +866,14 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   │   ├── __init__.py
 │   │   └── client.py                   # MCPClient
 │   │
+│   ├── dev/                            # Devin 式自主开发工作流（zouwucode dev）
+│   │   ├── __init__.py
+│   │   ├── cli.py                      # 命令入口：单任务/队列/worker/watch/status
+│   │   ├── pipeline.py                 # DevPipeline：issue→worktree→agent→验证→Draft PR
+│   │   ├── workspace.py                # WorktreeManager + 分支安全白名单
+│   │   ├── queue.py                    # DevQueue：SQLite 持久任务队列（原子认领）
+│   │   └── github.py                   # GitHubClient：REST 轻封装 + URL 解析
+│   │
 │   ├── lsp/                            # LSP 诊断集成
 │   │   ├── __init__.py
 │   │   └── client.py                   # LSPClient
@@ -818,16 +900,18 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（240 个测试用例）
+├── tests/                              # 测试套件（278 个测试用例）
 │   ├── __init__.py
 │   ├── test_compressor.py
 │   ├── test_config.py
 │   ├── test_context.py
 │   ├── test_context_window.py
+│   ├── test_dev.py                    # dev 模式（解析/分支安全/真实 worktree/队列/管线端到端/成本熔断）
 │   ├── test_engine.py
 │   ├── test_hello_my_zouwucode.py
 │   ├── test_interrupt.py               # 任务打断（CLI/TUI/Web、级联、前缀清理）
 │   ├── test_project_memory.py
+│   ├── test_resilience.py             # 韧性（LLM 重试退避、日志落盘、密钥校验）
 │   ├── test_sandbox.py
 │   ├── test_session.py
 │   ├── test_subagent.py                # 子 Agent 系统（隔离引擎、白名单、并行）
@@ -889,6 +973,8 @@ engine:
   turn_timeout_seconds: 300                # 单次 LLM 流式请求超时（秒）
   task_timeout_seconds: 1800               # 单次任务总耗时上限（秒）
   max_consecutive_tool_errors: 3           # 工具连续失败次数达到该值即终止任务
+  max_llm_retries: 2                       # LLM 请求失败重试（429/5xx/传输错误指数退避）
+  max_cost_usd: 0.0                        # 单任务成本熔断（美元，0=不限制）
 
 # 缓存配置
 cache:
@@ -936,6 +1022,22 @@ hello_my_zouwucode:
   max_review_rounds: 2                     # Momus 审查循环上限（0 = 不限）
   interactive_planning: true               # 允许 Prometheus 访谈式规划
 
+# GitHub 集成（dev 模式 issue → PR 工作流）
+github:
+  token: ""                                # 也可用 GITHUB_TOKEN 环境变量（优先）
+  api_base: "https://api.github.com"
+
+# Devin 式自主开发工作流（zouwucode dev）
+dev:
+  branch_prefix: dev                       # 只允许操作 dev/* 分支（保护分支拒绝）
+  worktree_dir: ".zouwucode_worktrees"     # worktree 检出目录（已 gitignore）
+  test_command: ""                         # 空 = 自动探测（pytest / npm test）
+  verify_retries: 2                        # 测试失败后回灌迭代修复次数
+  max_concurrent_tasks: 3                  # 队列模式并行 worker 上限
+  task_timeout_seconds: 3600               # 单个 dev 任务总超时
+  watch_label: "zouwucode:do"              # watch 模式认领的 issue 标签
+  draft_pr: true                           # PR 始终为 Draft，人工 review 后合并
+
 # 推理强度
 reasoning_intensity: medium                # low | medium | max
 
@@ -968,6 +1070,8 @@ show_thinking: true                        # true | false，默认 true 实时�
 | 第七阶段 | 流式思考显示 | 三端流式思考（opencode 风格）、`/thinking` 统一开关、SSE 流式接口 |
 | 第八阶段 | 子 Agent 与扩展层 | SubAgent/SubAgentManager（独立引擎+白名单+级联打断）、task 委派工具、extensions/（ExtensionHost/McpExtension/LspExtension）、runtime.py 工厂 |
 | 第九阶段 | 打断与安全限制 | Esc/Ctrl+C 任务打断（TaskInterrupted）、EngineConfig 安全限制（TurnLimitExceeded）、`/agents` 状态命令、Web `/api/interrupt` |
+| 第十阶段 | 开源发布与韧性 | LLM 指数退避重试、日志轮转落盘、GitHub Actions CI（Ubuntu/Windows 矩阵）、Windows cp437 编码修复、密钥防泄露验证 |
+| 第十一阶段 | Devin 式 dev 模式 | `zouwucode dev` 子命令：issue→worktree→自主管线→验证→Draft PR；SQLite 队列+并行 worker+watch；成本熔断+经验沉淀 |
 
 ### 8.2 关键设计决策
 
@@ -1011,6 +1115,16 @@ show_thinking: true                        # true | false，默认 true 实时�
 - **方案**：`run()` 用迭代循环替代递归，配 `max_tool_rounds`（25）、`turn_timeout_seconds`（300）、`task_timeout_seconds`（1800）、`max_consecutive_tool_errors`（3）四项 EngineConfig 限制
 - **影响**：超限抛 `TurnLimitExceeded` 终止任务；用户打断（`TaskInterrupted`）与安全熔断可区分处理
 
+#### 决策 9：dev 模式 worktree 隔离 + Draft PR 人工边界
+- **背景**：Devin 式自主工作流若直接在用户主检出上改代码，会污染工作区、并行任务互相冲突；全自动合并 PR 风险不可控
+- **方案**：每个任务在独立 `git worktree`（`dev/*` 分支）中执行，agent 沙箱根锁定 worktree；分支白名单在 WorktreeManager 层强制（拒绝保护分支、拒绝非法字符、force-push 前二次校验）；产出永远是 Draft PR，合并决定权留给人工 review
+- **影响**：主检出零污染；并行任务天然隔离；自主性与安全性兼得
+
+#### 决策 10：dev worker 进程隔离模型
+- **背景**：dev 任务需要并行执行且各自持有独立 CWD（worktree），而 asyncio 任务共享进程 CWD，线程方案有状态串扰风险
+- **方案**：每个 worker 为独立 `python -m zouwucode dev --worker` 子进程，SQLite 队列（`UPDATE ... RETURNING` 原子认领）作为进程间协调点；崩溃恢复靠 `requeue_stale()` 超时重入队
+- **影响**：进程隔离天然带来 CWD 独立、崩溃隔离、干净 Ctrl+C 语义；队列持久化，重启不丢任务
+
 ### 8.3 重大 Bug 修复记录
 
 | Bug | 原因 | 修复方案 |
@@ -1021,6 +1135,8 @@ show_thinking: true                        # true | false，默认 true 实时�
 | `AttributeError: type object 'Input' has no attribute 'Key'` | Textual Input 类没有 Key 属性 | 改用 `events.Key` |
 | 回复内容翻倍 | Provider 末帧重复携带完整文本 + 引擎增量聚合 | 末帧只携带 tool_calls/usage，正文/思考仅增量推送 |
 | 所有工具调用失败 `argument after ** must be a mapping, not str` | coordinator 直接 `**` 解包 JSON 字符串 | 先 `json.loads` 解析再解包，非 dict 返回错误 |
+| CI Windows 全部失败 `UnicodeEncodeError` | Windows runner 默认 cp437 代码页打印中文 | smoke_test.py reconfigure UTF-8 + CI 环境变量 PYTHONUTF8=1/PYTHONIOENCODING=utf-8 |
+| CI dev 测试全挂 `Author identity unknown` | CI runner 无全局 git 身份，`git commit` 失败 | `commit_all` 用 `git -c user.name/-c user.email` 注入 dev 机器人身份 |
 
 ---
 
@@ -1112,6 +1228,29 @@ if self._frozen_system_prompt and not has_system:
 - `coordinator.py`：先 `json.loads` 解析字符串参数，非 dict 时返回友好错误 `ToolResult(is_error=True)`
 - 新增 `TestCoordinatorToolDispatch` 覆盖字符串参数/非法 JSON/空参数三种场景
 
+### Bug 6：CI Windows 编码失败 — cp437 代码页
+
+**错误信息**：`UnicodeEncodeError: 'charmap' codec can't encode characters`（仅 Windows job 失败，Ubuntu 全绿）
+
+**根因分析**：
+- Windows GitHub Actions runner 默认代码页 cp437，smoke test 打印中文时 stdout 编码失败
+
+**修复方案**（双保险）：
+- `scripts/smoke_test.py`：`sys.stdout.reconfigure(encoding="utf-8", errors="replace")`
+- `.github/workflows/ci.yml`：job 级 `env: PYTHONUTF8=1 / PYTHONIOENCODING=utf-8`
+- 本地用 `$env:PYTHONIOENCODING='cp437'` 对照复现验证
+
+### Bug 7：CI dev 测试全挂 — git 身份缺失
+
+**错误信息**：`git commit failed: Author identity unknown`（4 个矩阵 job 全挂在 "Run tests"，本地 278 测试却全过）
+
+**根因分析**：
+- 本地机器有全局 git `user.name/email`，CI runner 没有；`test_dev.py` 真实 worktree 测试走到 `git commit` 即失败
+
+**修复方案**：
+- `dev/workspace.py` `commit_all`：`git -c user.name="ZOUWUCODE Dev" -c user.email="dev@zouwucode.local" commit`，自主提交归属 dev 机器人且零依赖用户级配置
+- 本地以 `GIT_CONFIG_GLOBAL`（空文件）+ `GIT_CONFIG_NOSYSTEM=1` 模拟 CI 环境复现并验证
+
 ---
 
 ## 10. 技术栈与依赖
@@ -1172,10 +1311,10 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **240 个测试用例**
+- 共计 **278 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
-- 全部通过（`pytest tests/` 绿色）
+- 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证
 
 ### 11.2 测试模块
 
@@ -1185,10 +1324,12 @@ beautifulsoup4>=4.12.0
 | test_config.py | 配置加载/保存/验证 | 5 |
 | test_context.py | 上下文管理 | 10 |
 | test_context_window.py | 滑动窗口 | 11 |
+| test_dev.py | dev 模式（URL 解析、分支安全白名单、真实 git worktree、SQLite 队列原子认领、pipeline 端到端、成本熔断） | 27 |
 | test_engine.py | 引擎循环、流式思考聚合/回调、Provider 无重复流式、coordinator 工具分发 | 30 |
 | test_hello_my_zouwucode.py | hello-my-zouwucode 模块 | 53 |
 | test_interrupt.py | 任务打断（CLI/TUI/Web、级联打断、打断后前缀清理） | 22 |
 | test_project_memory.py | 项目记忆 | 11 |
+| test_resilience.py | 韧性（LLM 重试退避分类、日志落盘、API Key 校验） | 11 |
 | test_sandbox.py | 权限沙箱 | 6 |
 | test_session.py | 会话管理 | 5 |
 | test_subagent.py | 子 Agent 系统（隔离引擎、工具白名单、并行、级联打断） | 22 |
@@ -1249,6 +1390,12 @@ pytest tests/ --cov=zouwucode --cov-report=term
    - 每个子 Agent 私有 EngineLoop（隔离缓存/统计/打断状态，共享 provider）
    - 工具白名单双重生效（Schema 过滤 + 执行器拦截），主引擎打断级联传播
 
+8. **Devin 式 dev 工作流**
+   - git worktree 隔离 + `dev/*` 分支白名单（保护分支拒绝、force-push 前二次校验）
+   - 自主 agent 会话跑在 worktree 内（沙箱根 = worktree），验证失败回灌迭代（有界）
+   - 产出永远是 Draft PR（人工 review 边界）；失败回帖 issue，不产生 PR
+   - SQLite 队列原子认领（`UPDATE ... RETURNING`）+ worker 进程隔离 + 超时重入队恢复
+
 ### 12.2 模块移植优先级
 
 | 优先级 | 模块 | 原因 |
@@ -1262,6 +1409,7 @@ pytest tests/ --cov=zouwucode --cov-report=term
 | P2 | 多界面（CLI/TUI/Web UI） | 用户体验增强 |
 | P2 | 对话压缩 | 长会话优化 |
 | P2 | 滑动窗口 | 上下文管理 |
+| P2 | dev 模式（worktree 管线 + 队列） | 差异化能力，依赖引擎/沙箱/记忆全部就绪 |
 | P3 | MCP 协议 | 扩展性 |
 | P3 | LSP 集成 | 诊断增强 |
 | P3 | 多 Agent 编排 | 高级特性 |
@@ -1384,6 +1532,19 @@ POST /api/hello-my-zouwucode → 模块命令（规划/执行/状态）
 | `/hello-categories` | hello-my-zouwucode：列出任务分类 |
 | `/hello-ultrawork <task>` | hello-my-zouwucode：全自动流水线（或 `ultrawork`/`ulw` 前缀） |
 
+## 附录 B2：dev 模式命令参考
+
+| 命令 | 说明 |
+|------|------|
+| `zouwucode dev <issue-url>` | 前台执行：拉取 issue → worktree → 自主编码 → 验证 → Draft PR |
+| `zouwucode dev <owner/repo#N>` | 同上（slug 形式引用 issue） |
+| `zouwucode dev "<自由文本任务>"` | 本地任务：仅建 dev/* 分支与 worktree，不关联 GitHub |
+| `zouwucode dev --queue <ref>` | 任务入队（SQLite，`zouwucode_data/dev_queue.sqlite`） |
+| `zouwucode dev --workers N` | N 个 worker 子进程排空队列 |
+| `zouwucode dev --watch [owner/repo]` | 轮询带 `zouwucode:do` 标签的 open issue，自动入队执行 |
+| `zouwucode dev --interval <s>` | watch 轮询间隔（默认 60s） |
+| `zouwucode dev --status` | 队列统计 + 最近任务 |
+
 ## 附录 C：快捷键
 
 | 快捷键 | 功能 |
@@ -1397,4 +1558,4 @@ POST /api/hello-my-zouwucode → 模块命令（规划/执行/状态）
 
 ---
 
-*文档版本：v1.2.0 · 最后更新：2026-08-30 · 基于 ZOUWUCODE 项目完整源码分析*
+*文档版本：v1.3.0 · 最后更新：2026-10-08 · 基于 ZOUWUCODE 项目完整源码分析（含 Devin 式 dev 模式）*
