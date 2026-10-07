@@ -71,6 +71,8 @@ def _print_result(r: DevResult) -> None:
         if r.files_changed:
             print(f"  📁 变更 {len(r.files_changed)} 个文件: "
                   f"{', '.join(r.files_changed[:8])}")
+        if r.ci_status and r.ci_status != "skipped":
+            print(f"  🏳 CI 状态: {r.ci_status}")
     else:
         print(f"  ❌ dev 任务失败: {r.error}")
     print()

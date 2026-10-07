@@ -662,7 +662,7 @@
 - `ExtensionsConfig`：扩展层配置（mcp_servers=[]、lsp_enabled=false，默认不激活）
 - `HelloMyZouwucodeConfig`：hello-my-zouwucode 模块配置（enabled、state_dir、default_category、max_review_rounds、interactive_planning）
 - `GithubConfig`：GitHub 集成（token、api_base；GITHUB_TOKEN 环境变量优先）
-- `DevConfig`：dev 模式（branch_prefix="dev"、worktree_dir、test_command、verify_retries=2、max_concurrent_tasks=3、task_timeout_seconds=3600、watch_label="zouwucode:do"、draft_pr=true）
+- `DevConfig`：dev 模式（branch_prefix="dev"、worktree_dir、test_command、verify_retries=2、max_concurrent_tasks=3、task_timeout_seconds=3600、watch_label="zouwucode:do"、draft_pr=true；质量门禁：lint/typecheck/security_command、coverage_min、review_enabled+review_max_rounds、ci_check_enabled+ci_wait_seconds+ci_poll_interval、adaptive_budget+task_cost_budget_usd+budget_escalations）
 - `ZOUWUCODEConfig`：根配置（providers、default_provider、engine、cache、sandbox、session、subagent、extensions、hello_my_zouwucode、github、dev、reasoning_intensity、show_thinking、data_dir、theme、language）
 
 **配置加载优先级**：
@@ -733,10 +733,17 @@
 issue URL / owner/repo#N / 自由文本任务
     → 隔离 git worktree（dev/* 分支，绝不触碰主检出）
     → 自主 agent 会话（EngineLoop，yolo 模式，成本/轮数/超时熔断全生效）
-    → 验证循环：跑项目测试；失败则把测试输出回灌同一会话让 agent 修复（有界重试）
+    → 多层验证：lint → typecheck → test(+覆盖率) → security，逐层失败回灌（有界重试）
+    → 独立 AI 审查：全新只读会话审 diff，request_changes 回灌修复（有界轮数）
     → 成功：commit + push dev/* + Draft PR（永不自动合并，人工 review 边界）
+      CI 联动：轮询真实 GitHub Checks，结果回写 PR（不阻塞，仅提示人工）
       失败：不建 PR；以 issue 评论回帖（本地任务则输出到控制台）
 ```
+
+**三大痛点的对应解法**（对标成熟 dev agent 的核心）：
+- **边界遗漏** → 实现者提示词内置边界自检清单（认知层）+ 多层静态门禁（执行层）+ 独立审查清单
+- **约束过多降性能** → 约束放在认知层（自检、分层反馈）而非堆砌硬禁令；自适应成本预算避免一刀切掐死复杂任务
+- **自主验收 ≠ 生产可用** → 独立 reviewer 打破自写自测偏差 + CI 联动把验证延伸到真实多平台矩阵
 
 #### `dev/pipeline.py` — DevPipeline
 
@@ -746,9 +753,30 @@ issue URL / owner/repo#N / 自由文本任务
 - 任务引用三态解析（`resolve_task`）：`https://github.com/o/r/issues/N` → API 拉取标题+正文；`o/r#N` → 同 API；自由文本 → 本地任务不关联 GitHub
 - **chdir 顺序安全**：先 `os.chdir(worktree)` 再 `_build_engine()`，使沙箱 workspace 根 = worktree 本身，agent 被路径白名单锁在该检出内
 - 每任务全新 EngineLoop（独立缓存、yolo 模式），子 Agent 系统对 dev worker 同样可用
-- 验证循环 `for iteration in range(verify_retries + 1)`：测试命令显式配置或自动探测（pytest / npm test）；失败输出以 `## Verification result (FAILED)` 块回灌
-- 成功后 `commit_all → push_branch → create_pr_from_issue`，PR body 追加 `Closes #N` 自动关联 issue
-- 失败路径 `_report_failure` 回帖 issue；`_harvest_learning` 把经验沉淀进 ProjectMemory
+- **多层验证循环** `for iteration in range(verify_retries + 1)`：调 `verifiers.run_verification`，失败按层标注（`[lint] FAIL` 等）回灌 `_implement_with_budget`
+- **独立审查循环** `for review_round in range(review_max_rounds + 1)`：本地先 commit（拿到 base...HEAD diff）→ `_build_reviewer_engine`（plan 模式 + 只读白名单）→ `reviewer.review_diff`；request_changes 回灌实现者后重新 commit 复审
+- **自适应成本预算** `_implement_with_budget`：捕获含 "cost" 的 `TurnLimitExceeded`，按 `budget_escalations` 上限翻倍预算并续跑同一会话（非成本类限制照常抛出）
+- 成功后 `push_branch → create_pr_from_issue`（body 追加 `Closes #N` + 审查结论 + CI 状态），再 `_await_ci` 轮询真实 Checks（无 CI 早退，不空耗预算）
+- 失败路径 `_report_failure` 回帖 issue；`_report_ci` 在本地过但 CI 挂时回帖；`_harvest_learning` 把经验沉淀进 ProjectMemory
+
+#### `dev/verifiers.py` — 多层验证管线
+
+**职责**：把单层 `pytest` 升级为独立分层门禁，覆盖边界问题与静态缺陷。
+
+- 四层：`lint`（ruff/eslint）→ `typecheck`（mypy/tsc）→ `test`（pytest+覆盖率/npm test）→ `security`（bandit）
+- **自动探测 + 优雅跳过**：每层检测配置文件标记与工具可用性；未配置/未安装 → 该层 SKIPPED，既不误伤也不假装通过（`VerificationReport.passed` 只统计非 skipped 层）
+- bandit 需 `[tool.bandit]` 显式标记才启用（避免对未选型仓库产生噪音）
+- 覆盖率：`coverage_min > 0` 时给 pytest 追加 `--cov --cov-fail-under=N`
+- 输出按层标注，回灌时实现者能看到具体是哪一层破坏（信息性反馈优于笼统"测试失败"）
+
+#### `dev/reviewer.py` — 独立 AI 审查
+
+**职责**：用全新只读会话打破"自写自测自验"的系统性偏差。
+
+- `REVIEWER_TOOL_WHITELIST = [read, ls, glob, git]`（**排除 bash**——shell 会破坏只读保证）；引擎跑 plan 模式，审查基于传入的完整 diff
+- 审查清单（优先级）：正确性、边界处理、错误路径、资源管理、并发、跨平台（Windows+POSIX）、向后兼容、安全
+- `parse_review`：解析末尾 fenced JSON 结论；仅 critical/major 计为 blocking，minor 不阻塞；**无法解析时保守放行**（解析器故障不能卡死管线）但保留原文附进 PR 供人工参考
+- `format_review_for_pr` / `format_review_feedback`：分别渲染 PR 正文块与回灌实现者的定向反馈（只列 blocking 项）
 
 #### `dev/workspace.py` — WorktreeManager（安全关键层）
 
@@ -869,10 +897,12 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── dev/                            # Devin 式自主开发工作流（zouwucode dev）
 │   │   ├── __init__.py
 │   │   ├── cli.py                      # 命令入口：单任务/队列/worker/watch/status
-│   │   ├── pipeline.py                 # DevPipeline：issue→worktree→agent→验证→Draft PR
+│   │   ├── pipeline.py                 # DevPipeline：issue→worktree→agent→多层验证→审查→Draft PR→CI
 │   │   ├── workspace.py                # WorktreeManager + 分支安全白名单
+│   │   ├── verifiers.py                # 多层验证管线（lint/typecheck/test/security 自动探测）
+│   │   ├── reviewer.py                 # 独立只读 AI 审查（打破自写自测偏差）
 │   │   ├── queue.py                    # DevQueue：SQLite 持久任务队列（原子认领）
-│   │   └── github.py                   # GitHubClient：REST 轻封装 + URL 解析
+│   │   └── github.py                   # GitHubClient：REST 轻封装 + URL 解析 + Checks 轮询
 │   │
 │   ├── lsp/                            # LSP 诊断集成
 │   │   ├── __init__.py
@@ -900,7 +930,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（278 个测试用例）
+├── tests/                              # 测试套件（295 个测试用例）
 │   ├── __init__.py
 │   ├── test_compressor.py
 │   ├── test_config.py
@@ -1032,11 +1062,25 @@ dev:
   branch_prefix: dev                       # 只允许操作 dev/* 分支（保护分支拒绝）
   worktree_dir: ".zouwucode_worktrees"     # worktree 检出目录（已 gitignore）
   test_command: ""                         # 空 = 自动探测（pytest / npm test）
-  verify_retries: 2                        # 测试失败后回灌迭代修复次数
+  verify_retries: 2                        # 验证失败后回灌迭代修复次数
   max_concurrent_tasks: 3                  # 队列模式并行 worker 上限
   task_timeout_seconds: 3600               # 单个 dev 任务总超时
   watch_label: "zouwucode:do"              # watch 模式认领的 issue 标签
   draft_pr: true                           # PR 始终为 Draft，人工 review 后合并
+  # 多层验证管线（未探测到的层自动跳过）
+  lint_command: ""                         # 空 = 自动探测 ruff/eslint
+  typecheck_command: ""                    # 空 = 自动探测 mypy/tsc
+  security_command: ""                     # 空 = 自动探测 bandit（需 [tool.bandit]）
+  coverage_min: 0.0                        # >0 时 pytest 加 --cov-fail-under
+  # 独立审查 + CI 联动 + 自适应预算
+  review_enabled: true
+  review_max_rounds: 1
+  ci_check_enabled: true
+  ci_wait_seconds: 300
+  ci_poll_interval: 15
+  adaptive_budget: true
+  task_cost_budget_usd: 0.0                # 0 = 沿用 engine.max_cost_usd
+  budget_escalations: 1
 
 # 推理强度
 reasoning_intensity: medium                # low | medium | max
@@ -1072,6 +1116,7 @@ show_thinking: true                        # true | false，默认 true 实时�
 | 第九阶段 | 打断与安全限制 | Esc/Ctrl+C 任务打断（TaskInterrupted）、EngineConfig 安全限制（TurnLimitExceeded）、`/agents` 状态命令、Web `/api/interrupt` |
 | 第十阶段 | 开源发布与韧性 | LLM 指数退避重试、日志轮转落盘、GitHub Actions CI（Ubuntu/Windows 矩阵）、Windows cp437 编码修复、密钥防泄露验证 |
 | 第十一阶段 | Devin 式 dev 模式 | `zouwucode dev` 子命令：issue→worktree→自主管线→验证→Draft PR；SQLite 队列+并行 worker+watch；成本熔断+经验沉淀 |
+| 第十二阶段 | dev 质量门禁 | 多层验证（lint/typecheck/test/security）+ 独立只读 AI 审查 + CI 联动 + 自适应成本预算 + 边界自检清单 |
 
 ### 8.2 关键设计决策
 
@@ -1124,6 +1169,16 @@ show_thinking: true                        # true | false，默认 true 实时�
 - **背景**：dev 任务需要并行执行且各自持有独立 CWD（worktree），而 asyncio 任务共享进程 CWD，线程方案有状态串扰风险
 - **方案**：每个 worker 为独立 `python -m zouwucode dev --worker` 子进程，SQLite 队列（`UPDATE ... RETURNING` 原子认领）作为进程间协调点；崩溃恢复靠 `requeue_stale()` 超时重入队
 - **影响**：进程隔离天然带来 CWD 独立、崩溃隔离、干净 Ctrl+C 语义；队列持久化，重启不丢任务
+
+#### 决策 11：多层验证 + 独立审查取代自写自测
+- **背景**：单层 pytest 只验证"我写的测试还过"，漏掉静态缺陷与边界问题；实现者自验存在系统性偏差，验收通过 ≠ 生产可用
+- **方案**：lint→typecheck→test(+覆盖率)→security 四层独立门禁（未探测到的层自动跳过，不误伤不假过）；提交前由全新只读会话（plan 模式 + 只读白名单 + 零共享上下文）审查 diff，仅 critical/major 阻塞；push 后轮询真实 GitHub Checks 回写 PR
+- **影响**：本地验证延伸到真实 CI 矩阵；审查结论透明写入 PR；解析失败保守放行但保留原文供人工参考
+
+#### 决策 12：认知层约束优于执行层禁令（自适应预算）
+- **背景**：给 agent 堆砌"禁止 X"式硬约束会显著降低模型在复杂任务上的表现；一刀切成本限制掐死复杂任务、又对简单任务过松
+- **方案**：边界意识写进实现者自检清单（认知层）；成本触顶不直接失败而是翻倍预算续跑同一会话（`budget_escalations` 有上限）；反馈按层标注（信息性），而非笼统报错
+- **影响**：约束保持"信息性"而非"限制性"，模型性能不受损的同时边界覆盖率提升；复杂任务获得弹性预算
 
 ### 8.3 重大 Bug 修复记录
 
@@ -1311,7 +1366,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **278 个测试用例**
+- 共计 **295 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证
@@ -1324,7 +1379,7 @@ beautifulsoup4>=4.12.0
 | test_config.py | 配置加载/保存/验证 | 5 |
 | test_context.py | 上下文管理 | 10 |
 | test_context_window.py | 滑动窗口 | 11 |
-| test_dev.py | dev 模式（URL 解析、分支安全白名单、真实 git worktree、SQLite 队列原子认领、pipeline 端到端、成本熔断） | 27 |
+| test_dev.py | dev 模式（URL 解析、分支安全白名单、真实 git worktree、SQLite 队列原子认领、pipeline 端到端、成本熔断、多层验证探测、reviewer 解析、CI 联动、自适应预算） | 44 |
 | test_engine.py | 引擎循环、流式思考聚合/回调、Provider 无重复流式、coordinator 工具分发 | 30 |
 | test_hello_my_zouwucode.py | hello-my-zouwucode 模块 | 53 |
 | test_interrupt.py | 任务打断（CLI/TUI/Web、级联打断、打断后前缀清理） | 22 |

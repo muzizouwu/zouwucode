@@ -166,3 +166,35 @@ class GitHubClient:
         return await self.create_pull(owner=owner, repo=repo, head=head,
                                       base=base, title=title, body=full_body,
                                       draft=draft)
+
+    # ── CI checks (the pipeline extends verification into real CI) ────────
+
+    async def list_check_runs(self, owner: str, repo: str,
+                              ref: str) -> list[dict]:
+        """Check runs + combined status for a branch/ref (Actions and others)."""
+        out: list[dict] = []
+        try:
+            data = await self._request(
+                "GET", f"/repos/{owner}/{repo}/commits/{ref}/check-runs",
+                params={"per_page": 50},
+            )
+            for cr in data.get("check_runs", []):
+                out.append({
+                    "name": cr.get("name", ""),
+                    "status": cr.get("status", ""),      # queued|in_progress|completed
+                    "conclusion": cr.get("conclusion"),  # success|failure|cancelled|None
+                })
+        except GitHubError:
+            pass  # private repos / token scope — status fallback below still works
+        try:
+            st = await self._request(
+                "GET", f"/repos/{owner}/{repo}/commits/{ref}/status")
+            for ctx in st.get("statuses", []):
+                out.append({
+                    "name": ctx.get("context", ""),
+                    "status": "completed",
+                    "conclusion": ctx.get("state"),      # success|failure|pending
+                })
+        except GitHubError:
+            pass
+        return out

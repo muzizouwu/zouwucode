@@ -234,6 +234,7 @@ class _StubGH:
                            "html_url": "https://github.com/foo/bar/issues/1"}}
         self.prs_created = []
         self.comments = []
+        self.check_runs = []          # list of check-run dicts returned by API
 
     async def get_issue(self, owner, repo, number):
         return self.issues[number]
@@ -250,12 +251,18 @@ class _StubGH:
     async def remove_label(self, *a, **k):
         pass
 
+    async def list_check_runs(self, owner, repo, ref):
+        return list(self.check_runs)
+
 
 def _pipeline_config(tmp_path) -> ZOUWUCODEConfig:
     cfg = ZOUWUCODEConfig()
     cfg.data_dir = str(tmp_path / "data")
     cfg.dev.test_command = ""       # auto-detect → none in tmp repo → skip
     cfg.engine.max_llm_retries = 0
+    # Reviewer/CI need network + tokens; covered by dedicated unit tests.
+    cfg.dev.review_enabled = False
+    cfg.dev.ci_check_enabled = False
     return cfg
 
 
@@ -380,3 +387,207 @@ class ToolResult_stub:
     def to_dict(self):
         return {"role": "tool", "tool_call_id": self.tool_call_id,
                 "content": self.content}
+
+
+# ── Multi-layer verification (pure detectors + report) ───────────────────────
+
+from zouwucode.dev import verifiers
+from zouwucode.dev import reviewer
+
+
+class TestVerifierDetectors:
+    def test_lint_detects_ruff_on_pyproject(self, tmp_path, monkeypatch):
+        (tmp_path / "pyproject.toml").write_text("[tool.ruff]\n", encoding="utf-8")
+        monkeypatch.setattr(verifiers, "_tool_available", lambda n: n == "ruff")
+        assert verifiers.detect_lint_command(tmp_path) == "ruff check ."
+
+    def test_lint_explicit_config_wins(self, tmp_path):
+        assert verifiers.detect_lint_command(tmp_path, "eslint .") == "eslint ."
+
+    def test_lint_absent_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(verifiers, "_tool_available", lambda n: False)
+        assert verifiers.detect_lint_command(tmp_path) is None
+
+    def test_typecheck_mypy_marker(self, tmp_path, monkeypatch):
+        (tmp_path / "pyproject.toml").write_text("[tool.mypy]\n", encoding="utf-8")
+        monkeypatch.setattr(verifiers, "_tool_available", lambda n: n == "mypy")
+        assert verifiers.detect_typecheck_command(tmp_path) == "mypy ."
+
+    def test_security_requires_bandit_marker(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(verifiers, "_tool_available", lambda n: True)
+        # No [tool.bandit] → skip (bandit is noisy unless opted in).
+        (tmp_path / "pyproject.toml").write_text("[tool.ruff]\n", encoding="utf-8")
+        assert verifiers.detect_security_command(tmp_path) is None
+        (tmp_path / "pyproject.toml").write_text("[tool.bandit]\n", encoding="utf-8")
+        assert verifiers.detect_security_command(tmp_path).startswith("bandit")
+
+    def test_coverage_floor_appended_to_pytest(self, tmp_path):
+        (tmp_path / "ok.txt").write_text("x", encoding="utf-8")
+        report = asyncio.run(verifiers.run_verification(
+            tmp_path, lint_command="python -c pass",
+            typecheck_command="python -c pass",
+            test_command="python -m pytest -q", coverage_min=80))
+        test_layer = next(r for r in report.results if r.name == "test")
+        assert "--cov-fail-under=80" in test_layer.command
+
+
+class TestVerificationReport:
+    def test_skipped_layers_do_not_block(self):
+        rep = verifiers.VerificationReport(results=[
+            verifiers.LayerResult(name="lint", skipped=True),
+            verifiers.LayerResult(name="test", passed=True),
+        ])
+        assert rep.passed is True
+
+    def test_failed_layer_blocks(self):
+        rep = verifiers.VerificationReport(results=[
+            verifiers.LayerResult(name="test", passed=False, output="boom"),
+        ])
+        assert rep.passed is False
+        assert "test" in rep.render_feedback() and "boom" in rep.render_feedback()
+
+
+# ── Independent reviewer (parse + formatting) ────────────────────────────────
+
+class TestReviewerParsing:
+    def test_approve_verdict(self):
+        text = ('Nice work.\n```json\n{"verdict":"approve","issues":[],'
+                '"summary":"lgtm"}\n```')
+        out = reviewer.parse_review(text)
+        assert out.approved is True
+        assert out.parse_failed is False
+        assert out.summary == "lgtm"
+
+    def test_request_changes_with_major(self):
+        text = ('```json\n{"verdict":"request_changes","issues":['
+                '{"severity":"major","file":"a.py","point":"no error path",'
+                '"fix_hint":"wrap in try"}],"summary":"x"}\n```')
+        out = reviewer.parse_review(text)
+        assert out.approved is False
+        assert len(out.issues) == 1
+
+    def test_minor_only_does_not_block(self):
+        text = ('```json\n{"verdict":"request_changes","issues":['
+                '{"severity":"minor","file":"a.py","point":"style"}],'
+                '"summary":"x"}\n```')
+        out = reviewer.parse_review(text)
+        assert out.approved is True   # no critical/major → not blocking
+
+    def test_unparseable_approves_conservatively(self):
+        out = reviewer.parse_review("I think it is fine, no json here")
+        assert out.approved is True
+        assert out.parse_failed is True
+
+    def test_feedback_lists_only_blocking(self):
+        out = reviewer.parse_review(
+            '```json\n{"verdict":"request_changes","issues":['
+            '{"severity":"critical","file":"a.py","point":"bug",'
+            '"fix_hint":"do x"},'
+            '{"severity":"minor","file":"b.py","point":"nit"}],'
+            '"summary":"s"}\n```')
+        fb = reviewer.format_review_feedback(out)
+        assert "bug" in fb and "do x" in fb
+        assert "nit" not in fb        # minor issues are not fed back as blocking
+
+
+# ── Pipeline integration: reviewer + CI linkage + adaptive budget ────────────
+
+def _gated_config(tmp_path) -> ZOUWUCODEConfig:
+    cfg = _pipeline_config(tmp_path)
+    cfg.dev.review_enabled = True
+    cfg.dev.ci_check_enabled = True
+    cfg.dev.ci_wait_seconds = 1.0
+    cfg.dev.ci_poll_interval = 1.0
+    return cfg
+
+
+class TestPipelineQualityGates:
+    def test_reviewer_request_changes_then_fix(self, git_repo, monkeypatch):
+        """Reviewer blocks once, implementer fixes, second review approves."""
+        cfg = _gated_config(git_repo.parent)
+        gh = _StubGH()
+        p = DevPipeline(cfg, git_repo, github=gh)
+
+        async def fake_agent(self, engine, prompt, extra_context=""):
+            Path("fix.txt").write_text("fixed\n", encoding="utf-8")
+            return "done"
+        monkeypatch.setattr(DevPipeline, "_run_agent", fake_agent)
+
+        verdicts = [
+            reviewer.ReviewOutcome(approved=False,
+                                   issues=[{"severity": "major", "file": "fix.txt",
+                                            "point": "missing guard"}]),
+            reviewer.ReviewOutcome(approved=True, summary="clean"),
+        ]
+
+        async def fake_review(engine, prompt, diff, tool_schemas=None):
+            return verdicts.pop(0)
+        monkeypatch.setattr(reviewer, "review_diff", fake_review)
+
+        result = asyncio.run(p.run("https://github.com/foo/bar/issues/1"))
+        assert result.success is True
+        assert verdicts == []                       # both review rounds consumed
+        assert "独立 AI 审查" in result.review_summary
+
+    def test_ci_failing_reported_but_pr_still_draft(self, git_repo, monkeypatch):
+        """Real CI disagreement is surfaced, not silently swallowed."""
+        cfg = _gated_config(git_repo.parent)
+        cfg.dev.ci_wait_seconds = 1.0
+        cfg.dev.ci_poll_interval = 1.0
+        gh = _StubGH()
+        gh.check_runs = [{"name": "CI", "status": "completed",
+                          "conclusion": "failure"}]
+        p = DevPipeline(cfg, git_repo, github=gh)
+
+        async def fake_agent(self, engine, prompt, extra_context=""):
+            Path("fix.txt").write_text("fixed\n", encoding="utf-8")
+            return "done"
+        monkeypatch.setattr(DevPipeline, "_run_agent", fake_agent)
+
+        async def fake_review(engine, prompt, diff, tool_schemas=None):
+            return reviewer.ReviewOutcome(approved=True)
+        monkeypatch.setattr(reviewer, "review_diff", fake_review)
+
+        result = asyncio.run(p.run("https://github.com/foo/bar/issues/1"))
+        assert result.ci_status == "failing"
+        assert result.success is True               # non-blocking by design
+        assert gh.prs_created[0]["draft"] is True   # still Draft
+        assert any("CI" in c for c in gh.comments)  # reported to the PR/issue
+
+    def test_adaptive_budget_escalates_on_cost(self, git_repo, monkeypatch):
+        """A cost abort doubles the budget and resumes, instead of failing."""
+        cfg = _pipeline_config(git_repo.parent)
+        cfg.dev.adaptive_budget = True
+        cfg.dev.budget_escalations = 1
+        cfg.dev.task_cost_budget_usd = 1.0
+        p = DevPipeline(cfg, git_repo, github=_StubGH())
+
+        calls = {"n": 0}
+
+        async def fake_agent(self, engine, prompt, extra_context=""):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                from zouwucode.engine.loop import TurnLimitExceeded
+                raise TurnLimitExceeded("Task cost $1.2 exceeded budget $1.00")
+            Path("fix.txt").write_text("ok\n", encoding="utf-8")
+            return "done after escalation"
+        monkeypatch.setattr(DevPipeline, "_run_agent", fake_agent)
+
+        result = asyncio.run(p.run("some local task"))
+        assert calls["n"] == 2                       # aborted, escalated, resumed
+        assert result.success is True
+
+    def test_adaptive_budget_disabled_propagates(self, git_repo, monkeypatch):
+        """With adaptive_budget off, a cost abort fails the task as before."""
+        cfg = _pipeline_config(git_repo.parent)
+        cfg.dev.adaptive_budget = False
+        p = DevPipeline(cfg, git_repo, github=_StubGH())
+
+        async def fake_agent(self, engine, prompt, extra_context=""):
+            from zouwucode.engine.loop import TurnLimitExceeded
+            raise TurnLimitExceeded("Task cost exceeded budget")
+        monkeypatch.setattr(DevPipeline, "_run_agent", fake_agent)
+
+        result = asyncio.run(p.run("some local task"))
+        assert result.success is False
+        assert "cost" in result.error.lower()

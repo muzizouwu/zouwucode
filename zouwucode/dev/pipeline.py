@@ -17,11 +17,9 @@ timeouts, consecutive-error breaker, cost budget) all stay active.
 """
 
 import asyncio
-import json
 import logging
 import os
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -36,10 +34,18 @@ from ..agent.subagent import SubAgentManager
 from ..project_memory import ProjectMemory
 from .github import GitHubClient, GitHubError
 from .workspace import WorktreeManager, WorkspaceError, validate_branch
+from . import verifiers
+from . import reviewer
 
 logger = logging.getLogger("zouwucode.dev.pipeline")
 
 # Prompt for the autonomous worker session.
+# Design note: constraints live at the COGNITIVE layer (a self-check
+# checklist the model runs before finishing) rather than as a pile of hard
+# prohibitions — heavy restriction degrades model performance, while an
+# explicit boundary checklist measurably improves edge-case coverage. The
+# real enforcement is the multi-layer verification + independent reviewer
+# downstream, so the prompt stays informative, not restrictive.
 _SYSTEM_PROMPT = """You are ZOUWUCODE Dev, an autonomous software engineer \
 working inside an isolated git worktree. Complete the assigned task end-to-end:
 understand the code, implement the change, and verify it with the project's \
@@ -48,7 +54,16 @@ tests. Rules:
 2. Never create commits yourself — verification and commit are handled by \
 the harness after you finish.
 3. Prefer minimal, focused changes that satisfy the task.
-4. When done, summarize: what changed, why, and how it was verified.
+4. Before you finish, run a BOUNDARY SELF-CHECK and fix what it finds:
+   - empty / None / zero / negative / very-large inputs
+   - every external call (file, network, subprocess, API) has an error path
+   - files/connections/locks are released on all paths (context managers)
+   - shared state under concurrency is protected
+   - works on BOTH Windows and POSIX (paths, encoding, line endings)
+   - public API changes keep backward compatibility
+   - no secrets, injection, or path traversal
+5. When done, summarize: what changed, why, how it was verified, and any \
+boundary cases you explicitly handled.
 """
 
 
@@ -65,6 +80,8 @@ class DevResult:
     cost_usd: float = 0.0
     iterations: int = 0          # verification rounds used
     files_changed: list[str] = field(default_factory=list)
+    review_summary: str = ""     # independent reviewer verdict (markdown)
+    ci_status: str = ""          # "" | "passing" | "failing" | "timeout" | "skipped"
 
 
 class DevPipeline:
@@ -132,7 +149,8 @@ class DevPipeline:
     def _build_engine(self) -> EngineLoop:
         """Fresh engine per task: isolated cache, yolo mode, full safety net.
 
-        Cost budget comes from config.engine.max_cost_usd (engine-enforced).
+        Cost budget comes from config.engine.max_cost_usd (engine-enforced),
+        optionally overridden per-task via _apply_budget (adaptive budget).
         """
         cfg = self.config
         provider = create_provider(cfg)
@@ -152,6 +170,45 @@ class DevPipeline:
         self._current_tools = tools
         return engine
 
+    def _build_reviewer_engine(self) -> EngineLoop:
+        """Fresh engine for the independent reviewer.
+
+        Separate EngineLoop (own cache/stats) so the reviewer shares none of
+        the implementer's conversation context — that isolation is what
+        breaks the self-review bias. Runs in `plan` mode: the review is
+        diff-based (the full unified diff is passed in the prompt), no tool
+        execution happens, and the read-only whitelist guarantees the
+        reviewer could not modify the code even if it tried.
+        """
+        cfg = self.config
+        provider = create_provider(cfg)
+        engine = EngineLoop(cfg, provider)
+        engine.set_mode("plan")
+        sandbox = PermissionManager(cfg.sandbox)
+        sandbox.set_workspace(Path.cwd())
+        tools = ToolRegistry()
+        allowed = set(reviewer.REVIEWER_TOOL_WHITELIST)
+        for t in create_builtin_tools(sandbox):
+            if t.get_spec().name in allowed:
+                tools.register(t)
+        coordinator = AgentCoordinator(cfg, engine, tools)
+        engine.set_tool_executor(coordinator.execute_tool)
+        self._current_reviewer_tools = tools
+        return engine
+
+    def _apply_budget(self, engine: EngineLoop, escalations: int) -> None:
+        """Adaptive cost budget: start at the dev base budget, double it per
+        escalation. Keeps simple tasks cheap without starving complex ones.
+
+        Mutates the per-process engine config (dev workers are separate
+        processes, and the base is re-applied at every task start so an
+        escalation never leaks into the next task).
+        """
+        base = self.dev_cfg.task_cost_budget_usd or self.config.engine.max_cost_usd
+        if base <= 0:
+            return  # budget breaker disabled
+        engine.config.engine.max_cost_usd = base * (2 ** escalations)
+
     async def _run_agent(self, engine: EngineLoop, prompt: str,
                          extra_context: str = "") -> str:
         messages = [
@@ -165,37 +222,52 @@ class DevPipeline:
 
     # ── Verification ───────────────────────────────────────────────────────
 
-    def _detect_test_command(self) -> Optional[str]:
-        """Auto-detect a sensible test command for the worktree."""
-        cwd = Path.cwd()
-        if (cwd / "pytest.ini").exists() or (cwd / "tests").is_dir() \
-                or (cwd / "pyproject.toml").exists():
-            return "python -m pytest -q"
-        if (cwd / "package.json").exists():
-            try:
-                pkg = json.loads((cwd / "package.json").read_text(encoding="utf-8"))
-                if "test" in (pkg.get("scripts") or {}):
-                    return "npm test"
-            except Exception:
-                pass
-        return None
-
-    async def _run_tests(self) -> tuple[bool, str]:
-        cmd = self.dev_cfg.test_command or self._detect_test_command()
-        if not cmd:
-            return True, "(no test command detected — verification skipped)"
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+    async def _verify(self) -> verifiers.VerificationReport:
+        """Run the multi-layer verification pipeline in the worktree."""
+        return await verifiers.run_verification(
+            Path.cwd(),
+            lint_command=self.dev_cfg.lint_command,
+            typecheck_command=self.dev_cfg.typecheck_command,
+            test_command=self.dev_cfg.test_command,
+            security_command=self.dev_cfg.security_command,
+            coverage_min=self.dev_cfg.coverage_min,
         )
-        try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=600)
-        except asyncio.TimeoutError:
-            proc.kill()
-            return False, f"test command timed out: {cmd}"
-        output = stdout.decode("utf-8", errors="replace")
-        return proc.returncode == 0, f"$ {cmd}\n{output[-4000:]}"
+
+    # ── CI linkage ─────────────────────────────────────────────────────────
+
+    async def _await_ci(self, owner: str, repo: str, branch: str) -> str:
+        """Poll GitHub checks for the pushed branch until they settle or the
+        wait budget elapses. Returns passing | failing | timeout | skipped."""
+        if not (self.dev_cfg.ci_check_enabled and owner and repo
+                and self.github.has_token):
+            return "skipped"
+        waited = 0.0
+        interval = max(1.0, self.dev_cfg.ci_poll_interval)
+        empty_polls = 0
+        while waited < self.dev_cfg.ci_wait_seconds:
+            try:
+                runs = await self.github.list_check_runs(owner, repo, branch)
+            except GitHubError as exc:
+                logger.warning("CI check poll failed: %s", exc)
+                return "skipped"
+            if not runs:
+                # Checks register within seconds of a push; if none appear
+                # after a few polls the repo simply has no CI — don't burn
+                # the whole wait budget on every task.
+                empty_polls += 1
+                if empty_polls >= 3:
+                    return "skipped"
+                await asyncio.sleep(interval)
+                waited += interval
+                continue
+            if any(r["status"] != "completed" for r in runs):
+                await asyncio.sleep(interval)
+                waited += interval
+                continue
+            if any(r.get("conclusion") not in ("success", None) for r in runs):
+                return "failing"
+            return "passing"
+        return "timeout"
 
     # ── Main entry ─────────────────────────────────────────────────────────
 
@@ -222,63 +294,111 @@ class DevPipeline:
             # the worktree itself — the agent is confined to this checkout
             # and cannot touch files outside it (path whitelist enforcement).
             engine = self._build_engine()
+            # Adaptive budget: base budget per task; cost-abort doubles it
+            # (bounded by dev.budget_escalations) instead of failing outright.
+            self._apply_budget(engine, escalations=0)
             logger.info("Dev task %s started in worktree %s", task_id, ws.path)
 
             # Round 0: autonomous implementation
-            summary = await self._run_agent(engine, prompt)
+            summary = await self._implement_with_budget(engine, prompt)
             result.summary = summary
 
-            # Verification loop (stage 3): tests → feedback → fix → retest
+            # Multi-layer verification loop: lint → typecheck → test(+cov)
+            # → security. Each failed layer is fed back with its own label,
+            # so the agent gets targeted, informative feedback rather than
+            # a single opaque "tests failed".
             for iteration in range(self.dev_cfg.verify_retries + 1):
-                ok, output = await self._run_tests()
-                result.verification_output = output
+                report = await self._verify()
+                result.verification_output = report.render_feedback()
                 result.iterations = iteration + 1
-                if ok:
+                if report.passed:
                     break
                 if iteration >= self.dev_cfg.verify_retries:
-                    result.error = f"tests failed after {iteration + 1} attempt(s)"
-                    await self._report_failure(number, output, prompt, post_report)
+                    result.error = ("verification failed after "
+                                    f"{iteration + 1} attempt(s)")
+                    await self._report_failure(
+                        number, result.verification_output, prompt, post_report)
                     return result
-                # Feed the failure back into the SAME conversation context.
                 logger.info("Verification failed — iteration %d, feeding back",
                             iteration + 1)
                 feedback = (
                     "\n\n## Verification result (FAILED)\n"
-                    "The project tests did not pass after your changes:\n\n"
-                    f"```\n{output}\n```\n\n"
+                    "The multi-layer checks below did not pass after your "
+                    "changes. Fix every FAILED layer (SKIPPED layers are not "
+                    "blocking):\n\n"
+                    f"{result.verification_output}\n\n"
                     "Fix the remaining issues and re-run to completion."
                 )
-                summary = await self._run_agent(engine, prompt, extra_context=feedback)
+                summary = await self._implement_with_budget(
+                    engine, prompt, extra_context=feedback)
                 result.summary = summary
             else:
-                # loop exhausted without break → last test run failed
+                # loop exhausted without break → last verification run failed
                 return result
 
-            # Success path: commit → push → draft PR / local report
+            # Local commit FIRST (still inside the isolated worktree, nothing
+            # pushed) so the reviewer can see a proper base...HEAD diff.
             committed = await self.worktrees.commit_all(
                 ws, f"dev: {prompt.splitlines()[0][:72]} [ZOUWUCODE]")
-            if committed:
-                await self.worktrees.push_branch(ws)
-                diffstat = await self.worktrees.diff_summary(ws, ws.base_ref)
-                result.files_changed = _parse_diffstat_files(diffstat)
-                if owner and repo and number:
-                    pr = await self.github.create_pr_from_issue(
-                        owner, repo, head=branch, base=ws.base_ref,
-                        title=f"dev: {prompt.splitlines()[0][:72]}",
-                        body=_pr_body(prompt, result, diffstat),
-                        issue_number=number,
-                        draft=self.dev_cfg.draft_pr,
-                    )
-                    result.pr_url = pr.get("html_url", "")
-                result.success = True
-                self._harvest_learning(task_id, result)
-                if post_report and not (owner and repo and number):
-                    logger.info("Local dev task done (no GitHub link): %s",
-                                result.pr_url or branch)
-            else:
+            if not committed:
                 result.error = "agent finished but produced no file changes"
                 await self._report_failure(number, "no changes produced",
                                            prompt, post_report)
+                return result
+
+            # Independent review loop — fresh engine, read-only tools, no
+            # shared context with the implementer. request_changes findings
+            # are fed back; bounded by dev.review_max_rounds.
+            review_outcome = None
+            if self.dev_cfg.review_enabled:
+                for review_round in range(self.dev_cfg.review_max_rounds + 1):
+                    diff_text = await self.worktrees.diff_text(ws, ws.base_ref)
+                    review_engine = self._build_reviewer_engine()
+                    review_outcome = await reviewer.review_diff(
+                        review_engine, prompt, diff_text,
+                        tool_schemas=self._current_reviewer_tools.get_schemas())
+                    if review_outcome.approved:
+                        break
+                    if review_round >= self.dev_cfg.review_max_rounds:
+                        break  # proceed to PR; verdict goes into the body
+                    fix_summary = await self._implement_with_budget(
+                        engine, prompt,
+                        extra_context=reviewer.format_review_feedback(
+                            review_outcome))
+                    result.summary = fix_summary
+                    await self.worktrees.commit_all(
+                        ws, f"dev: address review round {review_round + 1} "
+                            f"[ZOUWUCODE]")
+                result.review_summary = reviewer.format_review_for_pr(
+                    review_outcome) if review_outcome else ""
+
+            # Push + Draft PR + CI linkage.
+            await self.worktrees.push_branch(ws)
+            diffstat = await self.worktrees.diff_summary(ws, ws.base_ref)
+            result.files_changed = _parse_diffstat_files(diffstat)
+            if owner and repo and number:
+                pr = await self.github.create_pr_from_issue(
+                    owner, repo, head=branch, base=ws.base_ref,
+                    title=f"dev: {prompt.splitlines()[0][:72]}",
+                    body=_pr_body(prompt, result, diffstat),
+                    issue_number=number,
+                    draft=self.dev_cfg.draft_pr,
+                )
+                result.pr_url = pr.get("html_url", "")
+            result.success = True
+
+            # CI linkage: the Draft PR's checks run in the REAL CI matrix
+            # (OS/python versions the local worktree cannot reproduce).
+            # Non-blocking by design — the PR stays Draft either way; a
+            # failing/timed-out CI is reported back for the human reviewer.
+            if owner and repo:
+                result.ci_status = await self._await_ci(owner, repo, branch)
+                if result.ci_status in ("failing", "timeout") and number:
+                    await self._report_ci(result.ci_status, owner, repo, number)
+            self._harvest_learning(task_id, result)
+            if post_report and not (owner and repo and number):
+                logger.info("Local dev task done (no GitHub link): %s",
+                            result.pr_url or branch)
             return result
 
         except (TurnLimitExceeded, TaskInterrupted) as exc:
@@ -292,6 +412,50 @@ class DevPipeline:
         finally:
             os.chdir(old_cwd)
             result.cost_usd = engine.stats.total_cost
+
+    async def _implement_with_budget(self, engine: EngineLoop, prompt: str,
+                                     extra_context: str = "") -> str:
+        """Agent run with adaptive cost budget.
+
+        A cost-abort (TurnLimitExceeded mentioning cost) doubles the budget
+        and continues the SAME conversation once, up to
+        dev.budget_escalations times — complex tasks get room to finish
+        while simple ones never see inflated limits. Non-cost limits
+        (rounds/timeout/interrupt) propagate untouched.
+        """
+        escalations = 0
+        while True:
+            try:
+                return await self._run_agent(engine, prompt,
+                                             extra_context=extra_context)
+            except TurnLimitExceeded as exc:
+                if ("cost" not in str(exc).lower()
+                        or not self.dev_cfg.adaptive_budget
+                        or escalations >= self.dev_cfg.budget_escalations):
+                    raise
+                escalations += 1
+                self._apply_budget(engine, escalations=escalations)
+                logger.warning(
+                    "Cost budget hit — escalating %d/%d (new budget $%.2f)",
+                    escalations, self.dev_cfg.budget_escalations,
+                    engine.config.engine.max_cost_usd)
+                prompt = ("Continue the assigned task from exactly where you "
+                          "stopped. The cost budget has been increased. "
+                          "Do not redo finished work; finish the remaining "
+                          "steps and produce your final summary.")
+                extra_context = ""
+
+    async def _report_ci(self, status: str, owner: str, repo: str,
+                         number: int) -> None:
+        """Comment on the PR when real CI disagrees with local verification."""
+        try:
+            await self.github.comment_issue(
+                owner, repo, number,
+                f"🤖 **ZOUWUCODE dev**：本地多层验证已通过，但真实 CI 状态为 "
+                f"`{status}`。Draft PR 已保持草稿，请人工确认后再合并。",
+            )
+        except GitHubError as exc:
+            logger.warning("Failed to post CI status comment: %s", exc)
 
     async def _report_failure(self, number: int, detail: str,
                               prompt: str, post_report: bool) -> None:
@@ -343,13 +507,23 @@ def _parse_diffstat_files(diffstat: str) -> list[str]:
 
 
 def _pr_body(prompt: str, result: DevResult, diffstat: str) -> str:
-    return (
+    parts = [
         f"## 🤖 ZOUWUCODE dev — 自主完成\n\n"
         f"**任务**\n> {prompt.splitlines()[0][:500]}\n\n"
         f"**实现摘要**\n{result.summary[:3000]}\n\n"
-        f"**验证**（{result.iterations} 轮）\n```\n"
+        f"**多层验证**（{result.iterations} 轮）\n```\n"
         f"{result.verification_output[-1500:]}\n```\n\n"
         f"**变更文件**\n```\n{diffstat[:2000]}\n```\n\n"
-        f"**成本** ${result.cost_usd:.4f}\n\n"
-        f"⚠️ 本 PR 由 AI 自主生成，处于 Draft 状态，请人工 review 后合并。"
-    )
+        f"**成本** ${result.cost_usd:.4f}\n",
+    ]
+    if result.review_summary:
+        parts.append(f"\n{result.review_summary}\n")
+    if result.ci_status == "failing":
+        parts.append("\n> ⚠️ 真实 CI 检查未通过（本地验证已通过）——"
+                     "合并前请先修复 CI。\n")
+    elif result.ci_status == "timeout":
+        parts.append("\n> ⏳ 等待 CI 结果超时，合并前请确认 CI 状态。\n")
+    parts.append(
+        "\n⚠️ 本 PR 由 AI 自主生成并经独立 AI 审查，处于 Draft 状态，"
+        "请人工 review 后合并。")
+    return "".join(parts)

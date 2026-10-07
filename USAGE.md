@@ -780,7 +780,7 @@ zouwucode dev --watch you/repo                           # 轮询 zouwucode:do �
 zouwucode dev --status                                   # 查看队列状态
 ```
 
-安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 沙箱限定在 worktree 内、任务超时与成本熔断（建议设 `engine.max_cost_usd`）、失败自动回帖 issue。配置详见 15.2 节 `github:` / `dev:` 段；完整说明见 [dev模式使用说明](docs/dev模式使用说明.md)。
+质量门禁：多层验证（lint→typecheck→test+覆盖率→security，未装工具自动跳过）+ 独立只读 AI 审查 diff（request_changes 有界回灌修复）+ CI 联动（轮询真实 GitHub Checks，本地过但 CI 挂会提示）+ 自适应成本预算（触顶自动升级续跑）。安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 沙箱限定在 worktree 内、任务超时与成本熔断（建议设 `engine.max_cost_usd`）、失败自动回帖 issue。配置详见 15.2 节 `github:` / `dev:` 段；完整说明见 [dev模式使用说明](docs/dev模式使用说明.md)。
 
 ---
 
@@ -946,6 +946,16 @@ dev:
   task_timeout_seconds: 3600    # 单个 dev 任务总超时（秒）
   watch_label: "zouwucode:do"   # watch 模式认领的 issue 标签
   draft_pr: true                # PR 始终为 Draft，人工 review 后合并
+  # 质量门禁（详见 docs/dev模式使用说明.md 第五节）
+  lint_command: ""              # 空=自动探测 ruff/eslint
+  typecheck_command: ""         # 空=自动探测 mypy/tsc
+  security_command: ""          # 空=自动探测 bandit（需 [tool.bandit]）
+  coverage_min: 0.0             # >0 时 pytest 加 --cov-fail-under
+  review_enabled: true          # 提交前独立只读 AI 审查 diff
+  review_max_rounds: 1          # request_changes→修复→复审 上限
+  ci_check_enabled: true        # push 后轮询真实 CI 并回写 PR
+  adaptive_budget: true         # 成本触顶自动升级预算续跑
+  budget_escalations: 1         # 最多升级次数（每次 ×2）
 
 # 沙箱配置
 sandbox:

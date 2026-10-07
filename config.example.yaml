@@ -84,8 +84,28 @@ dev:
   branch_prefix: dev            # 只允许操作 dev/* 分支（安全白名单）
   worktree_dir: ".zouwucode_worktrees"
   test_command: ""              # 留空自动探测（pytest / npm test）
-  verify_retries: 2             # 测试失败后自动迭代修复次数
+  verify_retries: 2             # 验证失败后自动迭代修复次数
   max_concurrent_tasks: 3       # 队列模式并行 worker 上限
   task_timeout_seconds: 3600    # 单个 dev 任务总超时（秒）
   watch_label: "zouwucode:do"   # watch 模式认领的 issue 标签
   draft_pr: true                # PR 始终为 Draft，人工 review 后合并
+
+  # ── 多层验证管线（未探测到的层自动跳过，不会误伤）──
+  lint_command: ""              # 留空自动探测 ruff/eslint；也可显式指定
+  typecheck_command: ""         # 留空自动探测 mypy（需 [tool.mypy]）/tsc
+  security_command: ""          # 留空自动探测 bandit（需 [tool.bandit] 才启用）
+  coverage_min: 0.0             # >0 时 pytest 追加 --cov --cov-fail-under=N
+
+  # ── 独立 AI 审查（打破"自写自测自验"偏差）──
+  review_enabled: true          # 提交 Draft PR 前由独立只读会话审查 diff
+  review_max_rounds: 1          # request_changes → 修复 → 复审 的最大轮数
+
+  # ── CI 联动（把验证延伸到真实 CI 矩阵）──
+  ci_check_enabled: true        # push 后轮询 GitHub Checks，结果写入 PR 正文
+  ci_wait_seconds: 300          # 等待 CI 完成的总时长上限
+  ci_poll_interval: 15          # 轮询间隔
+
+  # ── 自适应成本预算 ──
+  adaptive_budget: true         # 成本触顶时自动升级预算续跑（而非直接失败）
+  task_cost_budget_usd: 0.0     # dev 任务基础预算（0=沿用 engine.max_cost_usd）
+  budget_escalations: 1         # 最多升级次数（每次预算 ×2）

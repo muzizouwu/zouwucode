@@ -9,6 +9,12 @@
 - **Devin 式 dev 模式**（`zouwucode dev`）：自主 issue → Draft PR 全流程——GitHub API 拉取 issue、git worktree 隔离工作区、自主编码会话、测试验证（失败自动迭代修复）、commit/push/Draft PR；支持 `--queue` 异步队列、`--workers N` 并行、`--watch` 自动认领 `zouwucode:do` 标签 issue
 - **成本熔断**：`engine.max_cost_usd` 单任务美元成本上限（dev 模式防失控烧额度）
 - 安全边界：`dev/*` 分支白名单（保护分支硬拒绝）、agent 沙箱限定 worktree 内、PR 永远 Draft 需人工 review、失败自动回帖 issue
+- **dev 质量门禁**（对标成熟 dev agent，解决边界遗漏 / 约束降性能 / 自验失真三大痛点）：
+  - 多层验证管线 `dev/verifiers.py`：lint → typecheck → test(+覆盖率) → security 四层独立门禁，逐层自动探测、未装工具自动跳过，失败按层标注回灌
+  - 独立 AI 审查 `dev/reviewer.py`：全新只读会话（plan 模式 + 只读工具白名单 + 零共享上下文）审查 diff，结构化 JSON 结论，request_changes 有界回灌修复，结论写入 PR 正文
+  - CI 联动：push 后轮询真实 GitHub Checks，本地过但 CI 挂自动回帖提示（不阻塞，PR 保持 Draft）
+  - 自适应成本预算：成本触顶自动翻倍预算续跑同一会话（`budget_escalations` 上限），替代一刀切失败
+  - 实现者提示词内置边界自检清单（空值/错误路径/资源/并发/跨平台/兼容/安全）——约束放认知层而非堆砌禁令
 
 ## [1.0.0] - 2026-09-09
 

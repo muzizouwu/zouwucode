@@ -198,3 +198,12 @@ class WorktreeManager:
                                    cwd=ws.path)
         except WorkspaceError:
             return "(diff unavailable)"
+
+    async def diff_text(self, ws: Workspace, base_ref: str,
+                        max_chars: int = 60_000) -> str:
+        """Full unified diff vs base — the input for independent review."""
+        try:
+            out = await self._git("diff", f"{base_ref}...HEAD", cwd=ws.path)
+        except WorkspaceError:
+            return ""
+        return out[:max_chars]

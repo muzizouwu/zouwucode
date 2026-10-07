@@ -42,7 +42,7 @@ zouwucode dev https://github.com/you/repo/issues/42
 zouwucode dev "给 utils.py 的 parse_date 函数补充单元测试"
 ```
 
-你会依次看到：创建 `dev/issue-42` worktree → agent 自主编码 → 自动跑测试（失败会回灌修复，最多 2 轮）→ 提交推送 → 输出 Draft PR 链接。
+你会依次看到：创建 `dev/issue-42` worktree → agent 自主编码（内置边界自检）→ 多层验证（lint → typecheck → 测试 → 安全扫描，失败自动回灌修复）→ 独立 AI 审查 diff → 提交推送 → 输出 Draft PR 链接，并自动轮询真实 CI 结果回写 PR。
 
 ## 第 2 步：验收
 

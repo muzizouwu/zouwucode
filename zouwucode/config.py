@@ -64,6 +64,26 @@ class DevConfig(BaseModel):
     watch_label: str = "zouwucode:do"      # watch 模式认领的 issue 标签
     draft_pr: bool = True                  # PR 始终为 Draft，人工 review 后合并
 
+    # ── 多层验证管线（边界问题的硬门禁；未配置/未探测到的层自动跳过）──
+    lint_command: str = ""                 # 空=自动探测（ruff / eslint），否则跳过
+    typecheck_command: str = ""            # 空=自动探测（mypy / tsc），否则跳过
+    security_command: str = ""             # 空=自动探测（bandit，需 [tool.bandit] 标记）
+    coverage_min: float = 0.0              # 0=关闭；>0 时 pytest 追加 --cov --cov-fail-under
+
+    # ── 独立 reviewer（打破"自写自测自验"的循环偏差）──
+    review_enabled: bool = True
+    review_max_rounds: int = 1             # request_changes→修复→复审 的最大轮数
+
+    # ── CI 联动（把验证延伸到真实 CI 环境）──
+    ci_check_enabled: bool = True
+    ci_wait_seconds: float = 300.0         # 等待 check 完成的总时长上限
+    ci_poll_interval: float = 15.0
+
+    # ── 自适应预算（避免一刀切限制掐死复杂任务、又约束简单任务烧钱）──
+    adaptive_budget: bool = True
+    task_cost_budget_usd: float = 0.0      # dev 任务基础成本预算（0=沿用 engine.max_cost_usd）
+    budget_escalations: int = 1            # 触顶后自动升级预算的次数
+
 
 class CacheConfig(BaseModel):
     """Prefix-cache tuning parameters."""

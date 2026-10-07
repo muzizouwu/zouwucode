@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 278 passed](https://img.shields.io/badge/tests-278%20passed-green)](tests/)
+[![Tests: 295 passed](https://img.shields.io/badge/tests-295%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -125,7 +125,7 @@ zouwucode dev --watch you/repo                         # 轮询 `zouwucode:do` �
 zouwucode dev --status                                 # 查看队列状态
 ```
 
-安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 被沙箱限定在 worktree 内、任务超时/成本熔断（`engine.max_cost_usd`）、失败自动回帖 issue 请求人工介入。详见 [dev 模式说明](docs/dev模式使用说明.md)。
+质量门禁：多层验证（lint→typecheck→test+覆盖率→security）+ 独立只读 AI 审查 diff + CI 联动（本地过但真实 CI 挂会提示）+ 自适应成本预算。安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 被沙箱限定在 worktree 内、任务超时/成本熔断（`engine.max_cost_usd`）、失败自动回帖 issue 请求人工介入。详见 [dev 模式说明](docs/dev模式使用说明.md)。
 
 ### 常用命令
 
