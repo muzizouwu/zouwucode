@@ -22,6 +22,12 @@ logger = logging.getLogger("zouwucode.dev.workspace")
 # Branch names we refuse to touch even if prefixed (defense in depth).
 _FORBIDDEN_BRANCHES = {"main", "master", "develop", "release", "stable"}
 
+# Identity used for automated dev commits. Injected via `git -c` so the
+# pipeline never depends on a global/user git config being present (CI
+# runners have none, and `git commit` fails with "Author identity unknown").
+_DEV_AUTHOR_NAME = "ZOUWUCODE Dev"
+_DEV_AUTHOR_EMAIL = "dev@zouwucode.local"
+
 
 class WorkspaceError(RuntimeError):
     """A workspace/branch operation was refused or failed."""
@@ -139,7 +145,11 @@ class WorktreeManager:
         status = await self._git("status", "--porcelain", cwd=ws.path)
         if not status.strip():
             return None
-        await self._git("commit", "-m", message, cwd=ws.path)
+        await self._git(
+            "-c", f"user.name={_DEV_AUTHOR_NAME}",
+            "-c", f"user.email={_DEV_AUTHOR_EMAIL}",
+            "commit", "-m", message, cwd=ws.path,
+        )
         return (await self._git("rev-parse", "HEAD", cwd=ws.path)).strip()
 
     async def push_branch(self, ws: Workspace, remote: str = "origin",
