@@ -30,6 +30,9 @@ engine:
   max_llm_retries: 2                # 瞬时故障（429/5xx/网络）重试次数（0=关闭）
   retry_base_delay_seconds: 1.0     # 指数退避基数（第 n 次重试等待 base*2^(n-1) 秒）
   max_cost_usd: 0                   # 单任务成本熔断（美元，0=不限制；dev 模式建议设置）
+  stuck_detection_enabled: true     # 卡死检测（工具都成功但原地打转）
+  stuck_window: 10                  # 动作指纹滑窗长度
+  stuck_threshold: 3                # 窗口内同一动作重复达此数即提醒/熔断
 
 cache:
   enabled: true
@@ -73,6 +76,10 @@ extensions:
   #    command: npx
   #    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
   lsp_enabled: false            # 启用后注册 check_diagnostics 诊断工具
+  hooks: []                     # 生命周期钩子示例：
+  #  - event: post_tool        # pre_tool（可拦截）| post_tool（观察/自动化）
+  #    tool_pattern: edit      # 仅匹配工具名子串；空=全部工具
+  #    command: "python -m ruff check ."   # 支持 {tool} {args} {result}
 
 # GitHub 集成（dev 模式：issue → Draft PR）
 github:
@@ -109,3 +116,6 @@ dev:
   adaptive_budget: true         # 成本触顶时自动升级预算续跑（而非直接失败）
   task_cost_budget_usd: 0.0     # dev 任务基础预算（0=沿用 engine.max_cost_usd）
   budget_escalations: 1         # 最多升级次数（每次预算 ×2）
+
+  # ── 显式规划阶段（PLAN → ACT → REFLECT）──
+  plan_enabled: true            # 实现前先产出有序任务清单（同一会话，进前缀）

@@ -14,6 +14,7 @@ from .tools.file_tools import ReadTool, WriteTool, EditTool, LsTool, GlobTool
 from .tools.shell_tools import ShellTool
 from .tools.git_tools import GitTool
 from .tools.web_tools import WebSearchTool, WebFetchTool
+from .tools.code_exec_tool import PythonExecTool
 
 
 def create_provider(config: ZOUWUCODEConfig) -> BaseProvider:
@@ -29,9 +30,14 @@ def create_provider(config: ZOUWUCODEConfig) -> BaseProvider:
     return OpenAIProvider(provider_config.model_dump())
 
 
-def create_builtin_tools(sandbox) -> list[BaseTool]:
-    """The standard builtin toolset shared by every UI."""
-    return [
+def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTool]:
+    """The standard builtin toolset shared by every UI.
+
+    ``python_exec`` (CodeAct action surface) is included when config is
+    provided and sandbox shell access is allowed — it can do what bash +
+    files can do, so it follows the same permission posture.
+    """
+    tools = [
         ReadTool(sandbox),
         WriteTool(sandbox),
         EditTool(sandbox),
@@ -42,3 +48,38 @@ def create_builtin_tools(sandbox) -> list[BaseTool]:
         WebSearchTool(sandbox),
         WebFetchTool(sandbox),
     ]
+    if config is not None and getattr(config.sandbox, "allow_shell", True):
+        tools.append(PythonExecTool(sandbox))
+    return tools
+
+
+def build_agent_engine(config: ZOUWUCODEConfig, sandbox_root, *,
+                       mode: str = "yolo", with_subagents: bool = True):
+    """Wire a complete agent stack (engine + registry + coordinator).
+
+    Shared by the dev pipeline and the eval runner so both get identical
+    safety wiring (yolo mode, sandbox rooted at the given directory,
+    sub-agent task tool). Returns (engine, tools).
+    """
+    from .engine.loop import EngineLoop
+    from .tools.registry import ToolRegistry
+    from .sandbox.permission import PermissionManager
+    from .agent.coordinator import AgentCoordinator
+    from .agent.subagent import SubAgentManager
+    from pathlib import Path
+
+    provider = create_provider(config)
+    engine = EngineLoop(config, provider)
+    engine.set_mode(mode)
+    sandbox = PermissionManager(config.sandbox)
+    sandbox.set_workspace(Path(sandbox_root))
+    tools = ToolRegistry()
+    tools.register_all(create_builtin_tools(sandbox, config))
+    coordinator = AgentCoordinator(config, engine, tools)
+    engine.set_tool_executor(coordinator.execute_tool)
+    if with_subagents:
+        manager = SubAgentManager(config, provider, coordinator)
+        manager.bind_main_engine(engine)
+        from .tools.agent_tools import TaskTool
+        tools.register(TaskTool(manager))
+    return engine, tools

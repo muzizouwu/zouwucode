@@ -237,7 +237,7 @@ class ZOUWUCODETUI(App):
         Extension-contributed tools (MCP/LSP) are registered by
         ExtensionHost.start() — which must run before freeze_session().
         """
-        self.tools.register_all(create_builtin_tools(self.sandbox))
+        self.tools.register_all(create_builtin_tools(self.sandbox, self.config))
 
     def _setup_agents_and_extensions(self):
         """Wire the sub-agent system and the extension layer (MCP/LSP)."""

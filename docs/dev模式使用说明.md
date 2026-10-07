@@ -11,16 +11,18 @@ zouwucode dev <issue-url | owner/repo#N | 任务描述>
    │
    ├─ 1. resolve_task      解析任务（GitHub API 拉取 issue 标题+正文）
    ├─ 2. worktree create   git worktree add dev/issue-N（隔离检出）
-   ├─ 3. agent session     自主编码会话（yolo 模式，沙箱限定在 worktree 内）
+   ├─ 3. PLAN              显式规划轮：产出 3-8 步有序清单（同一会话进前缀）
+   ├─ 4. agent session     自主编码会话（yolo 模式，沙箱限定在 worktree 内）
    │                        · 边界自检清单（空值/错误路径/资源/并发/跨平台）
    │                        · 自适应成本预算（触顶自动升级续跑，而非直接失败）
-   ├─ 4. 多层验证          lint → typecheck → test(+覆盖率) → security
-   │      任一层失败 → 分层标注回灌同一会话 → 修复 → 重验（≤ verify_retries 轮）
-   ├─ 5. 独立 AI 审查      全新只读会话审查 diff（与实现者零共享上下文）
+   │                        · 卡死检测（动作指纹滑窗，原地打转先提醒再熔断）
+   ├─ 5. 多层验证          lint → typecheck → test(+覆盖率) → security
+   │      任一层失败 → REFLECT+分层标注回灌同一会话 → 修复 → 重验（≤ verify_retries 轮）
+   ├─ 6. 独立 AI 审查      全新只读会话审查 diff（与实现者零共享上下文）
    │      request_changes → 回灌修复 → 复审（≤ review_max_rounds 轮）
-   ├─ 6. commit + push     提交并推送 dev/* 分支
-   ├─ 7. Draft PR          创建关联 issue 的 Draft PR（"Closes #N"，含审查结论）
-   └─ 8. CI 联动           轮询真实 GitHub Checks，结果回写 PR（不阻塞，仅提示）
+   ├─ 7. commit + push     提交并推送 dev/* 分支
+   ├─ 8. Draft PR          创建关联 issue 的 Draft PR（"Closes #N"，含审查结论）
+   └─ 9. CI 联动           轮询真实 GitHub Checks，结果回写 PR（不阻塞，仅提示）
           失败 → 不建 PR，把失败详情回帖到 issue 请求人工介入
 ```
 
@@ -75,11 +77,13 @@ dev 模式用**多层独立验证**取代"自写自测自验"的单层循环：
 
 | 门禁 | 解决什么 | 机制 |
 |------|----------|------|
+| 显式 PLAN/REFLECT | 无计划乱改、失败后不纠偏 | 实现前先产出有序计划（同一会话进前缀）；验证失败回灌要求先反思再修复 |
 | 边界自检清单 | agent 忽略边界 | 实现者提示词内置自检（空值/None/极值、错误路径、资源释放、并发、Windows/POSIX 跨平台、向后兼容、安全） |
 | 多层验证管线 | 单层测试覆盖不到静态缺陷 | `lint → typecheck → test(+覆盖率) → security`，逐层自动探测，未装工具则该层跳过（不误伤），失败按层标注回灌 |
 | 独立 AI 审查 | 自写自测的系统性偏差 | 全新只读会话、零共享上下文，只看 diff 按审查清单判定 approve/request_changes；结论写入 PR |
 | CI 联动 | 本地验收 ≠ 生产环境 | push 后轮询真实 GitHub Checks（多 OS/Python 矩阵），结果回写 PR；本地过但 CI 挂会明确提示 |
 | 自适应预算 | 约束过死掐死复杂任务 / 过松烧钱 | 成本触顶自动升级预算（×2，有上限）续跑同一会话，而非直接失败；简单任务不受影响 |
+| 卡死检测 | "工具都成功但原地打转" | 引擎动作指纹滑窗（工具+参数+结果哈希），重复达阈值先提醒换思路、再犯熔断 |
 
 **关键设计原则**：约束放在**认知层**（自检清单、分层反馈）而非堆砌硬性禁令——
 信息化的反馈比 blanket 限制更能保持模型性能，真正的"硬门禁"交给下游的
@@ -118,13 +122,14 @@ dev:
   typecheck_command: ""              # 空=自动探测 mypy/tsc
   security_command: ""               # 空=自动探测 bandit（需 [tool.bandit]）
   coverage_min: 0.0                  # >0 时 pytest 加 --cov-fail-under
-  # 独立审查 + CI 联动 + 自适应预算
+  # 独立审查 + CI 联动 + 自适应预算 + 显式规划
   review_enabled: true
   review_max_rounds: 1
   ci_check_enabled: true
   adaptive_budget: true
   task_cost_budget_usd: 0.0          # 0=沿用 engine.max_cost_usd
   budget_escalations: 1
+  plan_enabled: true                 # 实现前显式 PLAN 轮
 
 engine:
   max_cost_usd: 2.0                  # dev 模式强烈建议设置
@@ -153,4 +158,6 @@ engine:
 | 独立 AI 审查 | `zouwucode/dev/reviewer.py` |
 | SQLite 任务队列 | `zouwucode/dev/queue.py` |
 | CLI 路由/worker/watch | `zouwucode/dev/cli.py` |
-| 测试 | `tests/test_dev.py`（44 用例） |
+| 测试 | `tests/test_dev.py`（45 用例） |
+
+> dev 管线与 `zouwucode eval` 评测 harness 共用 `runtime.build_agent_engine` 装配完整 agent 栈——评测度量的就是生产运行的栈。评测用法见 [评测harness使用说明](评测harness使用说明.md)。

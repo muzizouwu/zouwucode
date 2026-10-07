@@ -11,9 +11,11 @@ design inspired by Reasonix. The loop:
 """
 
 import asyncio
+import hashlib
 import logging
 import threading
 import time
+from collections import Counter, deque
 from typing import Optional, Callable, Awaitable
 
 import httpx
@@ -64,6 +66,18 @@ class TurnContext:
 
 # Type alias for the tool execution callback
 ToolExecutor = Callable[[ToolCall, TurnContext], Awaitable[ToolResult]]
+
+# Injected once when the stuck detector sees the model repeat an identical
+# action+result inside the sliding window. Phrased as information, not a
+# prohibition — the model decides how to change strategy.
+_STUCK_NUDGE = (
+    "⚠️ Stuck check: you have repeated the identical action with the "
+    "identical result several times in a row. Repeating it again will not "
+    "change anything. Either (a) change your approach — different tool, "
+    "different arguments, or inspect a different file; (b) re-read the "
+    "original task and re-plan the next concrete step; or (c) stop and "
+    "summarize what you have achieved so far and what blocks the rest."
+)
 
 
 class EngineLoop:
@@ -382,6 +396,11 @@ class EngineLoop:
         response: Optional[ModelResponse] = None
         assistant_appended = False
         cost_at_start = self.stats.total_cost  # 成本熔断按任务增量计
+        # Stuck detection: sliding window of (tool, args, result) fingerprints.
+        # Catches "all tools succeed but the model spins in place" — the case
+        # consecutive_tool_errors cannot see. Nudge once, then abort.
+        _fp_window: deque = deque(maxlen=max(1, engine_cfg.stuck_window))
+        _stuck_nudged = False
 
         logger.info(
             "Task start | mode=%s | rounds_cap=%d | task_timeout=%.0fs | "
@@ -526,6 +545,45 @@ class EngineLoop:
                         consecutive_tool_errors += 1
                     else:
                         consecutive_tool_errors = 0
+
+                    # Stuck fingerprint: tool name + arguments + result content.
+                    # Identical repeats mean no forward progress even when the
+                    # tool "succeeds". Only tracked when detection is enabled.
+                    if engine_cfg.stuck_detection_enabled:
+                        fp = hashlib.sha1(
+                            f"{tool_call.name}\x00{tool_call.arguments}"
+                            f"\x00{result.content}".encode("utf-8", "replace")
+                        ).hexdigest()[:16]
+                        _fp_window.append(fp)
+
+                # ── Safety check: stuck (repeated identical actions) ──
+                if engine_cfg.stuck_detection_enabled and len(_fp_window) >= engine_cfg.stuck_threshold:
+                    dup = Counter(_fp_window).most_common(1)[0]
+                    if dup[1] >= engine_cfg.stuck_threshold:
+                        if not _stuck_nudged:
+                            # Inject a nudge as a fresh user message AFTER the
+                            # round's tool results — keeps the append-only
+                            # prefix API-valid (no dangling tool_calls).
+                            _stuck_nudged = True
+                            self.cache.append(
+                                {"role": "user", "content": _STUCK_NUDGE})
+                            _fp_window.clear()
+                            logger.warning(
+                                "Round %d — stuck: action '%s' repeated %dx "
+                                "with identical result; nudged the model to "
+                                "change strategy.",
+                                round_no, tool_call.name, dup[1],
+                            )
+                        else:
+                            logger.error(
+                                "Round %d — still stuck after nudge "
+                                "(threshold=%d) — aborting task.",
+                                round_no, engine_cfg.stuck_threshold,
+                            )
+                            raise TurnLimitExceeded(
+                                f"Stuck: identical action repeated "
+                                f"{dup[1]}x after nudge (round {round_no})."
+                            )
 
                 if consecutive_tool_errors >= engine_cfg.max_consecutive_tool_errors:
                     logger.error(

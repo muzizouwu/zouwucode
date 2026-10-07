@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 295 passed](https://img.shields.io/badge/tests-295%20passed-green)](tests/)
+[![Tests: 324 passed](https://img.shields.io/badge/tests-324%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -22,7 +22,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **Cache-First 引擎** | Append-only 对话循环，DeepSeek 缓存命中率 90%+，成本降至约 1/5 |
 | **三种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面） |
 | **三种模式** | Plan（只读）、Agent（交互审批）、YOLO（自动执行） |
-| **完整工具集** | 文件读写、Shell 执行、Git 操作、Web 搜索 — 9 个内置工具 |
+| **完整工具集** | 文件读写、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 10 个内置工具 |
 | **项目记忆** | 跨会话持久化，保存目标、决策、状态、摘要 |
 | **项目规则** | `.zouwucode/rules.md` 定义项目专属规则，自动注入系统提示词 |
 | **技能系统** | `.zouwucode/skills/` 可插拔知识包，`/skill` 命令动态加载/卸载 |
@@ -125,7 +125,17 @@ zouwucode dev --watch you/repo                         # 轮询 `zouwucode:do` �
 zouwucode dev --status                                 # 查看队列状态
 ```
 
-质量门禁：多层验证（lint→typecheck→test+覆盖率→security）+ 独立只读 AI 审查 diff + CI 联动（本地过但真实 CI 挂会提示）+ 自适应成本预算。安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 被沙箱限定在 worktree 内、任务超时/成本熔断（`engine.max_cost_usd`）、失败自动回帖 issue 请求人工介入。详见 [dev 模式说明](docs/dev模式使用说明.md)。
+质量门禁：显式规划（PLAN→ACT→REFLECT）+ 多层验证（lint→typecheck→test+覆盖率→security）+ 独立只读 AI 审查 diff + CI 联动（本地过但真实 CI 挂会提示）+ 自适应成本预算 + 卡死检测（动作指纹滑窗，防"工具都成功但原地打转"）。安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 被沙箱限定在 worktree 内、任务超时/成本熔断（`engine.max_cost_usd`）、生命周期钩子（pre_tool 可拦截）、失败自动回帖 issue 请求人工介入。详见 [dev 模式说明](docs/dev模式使用说明.md)。
+
+### 评测 harness（度量脚手架质量）
+
+```bash
+zouwucode eval                # 跑内置评测任务（真实 agent 栈 + 确定性判分）
+zouwucode eval --list         # 列出可用任务
+zouwucode eval --tasks my/    # 跑自定义任务目录（YAML 定义 setup + 行为断言）
+```
+
+行业共识：agent 质量差距主要来自脚手架而非模型本身——评测 harness 让每次改动（prompt/验证层/引擎）的收益可量化。详见 [评测 harness 说明](docs/评测harness使用说明.md)。
 
 ### 常用命令
 
@@ -341,24 +351,34 @@ zouwucode/                       # 核心包
 │       ├── deepseek.py          # DeepSeek 优化适配器
 │       └── openai.py            # OpenAI 兼容适配器
 │
-├── tools/                       # 工具系统（9 个内置工具）
+├── tools/                       # 工具系统（10 个内置工具）
 │   ├── base.py                  # 工具基类
 │   ├── registry.py              # 工具注册中心
 │   ├── file_tools.py            # 文件读写编辑搜索
 │   ├── shell_tools.py           # Shell 命令执行
+│   ├── code_exec_tool.py        # python_exec 持久 REPL（CodeAct 可执行动作）
 │   ├── git_tools.py             # Git 操作
 │   └── web_tools.py             # Web 搜索与抓取
 │
 ├── agent/                       # Agent 层
-│   ├── coordinator.py           # 工具调用协调器（引擎 ↔ 工具注册中心）
+│   ├── coordinator.py           # 工具调用协调器（引擎 ↔ 工具注册中心 + 钩子）
+│   ├── hooks.py                 # 生命周期钩子（pre_tool 可拦截 / post_tool）
 │   └── subagent.py              # 子 Agent 系统（隔离引擎/并行/白名单/级联打断）
 │
 ├── dev/                         # Devin 式自主开发模式（issue → Draft PR）
-│   ├── github.py                # GitHub REST 客户端（issue/PR/评论/标签）
+│   ├── github.py                # GitHub REST 客户端（issue/PR/评论/标签/Checks）
 │   ├── workspace.py             # git worktree 隔离 + dev/* 分支白名单
-│   ├── pipeline.py              # 端到端管线（实现→验证→PR）
+│   ├── pipeline.py              # 端到端管线（规划→实现→多层验证→审查→PR→CI）
+│   ├── verifiers.py             # 多层验证管线（lint/typecheck/test/security）
+│   ├── reviewer.py              # 独立只读 AI 审查（打破自写自测偏差）
 │   ├── queue.py                 # SQLite 任务队列（异步托管）
 │   └── cli.py                   # dev 子命令路由/worker/watch
+│
+├── eval/                        # 任务级评测 harness（pass-rate + 成本度量）
+│   ├── runner.py                # 真实 agent 栈跑任务，确定性判分
+│   ├── checks.py                # 行为断言（file/python_eval/command_pass）
+│   ├── cli.py                   # eval 子命令路由
+│   └── tasks/                   # 内置示例评测任务（*.yaml）
 │
 ├── extensions/                  # 扩展层（MCP/LSP 预留接口）
 │   ├── host.py                  # ExtensionHost + Extension 基类

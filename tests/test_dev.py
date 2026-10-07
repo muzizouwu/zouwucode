@@ -263,6 +263,8 @@ def _pipeline_config(tmp_path) -> ZOUWUCODEConfig:
     # Reviewer/CI need network + tokens; covered by dedicated unit tests.
     cfg.dev.review_enabled = False
     cfg.dev.ci_check_enabled = False
+    # PLAN phase adds one agent round; covered by its own test below.
+    cfg.dev.plan_enabled = False
     return cfg
 
 
@@ -577,10 +579,33 @@ class TestPipelineQualityGates:
         assert calls["n"] == 2                       # aborted, escalated, resumed
         assert result.success is True
 
+    def test_plan_phase_runs_first(self, git_repo, monkeypatch):
+        """plan_enabled=True → the agent gets a planning round before coding."""
+        cfg = _pipeline_config(git_repo.parent)
+        cfg.dev.plan_enabled = True
+        p = DevPipeline(cfg, git_repo, github=_StubGH())
+
+        seen = []
+
+        async def fake_agent(self, engine, prompt, extra_context=""):
+            seen.append(extra_context)
+            if len(seen) == 1:
+                return "1. fix calc.py\n2. run tests"      # plan output
+            Path("fix.txt").write_text("ok\n", encoding="utf-8")
+            return "done"
+        monkeypatch.setattr(DevPipeline, "_run_agent", fake_agent)
+
+        result = asyncio.run(p.run("some local task"))
+        assert result.success is True
+        assert len(seen) == 2
+        assert "planning" in seen[0].lower()   # plan prompt appended
+        assert seen[1] == ""                   # implement round has no extra
+
     def test_adaptive_budget_disabled_propagates(self, git_repo, monkeypatch):
         """With adaptive_budget off, a cost abort fails the task as before."""
         cfg = _pipeline_config(git_repo.parent)
         cfg.dev.adaptive_budget = False
+        cfg.dev.plan_enabled = False
         p = DevPipeline(cfg, git_repo, github=_StubGH())
 
         async def fake_agent(self, engine, prompt, extra_context=""):

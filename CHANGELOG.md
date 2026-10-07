@@ -15,6 +15,12 @@
   - CI 联动：push 后轮询真实 GitHub Checks，本地过但 CI 挂自动回帖提示（不阻塞，PR 保持 Draft）
   - 自适应成本预算：成本触顶自动翻倍预算续跑同一会话（`budget_escalations` 上限），替代一刀切失败
   - 实现者提示词内置边界自检清单（空值/错误路径/资源/并发/跨平台/兼容/安全）——约束放认知层而非堆砌禁令
+- **对标成熟 agent 架构升级**（调研 Devin/OpenHands/Claude Code/SWE-agent 共识模式后的五项落地）：
+  - **卡死检测**：引擎动作指纹滑窗（工具+参数+结果哈希），"工具都成功但原地打转"先提醒换思路、再犯熔断——补齐连续错误熔断管不到的死循环形态
+  - **评测 harness**（`zouwucode eval`）：真实 agent 栈跑确定性行为断言任务，输出通过率+成本；内置 3 个示例任务，YAML 自定义任务；改进脚手架从此可量化
+  - **CodeAct 行动面**：新增 `python_exec` 持久 Python REPL 工具（跨调用保留变量/导入；长度前缀+base64 帧协议；沙箱筛查+破坏性模式拦截+超时重启），复杂多步任务可用代码组合动作
+  - **显式 PLAN/REFLECT**：dev 管线实现前增加规划轮（同一会话进前缀），验证失败回灌带反思指令——对齐 PLAN→ACT→OBSERVE→REFLECT 规范控制循环
+  - **生命周期钩子**：`extensions.hooks` 注册 pre_tool（非零退出或 `{"block":true}` 拦截并回传原因）/ post_tool（编辑后自动化）钩子，Claude Code 风格确定性治理
 
 ## [1.0.0] - 2026-09-09
 

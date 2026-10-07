@@ -1,0 +1,18 @@
+name: fix-off-by-one
+prompt: |
+  calc.py has an off-by-one bug: sum_range(1, 3) should be 6 (1+2+3) but
+  returns 5 because it uses range(a, b) instead of range(a, b+1).
+  Fix the bug in calc.py. Do not add new files.
+setup:
+  calc.py: |
+    def sum_range(a, b):
+        return sum(range(a, b))
+# Behavior checks only — never match on exact source formatting,
+# so any correct fix (b+1, inclusive range, loop rewrite) passes.
+checks:
+  - type: python_eval
+    expr: "__import__('calc').sum_range(1, 3) == 6"
+  - type: python_eval
+    expr: "__import__('calc').sum_range(5, 5) == 5"
+  - type: python_eval
+    expr: "__import__('calc').sum_range(0, 0) == 0"

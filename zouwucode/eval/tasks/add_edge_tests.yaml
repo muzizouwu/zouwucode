@@ -1,0 +1,19 @@
+name: add-edge-tests
+prompt: |
+  utils.py contains safe_div(a, b) which returns a/b, or None when b is 0.
+  Write pytest tests for it in test_utils.py covering: normal division,
+  division by zero returning None, and negative numbers. Run pytest to
+  make sure your tests pass. Do not modify utils.py.
+setup:
+  utils.py: |
+    def safe_div(a, b):
+        if b == 0:
+            return None
+        return a / b
+# command_pass runs the agent's own test file — grading is deterministic,
+# but the tests themselves are the agent's work product.
+checks:
+  - type: file_exists
+    path: test_utils.py
+  - type: command_pass
+    command: python -m pytest test_utils.py -q

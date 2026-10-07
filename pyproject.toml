@@ -37,6 +37,10 @@ zouwucode = "zouwucode.__main__:main"
 [tool.setuptools.packages.find]
 include = ["zouwucode*", "hello_my_zouwucode*"]
 
+[tool.setuptools.package-data]
+"zouwucode.eval" = ["tasks/*.yaml"]
+"zouwucode.tui" = ["*.tcss"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

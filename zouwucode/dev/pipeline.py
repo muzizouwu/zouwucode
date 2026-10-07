@@ -26,11 +26,11 @@ from typing import Optional
 
 from ..config import ZOUWUCODEConfig
 from ..engine.loop import EngineLoop, TaskInterrupted, TurnLimitExceeded
-from ..runtime import create_provider, create_builtin_tools
+from ..runtime import (create_provider, create_builtin_tools,
+                       build_agent_engine)
 from ..tools.registry import ToolRegistry
 from ..sandbox.permission import PermissionManager
 from ..agent.coordinator import AgentCoordinator
-from ..agent.subagent import SubAgentManager
 from ..project_memory import ProjectMemory
 from .github import GitHubClient, GitHubError
 from .workspace import WorktreeManager, WorkspaceError, validate_branch
@@ -65,6 +65,15 @@ the harness after you finish.
 5. When done, summarize: what changed, why, how it was verified, and any \
 boundary cases you explicitly handled.
 """
+
+# Explicit PLAN phase (PLAN → ACT → REFLECT, the canonical agent loop).
+# Runs in the SAME engine so the plan lives in the append-only prefix —
+# later rounds reference it for free, and cache stability is preserved.
+_PLAN_PROMPT = """You are ZOUWUCODE Dev planning a change in an isolated \
+git worktree. Given the task, inspect just enough of the code to produce a \
+CONCISE ordered plan (3-8 steps) to complete it: which files to touch, what \
+to implement, how to verify, and the boundary cases this task must handle. \
+Do NOT edit any file in this phase. Output only the numbered plan."""
 
 
 @dataclass
@@ -151,22 +160,10 @@ class DevPipeline:
 
         Cost budget comes from config.engine.max_cost_usd (engine-enforced),
         optionally overridden per-task via _apply_budget (adaptive budget).
+        Delegates to runtime.build_agent_engine — the same wiring the eval
+        runner uses, so evaluation measures the real production stack.
         """
-        cfg = self.config
-        provider = create_provider(cfg)
-        engine = EngineLoop(cfg, provider)
-        engine.set_mode("yolo")
-        sandbox = PermissionManager(cfg.sandbox)
-        sandbox.set_workspace(Path.cwd())
-        tools = ToolRegistry()
-        tools.register_all(create_builtin_tools(sandbox))
-        coordinator = AgentCoordinator(cfg, engine, tools)
-        engine.set_tool_executor(coordinator.execute_tool)
-        # Sub-agents available to the dev worker too (parallel research).
-        manager = SubAgentManager(cfg, provider, coordinator)
-        manager.bind_main_engine(engine)
-        from ..tools.agent_tools import TaskTool
-        tools.register(TaskTool(manager))
+        engine, tools = build_agent_engine(self.config, Path.cwd())
         self._current_tools = tools
         return engine
 
@@ -299,6 +296,11 @@ class DevPipeline:
             self._apply_budget(engine, escalations=0)
             logger.info("Dev task %s started in worktree %s", task_id, ws.path)
 
+            # PLAN phase (explicit, same session → plan stays in the prefix)
+            if self.dev_cfg.plan_enabled:
+                plan = await self._run_plan(engine, prompt)
+                logger.info("Dev task %s planned (%d chars)", task_id, len(plan))
+
             # Round 0: autonomous implementation
             summary = await self._implement_with_budget(engine, prompt)
             result.summary = summary
@@ -324,8 +326,9 @@ class DevPipeline:
                 feedback = (
                     "\n\n## Verification result (FAILED)\n"
                     "The multi-layer checks below did not pass after your "
-                    "changes. Fix every FAILED layer (SKIPPED layers are not "
-                    "blocking):\n\n"
+                    "changes. First REFLECT: which step of your plan broke, "
+                    "and does the plan need revision? Then fix every FAILED "
+                    "layer (SKIPPED layers are not blocking):\n\n"
                     f"{result.verification_output}\n\n"
                     "Fix the remaining issues and re-run to completion."
                 )
@@ -412,6 +415,17 @@ class DevPipeline:
         finally:
             os.chdir(old_cwd)
             result.cost_usd = engine.stats.total_cost
+
+    async def _run_plan(self, engine: EngineLoop, prompt: str) -> str:
+        """Explicit PLAN phase in the SAME engine session.
+
+        The plan becomes part of the append-only prefix, so every later
+        round (and every verification-feedback round) can see and follow
+        it — no extra context plumbing needed. Goes through _run_agent so
+        the session plumbing (and test stubs) stay in one place.
+        """
+        return await self._run_agent(
+            engine, prompt, extra_context=f"\n\n{_PLAN_PROMPT}")
 
     async def _implement_with_budget(self, engine: EngineLoop, prompt: str,
                                      extra_context: str = "") -> str:

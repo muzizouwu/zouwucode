@@ -1,0 +1,20 @@
+name: handle-empty-input
+prompt: |
+  textproc.py crashes on empty or whitespace-only input: first_word("")
+  raises IndexError. Make first_word() return an empty string "" for
+  None, "", or whitespace-only input, and keep normal behavior otherwise
+  (first_word("hello world") == "hello"). Edit textproc.py in place.
+setup:
+  textproc.py: |
+    def first_word(text):
+        return text.split()[0]
+# Boundary behavior is the whole point of this task.
+checks:
+  - type: python_eval
+    expr: "__import__('textproc').first_word('hello world') == 'hello'"
+  - type: python_eval
+    expr: "__import__('textproc').first_word('') == ''"
+  - type: python_eval
+    expr: "__import__('textproc').first_word('   ') == ''"
+  - type: python_eval
+    expr: "__import__('textproc').first_word(None) == ''"

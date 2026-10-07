@@ -25,6 +25,7 @@
 17. [打包为独立可执行文件](#17-打包为独立可执行文件)
 18. [故障排除](#18-故障排除)
 19. [多智能体编排（hello-my-zouwucode）](#19-多智能体编排hello-my-zouwucode)
+20. [评测 harness（zouwucode eval）](#20-评测-harnesszouwucode-eval)
 
 ---
 
@@ -786,7 +787,7 @@ zouwucode dev --status                                   # 查看队列状态
 
 ## 12. 工具系统
 
-ZOUWUCODE 内置 9 个工具 + task 委派工具（子 Agent 并行任务分解），覆盖日常开发需求：
+ZOUWUCODE 内置 10 个工具 + task 委派工具（子 Agent 并行任务分解），覆盖日常开发需求：
 
 ### 文件操作工具
 
@@ -803,6 +804,7 @@ ZOUWUCODE 内置 9 个工具 + task 委派工具（子 Agent 并行任务分解�
 | 工具 | 说明 | 权限 |
 |------|------|------|
 | `Shell` | 执行 shell 命令 | 需审批（沙箱保护） |
+| `python_exec` | 持久 Python REPL：变量/导入跨调用保留，适合多步数据处理、批量修改、自写验证脚本（CodeAct 可执行动作面） | 需审批（沙箱保护 + 破坏性模式拦截 + 超时重启） |
 | `Git` | Git 操作（状态、差异、提交、日志） | 需审批 |
 
 ### 网络工具
@@ -1215,6 +1217,51 @@ hello_my_zouwucode:
 
 ---
 
+## 20. 评测 harness（zouwucode eval）
+
+行业共识：agent 质量差距主要来自**脚手架而非模型**（同模型不同脚手架在
+SWE-bench Verified 可差 20 分）。评测 harness 用真实 agent 栈跑一组带
+**确定性行为断言**的任务，输出通过率 + 成本，让每次 prompt/验证层/引擎
+改动的收益可量化。
+
+### 20.1 命令
+
+```bash
+zouwucode eval                        # 跑内置示例任务
+zouwucode eval --list                 # 列出可用任务
+zouwucode eval --task fix-off-by-one  # 只跑一个
+zouwucode eval --tasks my_tasks/      # 自定义任务目录
+```
+
+### 20.2 任务定义（YAML）
+
+```yaml
+name: my-task
+prompt: |
+  data.py 的 parse_ints("1,x,3") 会崩溃，让它跳过非数字项。
+setup:
+  data.py: |
+      def parse_ints(s):
+          return [int(x) for x in s.split(",")]
+checks:
+  - type: python_eval
+    expr: "__import__('data').parse_ints('1,x,3') == [1, 3]"
+  - type: command_pass
+    command: python -m pytest -q
+timeout: 300
+```
+
+检查类型：`file_exists` / `file_absent` / `file_contains` / `python_eval`（推荐，
+测行为不测写法）/ `command_pass`。判分不经过 LLM——LLM 只干活，不打分。
+
+### 20.3 使用建议
+
+- 调 prompt / 验证层 / 引擎参数前后各跑一次，对比通过率与成本
+- 线上踩过的边界 bug → 固化为评测任务，套件随项目变强
+- 完整说明见 [评测harness使用说明](docs/评测harness使用说明.md)
+
+---
+
 ## 附录：项目结构
 
 ```
@@ -1240,13 +1287,32 @@ zouwucode/
 │   ├── registry.py      # 工具注册中心
 │   ├── file_tools.py    # 文件读写、编辑、搜索
 │   ├── shell_tools.py   # Shell 命令执行
+│   ├── code_exec_tool.py# python_exec 持久 REPL（CodeAct 可执行动作）
 │   ├── git_tools.py     # Git 操作
 │   └── web_tools.py     # Web 搜索与抓取
 │
 ├── agent/               # 工具调用协调器
 │   ├── __init__.py
-│   ├── coordinator.py   # 主协调器
+│   ├── coordinator.py   # 主协调器（含生命周期钩子）
+│   ├── hooks.py         # pre_tool（可拦截）/ post_tool 钩子
 │   └── subagent.py      # 子 Agent 系统：隔离引擎/并行/白名单/级联打断
+│
+├── dev/                 # Devin 式自主开发模式
+│   ├── __init__.py
+│   ├── cli.py           # dev 子命令路由/worker/watch
+│   ├── pipeline.py      # 端到端管线（规划→实现→多层验证→审查→PR→CI）
+│   ├── workspace.py     # git worktree 隔离 + dev/* 分支白名单
+│   ├── verifiers.py     # 多层验证管线（lint/typecheck/test/security）
+│   ├── reviewer.py      # 独立只读 AI 审查
+│   ├── queue.py         # SQLite 任务队列
+│   └── github.py        # GitHub REST 客户端 + Checks 轮询
+│
+├── eval/                # 任务级评测 harness
+│   ├── __init__.py
+│   ├── cli.py           # eval 子命令路由
+│   ├── runner.py        # 真实 agent 栈跑任务，确定性判分
+│   ├── checks.py        # 行为断言（file/python_eval/command_pass）
+│   └── tasks/           # 内置示例评测任务（*.yaml）
 │
 ├── extensions/          # 扩展层 MCP/LSP 预留接口
 │   ├── __init__.py

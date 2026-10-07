@@ -43,6 +43,10 @@ class EngineConfig(BaseModel):
     max_llm_retries: int = 2               # 单次 LLM 请求失败后的最大重试次数（0=关闭）
     retry_base_delay_seconds: float = 1.0  # 退避基数：第 n 次重试等待 base * 2^(n-1) 秒
     max_cost_usd: float = 0.0              # 单任务成本熔断（美元，0=不限制）
+    # 卡死检测：防"工具都成功但原地打转"（连续错误熔断管不到的那类死循环）
+    stuck_detection_enabled: bool = True
+    stuck_window: int = 10                 # 动作指纹滑窗长度（按工具结果计）
+    stuck_threshold: int = 3               # 同一 (工具+参数+结果) 指纹在窗口内重复达此数即判定卡死
 
 
 class GithubConfig(BaseModel):
@@ -83,6 +87,9 @@ class DevConfig(BaseModel):
     adaptive_budget: bool = True
     task_cost_budget_usd: float = 0.0      # dev 任务基础成本预算（0=沿用 engine.max_cost_usd）
     budget_escalations: int = 1            # 触顶后自动升级预算的次数
+
+    # ── 显式规划阶段（PLAN → ACT → REFLECT，对标成熟 agent 控制循环）──
+    plan_enabled: bool = True              # 实现前先产出有序任务清单，失败回灌时重规划
 
 
 class CacheConfig(BaseModel):
@@ -140,6 +147,20 @@ class McpServerConfig(BaseModel):
     args: list[str] = Field(default_factory=list)
 
 
+class HookConfig(BaseModel):
+    """One lifecycle hook: a shell command run at a tool lifecycle event.
+
+    - pre_tool:  runs BEFORE execution; stdout JSON {"block": true, "reason": ...}
+                 or non-zero exit with stderr blocks the call (Claude Code style).
+    - post_tool: runs AFTER execution (e.g. auto-format after edit).
+    {tool}, {args}, {result} placeholders are substituted from the tool call.
+    """
+
+    event: str = "post_tool"             # pre_tool | post_tool
+    command: str = ""                    # shell command template
+    tool_pattern: str = ""               # 仅匹配工具名（子串）；空=全部
+
+
 class ExtensionsConfig(BaseModel):
     """Extension layer settings — MCP / LSP integration space (reserved).
 
@@ -149,6 +170,7 @@ class ExtensionsConfig(BaseModel):
 
     mcp_servers: list[McpServerConfig] = Field(default_factory=list)
     lsp_enabled: bool = False            # 启用后注册 check_diagnostics 工具
+    hooks: list[HookConfig] = Field(default_factory=list)  # 生命周期钩子（默认空）
 
 
 class ZOUWUCODEConfig(BaseModel):

@@ -92,7 +92,7 @@
 | 三档推理强度 | low / medium / max 映射 reason_effort | `deepseek.py` + `config.py` |
 | 流式思考显示 | 思考过程增量实时推送（opencode 风格），`/thinking` 三端开关 | `loop.py` + CLI/TUI/Web |
 | 任务打断 | Esc（TUI/Web）/ Ctrl+C（CLI）请求打断，在安全点（流 chunk / 轮边界 / 工具执行前）生效，抛出 `TaskInterrupted` | `engine/loop.py` |
-| 引擎安全限制 | 工具轮数上限、LLM/任务超时、连续工具错误熔断、单任务成本熔断（`max_cost_usd`），超限抛出 `TurnLimitExceeded` | `engine/loop.py` + `config.py`（EngineConfig） |
+| 引擎安全限制 | 工具轮数上限、LLM/任务超时、连续工具错误熔断、单任务成本熔断（`max_cost_usd`）、卡死检测（动作指纹滑窗），超限抛出 `TurnLimitExceeded` | `engine/loop.py` + `config.py`（EngineConfig） |
 | 多模型支持 | DeepSeek + OpenAI 兼容 | `engine/providers/` |
 
 ### 3.2 界面特性
@@ -103,7 +103,7 @@
 | TUI | `--tui` | OpenAI Code 风格 | Textual 框架，彩色消息 |
 | Web UI | `--web` | DeepCode 暗色风格 | 浏览器界面，API 端点 |
 
-### 3.3 工具系统（9 个内置工具 + task 委派工具）
+### 3.3 工具系统（10 个内置工具 + task 委派工具）
 
 | 工具 | 类别 | 说明 |
 |------|------|------|
@@ -113,6 +113,7 @@
 | Ls | 文件 | 列出目录内容 |
 | Glob | 文件 | 通配符文件搜索 |
 | Shell | 执行 | Shell 命令执行（沙箱保护） |
+| python_exec | 执行 | 持久 Python REPL（CodeAct 可执行动作，跨调用保留变量/导入） |
 | Git | 执行 | Git 操作（status/diff/commit/log） |
 | WebSearch | 网络 | 联网搜索 |
 | WebFetch | 网络 | 获取网页内容 |
@@ -129,7 +130,9 @@
 | 会话管理 | 自动保存、恢复、回滚 | `session/manager.py` |
 | 子 Agent 系统 | 主 Agent + 隔离子 Agent 并行执行（task 工具委派） | `agent/subagent.py`, `tools/agent_tools.py` |
 | 扩展层 | ExtensionHost 统一宿主，MCP / LSP 扩展默认不激活 | `extensions/` |
-| Devin 式 dev 模式 | `zouwucode dev`：issue→worktree→自主管线→验证→Draft PR；SQLite 队列 + 并行 worker + watch 标签轮询 | `dev/` |
+| Devin 式 dev 模式 | `zouwucode dev`：规划→实现→多层验证→独立审查→Draft PR→CI 联动；SQLite 队列 + 并行 worker + watch 标签轮询 | `dev/` |
+| 评测 harness | `zouwucode eval`：真实 agent 栈 + 确定性行为断言，通过率/成本度量 | `eval/` |
+| 生命周期钩子 | pre_tool（可拦截）/ post_tool（自动化）shell 钩子，配置驱动 | `agent/hooks.py` |
 | Rules & Skills | `.zouwucode/rules.md` 项目规则 + `.zouwucode/skills/*.md` 技能包 | `skills/manager.py` |
 | 模块系统 | 可加载扩展模块，内置 hello-my-zouwucode 多智能体编排 | `modules/manager.py`, `hello_my_zouwucode/` |
 | MCP 协议 | 支持 Model Context Protocol 扩展 | `mcp/client.py` |
@@ -283,7 +286,8 @@
 - `on_interrupt`：本引擎被打断时级联调用（SubAgentManager 用于停止所有运行中的子 Agent）
 
 **重要设计决策**：
-- `run()` 采用迭代循环而非递归：每轮一次 LLM 请求 + 其工具调用，三重安全限制（`max_tool_rounds` / `task_timeout_seconds` / `max_consecutive_tool_errors`）防止死循环与停顿
+- `run()` 采用迭代循环而非递归：每轮一次 LLM 请求 + 其工具调用，多重安全限制（`max_tool_rounds` / `task_timeout_seconds` / `max_consecutive_tool_errors` / 成本熔断 / **卡死检测**）防止死循环与停顿
+- **卡死检测（stuck detection）**：滑动窗口记录每步动作指纹 `(tool, arguments, result)` 的 SHA1；同一指纹在窗口内重复达 `stuck_threshold` → 先注入一条 user 提醒（换思路/重规划/总结止损，措辞为信息而非禁令），再犯则抛 `TurnLimitExceeded`。补齐"工具全部成功但模型原地打转"这一连续错误熔断无法覆盖的死循环形态；提醒注入点在本轮工具结果之后，保持 append-only 前缀 API 合法
 - 助手响应必须在缓存中追加（含 `tool_calls`），否则后续的 `tool` 角色消息会报 400 错误
 - `freeze_session` 中调用 `cache.reset()` 确保跨会话缓存不累积
 - 打断后前缀清理：若带 `tool_calls` 的助手消息已追加，为每个未执行的调用补齐 synthetic "[interrupted]" 工具结果，保持前缀 API 有效
@@ -368,6 +372,17 @@
 
 **职责**：执行 Shell 命令，集成沙箱安全检查。
 
+#### `tools/code_exec_tool.py` — PythonExecTool（python_exec，CodeAct 行动面）
+
+**职责**：持久 Python REPL 作为 agent 的第二行动面——模型用代码组合多步操作（循环、条件、自写验证脚本），复杂任务上优于逐条 JSON 工具调用（OpenHands CodeAct 的核心洞察）。
+
+**关键设计**：
+- 每工具实例一个长驻 `python -u` 子进程，跑自驱动 REPL 驱动脚本（readline 循环，不等 EOF——普通 `python -u` 读管道 stdin 会挂起）
+- 线协议：行1=帧长，行2=`<sentinel> <base64(code)>`（纯 ASCII，免疫编码/换行问题）；驱动执行后打印 sentinel 行，父端按行收集到 sentinel 为止，stdout 切分精确
+- 命名空间跨调用持久（变量/导入保留）——这是 REPL 的意义
+- 安全：复用 PermissionManager 命令筛查 + 破坏性模式正则（`rm -rf /`、`shutil.rmtree('/')`、`os.system("rm …")` 等）；单调用硬超时 → kill 并重启会话；输出截断 30k
+- 进程级防护而非容器隔离——与项目本地优先姿态一致的文档化取舍（OpenHands 靠 Docker workspace 拿容器隔离）
+
 #### `tools/git_tools.py` — GitTool
 
 **职责**：执行 Git 操作，支持 status、diff、commit、log 等。
@@ -391,9 +406,18 @@
 
 **关键设计**：
 - `execute_tool()` 方法作为回调传递给 EngineLoop
+- **生命周期钩子**：执行前跑 pre_tool 钩子（`agent/hooks.py` HookRunner），非零退出或 stdout `{"block": true, "reason": ...}` 即拦截调用并把原因作为错误结果回传模型（模型能看到 WHY 并调整）；执行后跑 post_tool 钩子（观察/自动化，失败绝不影响工具结果）。钩子配置 `extensions.hooks` 为空时零开销
 - 工具参数是流式返回的 JSON 字符串，先 `json.loads` 解析再解包（防 `**` 解包 TypeError），非 dict 返回错误结果
 - 派发到 ToolRegistry 执行，并将工具层 `ToolResult(success/output/error)` 转为引擎层 `ToolResult(tool_call_id/content/is_error)`
 - 模式差异（plan 只读跳过工具、YOLO 自动执行）由引擎层处理，协调器不做权限审批
+
+#### `agent/hooks.py` — HookRunner（生命周期钩子）
+
+**职责**：Claude Code 风格的确定性自动化/治理扩展点（其 27 事件钩子体系中最有价值的两个）。
+
+- `HookConfig(event, command, tool_pattern)`：`pre_tool` 可拦截、`post_tool` 观察；`tool_pattern` 按工具名子串过滤
+- 命令模板支持 `{tool}` `{args}` `{result}` 占位符
+- 单钩子 10s 超时：pre_tool 超时按拦截处理（fail-closed），post_tool 超时仅告警（fail-open）——挂死的钩子永远不会卡住主循环
 
 #### `agent/subagent.py` — SubAgent & SubAgentManager
 
@@ -574,7 +598,7 @@
 3. `DeepSeekProvider` / `OpenAIProvider` 创建 LLM 提供商（经 `runtime.create_provider` 工厂）
 4. `EngineLoop` 创建引擎
 5. `PermissionManager` 创建沙箱
-6. `ToolRegistry` 注册 9 个内置工具 + `task` 委派工具
+6. `ToolRegistry` 注册 10 个内置工具 + `task` 委派工具
 7. `AgentCoordinator` 创建协调器，`SubAgentManager` 创建子 Agent 管理器并绑定主引擎级联打断
 8. `ExtensionHost` 注册 `McpExtension` / `LspExtension`（默认不激活）
 9. `MemoryManager`、`TopicManager`、`TranscriptManager` 创建上下文管理
@@ -653,16 +677,16 @@
 
 **配置模型**：
 - `ProviderConfig`：LLM 提供商配置（api_key、base_url、model、api_type）
-- `EngineConfig`：引擎安全限制（max_tool_rounds=25、turn_timeout_seconds=300、task_timeout_seconds=1800、max_consecutive_tool_errors=3、max_llm_retries=2、max_cost_usd=0 成本熔断）
+- `EngineConfig`：引擎安全限制（max_tool_rounds=25、turn_timeout_seconds=300、task_timeout_seconds=1800、max_consecutive_tool_errors=3、max_llm_retries=2、max_cost_usd=0 成本熔断、stuck_detection_enabled/stuck_window/stuck_threshold 卡死检测）
 - `CacheConfig`：缓存配置（enabled、max_prefix_tokens、append_only、stats_window）
 - `SandboxConfig`：沙箱配置（enabled、default_mode、allow_*、allowed_paths）
 - `SessionConfig`：会话配置（save_enabled、auto_save_interval、max_sessions、rollback_enabled）
 - `SubAgentConfig`：子 Agent 配置（max_agents=8、default_timeout=600）
 - `McpServerConfig`：单个 MCP 服务器连接（name、command、args）
-- `ExtensionsConfig`：扩展层配置（mcp_servers=[]、lsp_enabled=false，默认不激活）
+- `ExtensionsConfig`：扩展层配置（mcp_servers=[]、lsp_enabled=false、hooks=[] 生命周期钩子，默认不激活）
 - `HelloMyZouwucodeConfig`：hello-my-zouwucode 模块配置（enabled、state_dir、default_category、max_review_rounds、interactive_planning）
 - `GithubConfig`：GitHub 集成（token、api_base；GITHUB_TOKEN 环境变量优先）
-- `DevConfig`：dev 模式（branch_prefix="dev"、worktree_dir、test_command、verify_retries=2、max_concurrent_tasks=3、task_timeout_seconds=3600、watch_label="zouwucode:do"、draft_pr=true；质量门禁：lint/typecheck/security_command、coverage_min、review_enabled+review_max_rounds、ci_check_enabled+ci_wait_seconds+ci_poll_interval、adaptive_budget+task_cost_budget_usd+budget_escalations）
+- `DevConfig`：dev 模式（branch_prefix="dev"、worktree_dir、test_command、verify_retries=2、max_concurrent_tasks=3、task_timeout_seconds=3600、watch_label="zouwucode:do"、draft_pr=true；质量门禁：lint/typecheck/security_command、coverage_min、review_enabled+review_max_rounds、ci_check_enabled+ci_wait_seconds+ci_poll_interval、adaptive_budget+task_cost_budget_usd+budget_escalations、plan_enabled 显式规划）
 - `ZOUWUCODEConfig`：根配置（providers、default_provider、engine、cache、sandbox、session、subagent、extensions、hello_my_zouwucode、github、dev、reasoning_intensity、show_thinking、data_dir、theme、language）
 
 **配置加载优先级**：
@@ -704,7 +728,8 @@
 **职责**：CLI / TUI / Web 三端共享的工厂函数，保证三端行为一致（历史上三端各自复制 provider 工厂与内置工具清单，已出现漂移）。
 
 - `create_provider(config)`：根据 `default_provider` 与 `api_type` 构建 DeepSeekProvider / OpenAIProvider（缺失时注入默认配置）
-- `create_builtin_tools(sandbox)`：返回 9 个内置工具实例清单（Read/Write/Edit/Ls/Glob/Shell/Git/WebSearch/WebFetch）
+- `create_builtin_tools(sandbox, config)`：返回 10 个内置工具实例清单（Read/Write/Edit/Ls/Glob/Shell/python_exec/Git/WebSearch/WebFetch；`python_exec` 在传入 config 且允许 shell 时加入）
+- `build_agent_engine(config, sandbox_root, mode, with_subagents)`：一站式装配完整 agent 栈（引擎+沙箱+注册表+协调器+子 Agent），dev 管线与 eval harness 共用同一工厂——评测度量的就是生产跑的栈
 
 ### 5.16 `extensions/` — 扩展层
 
@@ -732,8 +757,9 @@
 ```
 issue URL / owner/repo#N / 自由文本任务
     → 隔离 git worktree（dev/* 分支，绝不触碰主检出）
-    → 自主 agent 会话（EngineLoop，yolo 模式，成本/轮数/超时熔断全生效）
-    → 多层验证：lint → typecheck → test(+覆盖率) → security，逐层失败回灌（有界重试）
+    → 显式 PLAN（同一会话产出有序计划，进 append-only 前缀）
+    → 自主 agent 会话（EngineLoop，yolo 模式，成本/轮数/超时/卡死熔断全生效）
+    → 多层验证：lint → typecheck → test(+覆盖率) → security，逐层失败回灌（有界重试，带 REFLECT）
     → 独立 AI 审查：全新只读会话审 diff，request_changes 回灌修复（有界轮数）
     → 成功：commit + push dev/* + Draft PR（永不自动合并，人工 review 边界）
       CI 联动：轮询真实 GitHub Checks，结果回写 PR（不阻塞，仅提示人工）
@@ -822,6 +848,22 @@ issue URL / owner/repo#N / 自由文本任务
 
 **并行模型**：每个 worker 是独立 `python -m zouwucode dev --worker` 子进程——进程隔离天然带来每任务独立 CWD（worktree）、崩溃隔离、干净的 Ctrl+C 语义。认领后 `asyncio.wait_for(pipeline.run(ref), timeout)` 强制任务级超时；worker 在任务崩溃时仍存活并继续下一个。
 
+**显式 PLAN/REFLECT**（对标规范控制循环 PLAN→ACT→OBSERVE→REFLECT）：`plan_enabled` 时实现前先跑一轮规划（产出 3-8 步有序清单，**同一引擎会话** → 计划进入 append-only 前缀，后续所有轮次免费可见）；验证失败回灌文本要求先 REFLECT（计划哪步失效、是否重规划）再修复。
+
+### 5.20 `eval/` — 任务级评测 harness
+
+**职责**：度量脚手架质量。行业共识：同模型不同脚手架在 SWE-bench Verified 可差 20 分——改进脚手架的前提是可度量。
+
+```
+zouwucode eval                    # 真实 agent 栈跑内置任务 → 通过率 + 成本
+zouwucode eval --list / --task X / --tasks dir/
+```
+
+- `runner.py`：`EvalTask(name/prompt/setup/checks/timeout)` YAML 加载；`run_task` 在隔离临时工作区写入 setup 文件 → 用 **`runtime.build_agent_engine`（与 dev 管线同源的完整生产栈）** 跑 agent → `run_checks` 判分。`engine_factory` 可注入（测试用假 provider）
+- `checks.py`：确定性判分，**判分不经过 LLM**——`file_exists/absent/contains`、`python_eval`（表达式为真，推荐：测行为不测写法）、`command_pass`（退出码 0）
+- `tasks/*.yaml`：内置示例（修 off-by-one / 处理空输入边界 / 补边界测试），随包分发（pyproject package-data）
+- 用法：调 prompt/验证层/引擎前后各跑一次对比通过率与成本；线上踩过的边界 bug 固化为新任务
+
 ---
 
 ## 6. 文件结构
@@ -851,13 +893,15 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   │   ├── registry.py                 # ToolRegistry 注册中心
 │   │   ├── file_tools.py               # Read/Write/Edit/Ls/Glob
 │   │   ├── shell_tools.py              # Shell 命令执行
+│   │   ├── code_exec_tool.py           # python_exec 持久 REPL（CodeAct 行动面）
 │   │   ├── git_tools.py                # Git 操作
 │   │   ├── web_tools.py                # WebSearch + WebFetch
 │   │   └── agent_tools.py              # TaskTool：task 委派工具（子 Agent 并行）
 │   │
 │   ├── agent/                          # 多 Agent 编排
 │   │   ├── __init__.py
-│   │   ├── coordinator.py              # AgentCoordinator 工具执行回调
+│   │   ├── coordinator.py              # AgentCoordinator 工具执行回调（含钩子）
+│   │   ├── hooks.py                    # HookRunner：pre_tool/post_tool 生命周期钩子
 │   │   └── subagent.py                 # SubAgent + SubAgentManager 子 Agent 系统
 │   │
 │   ├── extensions/                     # 扩展层（MCP/LSP 预留接口，默认不激活）
@@ -904,6 +948,13 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   │   ├── queue.py                    # DevQueue：SQLite 持久任务队列（原子认领）
 │   │   └── github.py                   # GitHubClient：REST 轻封装 + URL 解析 + Checks 轮询
 │   │
+│   ├── eval/                           # 任务级评测 harness（zouwucode eval）
+│   │   ├── __init__.py
+│   │   ├── cli.py                      # eval 子命令路由
+│   │   ├── runner.py                   # 真实 agent 栈跑任务（build_agent_engine 同源）
+│   │   ├── checks.py                   # 确定性判分（file/python_eval/command_pass）
+│   │   └── tasks/                      # 内置示例评测任务（*.yaml，随包分发）
+│   │
 │   ├── lsp/                            # LSP 诊断集成
 │   │   ├── __init__.py
 │   │   └── client.py                   # LSPClient
@@ -930,20 +981,24 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（295 个测试用例）
+├── tests/                              # 测试套件（324 个测试用例）
 │   ├── __init__.py
+│   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
 │   ├── test_config.py
 │   ├── test_context.py
 │   ├── test_context_window.py
-│   ├── test_dev.py                    # dev 模式（解析/分支安全/真实 worktree/队列/管线端到端/成本熔断）
+│   ├── test_dev.py                    # dev 模式（解析/分支安全/真实 worktree/队列/管线端到端/质量门禁）
 │   ├── test_engine.py
+│   ├── test_eval.py                   # 评测 harness（判分类型/任务加载/端到端判对错）
 │   ├── test_hello_my_zouwucode.py
+│   ├── test_hooks.py                  # 生命周期钩子（pre_tool 拦截/post_tool/协调器集成）
 │   ├── test_interrupt.py               # 任务打断（CLI/TUI/Web、级联、前缀清理）
 │   ├── test_project_memory.py
 │   ├── test_resilience.py             # 韧性（LLM 重试退避、日志落盘、密钥校验）
 │   ├── test_sandbox.py
 │   ├── test_session.py
+│   ├── test_stuck.py                  # 卡死检测（指纹滑窗提醒/熔断/恢复/豁免）
 │   ├── test_subagent.py                # 子 Agent 系统（隔离引擎、白名单、并行）
 │   ├── test_tools.py
 │   ├── test_tui.py
@@ -1005,6 +1060,9 @@ engine:
   max_consecutive_tool_errors: 3           # 工具连续失败次数达到该值即终止任务
   max_llm_retries: 2                       # LLM 请求失败重试（429/5xx/传输错误指数退避）
   max_cost_usd: 0.0                        # 单任务成本熔断（美元，0=不限制）
+  stuck_detection_enabled: true            # 卡死检测（工具成功但原地打转）
+  stuck_window: 10                         # 动作指纹滑窗长度
+  stuck_threshold: 3                       # 窗口内同一动作重复达此数即提醒/熔断
 
 # 缓存配置
 cache:
@@ -1043,6 +1101,10 @@ extensions:
   #    command: npx
   #    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
   lsp_enabled: false                       # 启用后注册 check_diagnostics 诊断工具
+  hooks: []                                # 生命周期钩子：pre_tool（可拦截）/ post_tool
+  #  - event: pre_tool
+  #    tool_pattern: bash
+  #    command: "python check_cmd.py {args}"   # 非零退出或 {"block":true} 即拦截
 
 # 多智能体编排模块（hello-my-zouwucode）
 hello_my_zouwucode:
@@ -1081,6 +1143,7 @@ dev:
   adaptive_budget: true
   task_cost_budget_usd: 0.0                # 0 = 沿用 engine.max_cost_usd
   budget_escalations: 1
+  plan_enabled: true                       # 实现前显式 PLAN 轮（同一会话进前缀）
 
 # 推理强度
 reasoning_intensity: medium                # low | medium | max
@@ -1117,6 +1180,7 @@ show_thinking: true                        # true | false，默认 true 实时�
 | 第十阶段 | 开源发布与韧性 | LLM 指数退避重试、日志轮转落盘、GitHub Actions CI（Ubuntu/Windows 矩阵）、Windows cp437 编码修复、密钥防泄露验证 |
 | 第十一阶段 | Devin 式 dev 模式 | `zouwucode dev` 子命令：issue→worktree→自主管线→验证→Draft PR；SQLite 队列+并行 worker+watch；成本熔断+经验沉淀 |
 | 第十二阶段 | dev 质量门禁 | 多层验证（lint/typecheck/test/security）+ 独立只读 AI 审查 + CI 联动 + 自适应成本预算 + 边界自检清单 |
+| 第十三阶段 | 对标成熟 agent 升级 | 卡死检测（动作指纹滑窗）、评测 harness（zouwucode eval）、CodeAct python_exec 持久 REPL、显式 PLAN/REFLECT、生命周期钩子（pre/post_tool） |
 
 ### 8.2 关键设计决策
 
@@ -1179,6 +1243,26 @@ show_thinking: true                        # true | false，默认 true 实时�
 - **背景**：给 agent 堆砌"禁止 X"式硬约束会显著降低模型在复杂任务上的表现；一刀切成本限制掐死复杂任务、又对简单任务过松
 - **方案**：边界意识写进实现者自检清单（认知层）；成本触顶不直接失败而是翻倍预算续跑同一会话（`budget_escalations` 有上限）；反馈按层标注（信息性），而非笼统报错
 - **影响**：约束保持"信息性"而非"限制性"，模型性能不受损的同时边界覆盖率提升；复杂任务获得弹性预算
+
+#### 决策 13：卡死检测——补齐"成功但不推进"的死循环形态
+- **背景**：连续工具错误熔断只能抓"一直报错"的循环；模型也可能反复用相同参数调同一工具拿到相同结果（全部"成功"）却毫无进展，直到烧满轮数上限
+- **方案**：滑动窗口记录每步动作指纹 `(tool, args, result)` 哈希，同一指纹重复达阈值先注入一条"换思路/重规划/止损"的 user 提醒（措辞为信息非禁令），再犯抛 `TurnLimitExceeded`；提醒注入在本轮工具结果之后保持前缀合法
+- **影响**：无进展循环被提前掐断，省下大量 token；模型收到提醒后改变策略则任务照常完成
+
+#### 决策 14：评测 harness——改进脚手架的前提是可度量
+- **背景**：行业共识"循环即产品，模型只是引擎"，同模型不同脚手架 SWE-bench 可差 20 分；但改 prompt/验证层/引擎若无基线就是盲调
+- **方案**：`zouwucode eval` 用 `build_agent_engine`（与 dev 管线同源的完整生产栈）跑 YAML 定义的确定性行为断言任务，判分不经过 LLM；内置示例 + package-data 随包分发
+- **影响**：每次脚手架改动有通过率/成本对比；线上边界 bug 可固化为回归任务
+
+#### 决策 15：CodeAct 持久 REPL 作为第二行动面
+- **背景**：纯 JSON 工具调用无法让模型组合循环/条件/自写验证脚本；OpenHands 的可执行动作面在复杂多步任务上显著占优
+- **方案**：`python_exec` 长驻子进程跑自驱动 REPL 驱动（readline 循环不等 EOF），base64 帧协议免疫编码问题，命名空间跨调用持久；复用沙箱筛查 + 破坏性模式拦截 + 超时重启
+- **影响**：批量处理/程序化验证成为单次调用；进程级隔离（非容器）是与本地优先姿态一致的取舍
+
+#### 决策 16：生命周期钩子的 fail 语义
+- **背景**：钩子是模型外的确定性治理（拦截危险命令、编辑后自动格式化），但挂死的钩子绝不能卡住主循环
+- **方案**：pre_tool 超时/失败按拦截处理（fail-closed，安全优先），post_tool 超时/失败仅告警（fail-open，观察性质不影响结果）；拦截原因作为错误结果回传模型使其可自适应
+- **影响**：治理确定性与主循环可用性兼得
 
 ### 8.3 重大 Bug 修复记录
 
@@ -1366,7 +1450,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **295 个测试用例**
+- 共计 **324 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证
@@ -1375,18 +1459,22 @@ beautifulsoup4>=4.12.0
 
 | 测试文件 | 测试内容 | 测试用例数 |
 |----------|----------|------------|
+| test_code_exec.py | python_exec 持久 REPL（命名空间/异常捕获/CJK/破坏性拦截/超时重启/沙箱） | 9 |
 | test_compressor.py | 对话压缩算法 | 10 |
 | test_config.py | 配置加载/保存/验证 | 5 |
 | test_context.py | 上下文管理 | 10 |
 | test_context_window.py | 滑动窗口 | 11 |
-| test_dev.py | dev 模式（URL 解析、分支安全白名单、真实 git worktree、SQLite 队列原子认领、pipeline 端到端、成本熔断、多层验证探测、reviewer 解析、CI 联动、自适应预算） | 44 |
+| test_dev.py | dev 模式（URL 解析、分支安全白名单、真实 git worktree、SQLite 队列原子认领、pipeline 端到端、成本熔断、多层验证探测、reviewer 解析、CI 联动、自适应预算、PLAN 阶段） | 45 |
 | test_engine.py | 引擎循环、流式思考聚合/回调、Provider 无重复流式、coordinator 工具分发 | 30 |
+| test_eval.py | 评测 harness（判分类型、任务加载、端到端判对错——假 provider 验证"修对了过、没修不过"） | 8 |
 | test_hello_my_zouwucode.py | hello-my-zouwucode 模块 | 53 |
+| test_hooks.py | 生命周期钩子（pre_tool 拦截/JSON block/工具过滤/协调器集成） | 7 |
 | test_interrupt.py | 任务打断（CLI/TUI/Web、级联打断、打断后前缀清理） | 22 |
 | test_project_memory.py | 项目记忆 | 11 |
 | test_resilience.py | 韧性（LLM 重试退避分类、日志落盘、API Key 校验） | 11 |
 | test_sandbox.py | 权限沙箱 | 6 |
 | test_session.py | 会话管理 | 5 |
+| test_stuck.py | 卡死检测（指纹滑窗提醒→熔断、提醒后恢复、禁用回落、变化动作豁免） | 4 |
 | test_subagent.py | 子 Agent 系统（隔离引擎、工具白名单、并行、级联打断） | 22 |
 | test_tools.py | 工具系统 | 9 |
 | test_tui.py | TUI/CLI 界面、思考开关与行缓冲 | 30 |
@@ -1450,6 +1538,15 @@ pytest tests/ --cov=zouwucode --cov-report=term
    - 自主 agent 会话跑在 worktree 内（沙箱根 = worktree），验证失败回灌迭代（有界）
    - 产出永远是 Draft PR（人工 review 边界）；失败回帖 issue，不产生 PR
    - SQLite 队列原子认领（`UPDATE ... RETURNING`）+ worker 进程隔离 + 超时重入队恢复
+
+9. **质量门禁与脚手架度量**（对标成熟 agent 的共识模式）
+   - 多层验证管线（lint/typecheck/test/security，缺工具自动跳过不假过）
+   - 独立只读 reviewer（plan 模式 + 只读白名单 + 零共享上下文）打破自写自测偏差
+   - CI 联动：验证延伸到真实多平台矩阵
+   - 卡死检测：动作指纹滑窗抓"成功但不推进"的死循环
+   - CodeAct `python_exec`：可执行动作面（持久 REPL，base64 帧协议）
+   - 评测 harness：确定性行为断言 + 真实栈，改进可量化
+   - 生命周期钩子：pre_tool fail-closed / post_tool fail-open
 
 ### 12.2 模块移植优先级
 
@@ -1600,6 +1697,15 @@ POST /api/hello-my-zouwucode → 模块命令（规划/执行/状态）
 | `zouwucode dev --interval <s>` | watch 轮询间隔（默认 60s） |
 | `zouwucode dev --status` | 队列统计 + 最近任务 |
 
+## 附录 B3：eval 评测命令参考
+
+| 命令 | 说明 |
+|------|------|
+| `zouwucode eval` | 跑内置评测任务（真实 agent 栈 + 确定性判分） |
+| `zouwucode eval --list` | 列出可用任务 |
+| `zouwucode eval --task <name>` | 只跑指定任务 |
+| `zouwucode eval --tasks <dir>` | 跑自定义 YAML 任务目录 |
+
 ## 附录 C：快捷键
 
 | 快捷键 | 功能 |
@@ -1613,4 +1719,4 @@ POST /api/hello-my-zouwucode → 模块命令（规划/执行/状态）
 
 ---
 
-*文档版本：v1.3.0 · 最后更新：2026-10-08 · 基于 ZOUWUCODE 项目完整源码分析（含 Devin 式 dev 模式）*
+*文档版本：v1.4.0 · 最后更新：2026-10-08 · 基于 ZOUWUCODE 项目完整源码分析（含 dev 质量门禁与对标成熟 agent 升级：卡死检测/评测 harness/CodeAct/PLAN-REFLECT/钩子）*
