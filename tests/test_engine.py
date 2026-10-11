@@ -428,6 +428,87 @@ class TestLoopSafetyLimits:
 
         assert len(calls) == 2, "连续失败 2 次即应终止，而非继续重试"
 
+    def test_parallel_fanout_errors_count_per_round_not_per_call(self):
+        """Regression: a model that fans out 3 failing calls in ONE round must
+        not be aborted before it sees any feedback (the 'stuck / 不动了' bug).
+
+        Threshold=2 with 3 parallel failures per round: round 1 counts as 1
+        (model still gets results), round 2 counts as 2 → abort. So the model
+        sees 2 rounds of results (6 calls) before stopping, not 0.
+        """
+        calls: list = []
+
+        class _FanoutProvider(BaseProvider):
+            async def chat_stream(self, messages, tools=None, temperature=0.0,
+                                  max_tokens=65536, stream_thinking=True):
+                yield ModelResponse(content="", tool_calls=[
+                    ToolCall(id=f"a{i}", name="bash", arguments='{}')
+                    for i in range(3)
+                ])
+                yield ModelResponse(content="", tool_calls=[], usage={})
+
+            async def chat(self, messages, tools=None, temperature=0.0,
+                           max_tokens=65536):
+                return ModelResponse(content="")
+
+        engine = self._engine(_FanoutProvider({"api_key": "sk-test"}),
+                              max_tool_rounds=10,
+                              max_consecutive_tool_errors=2,
+                              stuck_detection_enabled=False)
+        engine.set_tool_executor(self._failing_executor(calls))
+
+        with pytest.raises(TurnLimitExceeded, match="consecutive tool errors"):
+            asyncio.run(engine.run(messages=[{"role": "user", "content": "hi"}]))
+
+        # 2 rounds × 3 parallel calls: the model received feedback for both
+        # rounds before the breaker fired (per-call counting would have
+        # aborted inside round 1 after the 3rd call → 0 feedback seen).
+        assert len(calls) == 6
+
+    def test_partial_round_success_resets_error_counter(self):
+        """A round with at least one success is NOT a consecutive-error round."""
+        calls: list = []
+
+        class _MixedProvider(BaseProvider):
+            def __init__(self, cfg):
+                super().__init__(cfg)
+                self.n = 0
+
+            async def chat_stream(self, messages, tools=None, temperature=0.0,
+                                  max_tokens=65536, stream_thinking=True):
+                self.n += 1
+                if self.n <= 3:
+                    # two fail, one succeeds each round → never all-errored
+                    yield ModelResponse(content="", tool_calls=[
+                        ToolCall(id="f1", name="bash", arguments='{}'),
+                        ToolCall(id="ok", name="ok", arguments='{}'),
+                    ])
+                    yield ModelResponse(content="", tool_calls=[], usage={})
+                else:
+                    yield ModelResponse(content="完成")
+                    yield ModelResponse(content="", tool_calls=[], usage={})
+
+            async def chat(self, messages, tools=None, temperature=0.0,
+                           max_tokens=65536):
+                return ModelResponse(content="完成")
+
+        async def executor(tool_call, context):
+            calls.append(tool_call.name)
+            ok = tool_call.name == "ok"
+            return ToolResult(tool_call_id=tool_call.id,
+                              content="y" if ok else "boom",
+                              is_error=not ok)
+
+        engine = self._engine(_MixedProvider({"api_key": "sk-test"}),
+                              max_tool_rounds=10,
+                              max_consecutive_tool_errors=2,
+                              stuck_detection_enabled=False)
+        engine.set_tool_executor(executor)
+
+        resp = asyncio.run(engine.run(
+            messages=[{"role": "user", "content": "hi"}]))
+        assert resp.content == "完成"   # never aborted: no all-error round
+
     def test_normal_multi_round_task_converges(self):
         """正常场景：前两轮工具调用成功，第三轮返回最终文本 → 正常完成。"""
         executed: list = []

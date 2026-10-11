@@ -516,6 +516,7 @@ class EngineLoop:
                     )
                     break
 
+                round_all_errored = True
                 for tool_call in response.tool_calls:
                     # Safe point: user interrupt before each tool executes.
                     self._check_interrupt(f"before tool '{tool_call.name}'")
@@ -539,12 +540,8 @@ class EngineLoop:
                         (result.content[:120] + "…") if result.content and len(result.content) > 120 else result.content,
                     )
 
-                    # Track consecutive failures — the classic infinite-loop
-                    # trigger (model keeps retrying a tool that always fails).
-                    if result.is_error:
-                        consecutive_tool_errors += 1
-                    else:
-                        consecutive_tool_errors = 0
+                    if not result.is_error:
+                        round_all_errored = False
 
                     # Stuck fingerprint: tool name + arguments + result content.
                     # Identical repeats mean no forward progress even when the
@@ -555,6 +552,20 @@ class EngineLoop:
                             f"\x00{result.content}".encode("utf-8", "replace")
                         ).hexdigest()[:16]
                         _fp_window.append(fp)
+
+                # ── Consecutive-error breaker, counted in ROUNDS ──────────
+                # A round where EVERY tool call failed counts as 1. Counting
+                # individual calls was the bug: a model that fans out 3 calls
+                # in one round (all failing for the same reason, e.g. wrong
+                # shell syntax) hit threshold=3 before it ever saw feedback —
+                # the task looked "stuck / 不动了" with no chance to adapt.
+                # Per-round counting guarantees the model receives each round's
+                # error results and gets `max_consecutive_tool_errors` rounds to
+                # change approach before we abort.
+                if round_all_errored:
+                    consecutive_tool_errors += 1
+                else:
+                    consecutive_tool_errors = 0
 
                 # ── Safety check: stuck (repeated identical actions) ──
                 if engine_cfg.stuck_detection_enabled and len(_fp_window) >= engine_cfg.stuck_threshold:

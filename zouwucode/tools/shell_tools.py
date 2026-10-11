@@ -1,21 +1,74 @@
 """Shell execution tool with sandbox integration."""
 
 import asyncio
+import os
+import re
 import sys
-import shlex
 from pathlib import Path
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+
+# POSIX-isms that Windows PowerShell 5.x cannot parse ('&&' is a hard
+# syntax error there). When we spot these on Windows we prefer a real
+# bash (Git for Windows) if one exists.
+_POSIX_HINT = re.compile(
+    r"&&|\|\||2>\s*/dev/null|\$\(|\bwhich\b|\bexport\s+\w+=")
+
+_PS_SYNTAX_NOTE = (
+    "\n[hint] This ran under Windows PowerShell 5.x, which does not accept "
+    "POSIX syntax ('&&', '||', '2>/dev/null', '$(...)'). Use ';' to chain "
+    "commands, or PowerShell-native syntax. If bash semantics are required, "
+    "install Git for Windows (git.exe's bundled bash is auto-detected)."
+)
+
+
+def _find_git_bash() -> Optional[str]:
+    """Locate Git-for-Windows bash.exe (cheap, cached)."""
+    if sys.platform != "win32":
+        return None
+    cached = _find_git_bash.__dict__.get("path", "__unset__")
+    if cached != "__unset__":
+        return cached
+    found: Optional[str] = None
+    # 1) git.exe on PATH → <root>/usr/bin/bash.exe (robust to install path)
+    import shutil
+    git = shutil.which("git")
+    if git:
+        root = Path(git).resolve()
+        for up in (root.parents):
+            cand = up / "usr" / "bin" / "bash.exe"
+            if cand.exists():
+                found = str(cand)
+                break
+    # 2) common fixed locations
+    if found is None:
+        for cand in (r"C:\Program Files\Git\usr\bin\bash.exe",
+                     r"C:\Program Files (x86)\Git\usr\bin\bash.exe",
+                     os.path.expandvars(r"%LOCALAPPDATA%\Programs\Git\usr\bin\bash.exe")):
+            if Path(cand).exists():
+                found = cand
+                break
+    _find_git_bash.__dict__["path"] = found
+    return found
 
 
 class ShellTool(BaseTool):
     """Execute shell commands with sandbox restrictions."""
 
     def get_spec(self) -> ToolSpec:
+        platform = ("Windows PowerShell" if sys.platform == "win32"
+                    else "bash")
         return ToolSpec(
             name="bash",
-            description="Execute a shell command. Returns stdout and stderr.",
+            description=(
+                "Execute a shell command. Returns stdout and stderr. "
+                f"Current host shell: {platform}."
+                + (" PowerShell 5.x does NOT support '&&'/'||' — chain with "
+                   "';' or run POSIX commands as a single bash-style string "
+                   "(a detected Git Bash is used automatically)."
+                   if sys.platform == "win32" else "")
+            ),
             parameters={
                 "command": {
                     "type": "string",
@@ -32,6 +85,15 @@ class ShellTool(BaseTool):
             },
             required=["command"],
         )
+
+    def _pick_executable(self, command: str):
+        """Choose (executable, args) for the command."""
+        if sys.platform == "win32":
+            bash = _find_git_bash()
+            if bash and _POSIX_HINT.search(command):
+                return bash, ["-c", command]
+            return "powershell", ["-NoProfile", "-Command", command]
+        return "bash", ["-c", command]
 
     async def execute(
         self,
@@ -51,14 +113,7 @@ class ShellTool(BaseTool):
 
         try:
             cwd = Path(workdir).resolve() if workdir else None
-
-            # Use PowerShell on Windows, bash elsewhere
-            if sys.platform == "win32":
-                executable = "powershell"
-                args = ["-NoProfile", "-Command", command]
-            else:
-                executable = "bash"
-                args = ["-c", command]
+            executable, args = self._pick_executable(command)
 
             proc = await asyncio.create_subprocess_exec(
                 executable,
@@ -84,6 +139,12 @@ class ShellTool(BaseTool):
             error = stderr.decode("utf-8", errors="replace")
 
             if proc.returncode != 0:
+                # PowerShell 5 '&&' syntax error → teach the model the fix
+                # (it otherwise retries the same failing call and looks
+                # "stuck"). Only annotate when bash was NOT available.
+                if (executable == "powershell"
+                        and "not a valid statement separator" in error):
+                    error += _PS_SYNTAX_NOTE
                 return ToolResult(
                     success=False,
                     output=output,

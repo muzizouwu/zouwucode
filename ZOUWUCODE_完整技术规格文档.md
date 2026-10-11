@@ -288,6 +288,7 @@
 **重要设计决策**：
 - `run()` 采用迭代循环而非递归：每轮一次 LLM 请求 + 其工具调用，多重安全限制（`max_tool_rounds` / `task_timeout_seconds` / `max_consecutive_tool_errors` / 成本熔断 / **卡死检测**）防止死循环与停顿
 - **卡死检测（stuck detection）**：滑动窗口记录每步动作指纹 `(tool, arguments, result)` 的 SHA1；同一指纹在窗口内重复达 `stuck_threshold` → 先注入一条 user 提醒（换思路/重规划/总结止损，措辞为信息而非禁令），再犯则抛 `TurnLimitExceeded`。补齐"工具全部成功但模型原地打转"这一连续错误熔断无法覆盖的死循环形态；提醒注入点在本轮工具结果之后，保持 append-only 前缀 API 合法
+- **连续错误熔断按轮次计数**：一轮内**所有**工具调用都失败才记 1 次连续错误（旧实现按单个调用计数——模型一轮并行发 3 个调用全失败即触顶，还没看到任何反馈就被 abort，表现为"任务卡住不动"）。按轮计数保证模型每轮都收到错误结果、有 `max_consecutive_tool_errors` 轮换思路，真死循环仍会熔断
 - 助手响应必须在缓存中追加（含 `tool_calls`），否则后续的 `tool` 角色消息会报 400 错误
 - `freeze_session` 中调用 `cache.reset()` 确保跨会话缓存不累积
 - 打断后前缀清理：若带 `tool_calls` 的助手消息已追加，为每个未执行的调用补齐 synthetic "[interrupted]" 工具结果，保持前缀 API 有效
@@ -372,6 +373,17 @@
 
 **职责**：执行 Shell 命令，集成沙箱安全检查。
 
+**跨平台策略**：Windows 上自动探测 Git for Windows 的 `bash.exe`（从 git.exe 路径推导 + 常见安装位置兜底，结果缓存）；命令含 POSIX 语法（`&&`、`||`、`2>/dev/null`、`$()`、`which`、`export`）时改用它执行，否则走 PowerShell。无 Git Bash 且 PowerShell 报 `'&&' not a valid statement separator` 时，错误信息附带语法提示（用 `;` 分隔）。工具描述动态声明当前宿主 shell，让模型第一轮就写对语法。
+
+#### `tools/web_tools.py` — Web 工具
+
+| 工具 | 功能 |
+|------|------|
+| WebSearchTool | 联网搜索：Bing 优先 + DuckDuckGo 兜底（DDG html 端点国内常不可达），单引擎失败不再整体失败；`count` 钳制 1..10；全失败时错误信息建议改用 web_fetch |
+| WebFetchTool | 获取网页内容（使用 BeautifulSoup 解析） |
+
+错误文本统一经 `_describe_exc`：httpx 的 ConnectTimeout/ReadTimeout 等异常 `str()` 为空串，旧实现会把空白 error 直接回传（模型与用户都看不到原因，表现为"静默卡住"），现补齐类型名与可读原因。
+
 #### `tools/code_exec_tool.py` — PythonExecTool（python_exec，CodeAct 行动面）
 
 **职责**：持久 Python REPL 作为 agent 的第二行动面——模型用代码组合多步操作（循环、条件、自写验证脚本），复杂任务上优于逐条 JSON 工具调用（OpenHands CodeAct 的核心洞察）。
@@ -386,13 +398,6 @@
 #### `tools/git_tools.py` — GitTool
 
 **职责**：执行 Git 操作，支持 status、diff、commit、log 等。
-
-#### `tools/web_tools.py` — Web 工具
-
-| 工具 | 功能 |
-|------|------|
-| WebSearchTool | 联网搜索（使用 httpx） |
-| WebFetchTool | 获取网页内容（使用 BeautifulSoup 解析） |
 
 #### `tools/agent_tools.py` — TaskTool（task 委派工具）
 
@@ -981,7 +986,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（324 个测试用例）
+├── tests/                              # 测试套件（331 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1276,6 +1281,9 @@ show_thinking: true                        # true | false，默认 true 实时�
 | 所有工具调用失败 `argument after ** must be a mapping, not str` | coordinator 直接 `**` 解包 JSON 字符串 | 先 `json.loads` 解析再解包，非 dict 返回错误 |
 | CI Windows 全部失败 `UnicodeEncodeError` | Windows runner 默认 cp437 代码页打印中文 | smoke_test.py reconfigure UTF-8 + CI 环境变量 PYTHONUTF8=1/PYTHONIOENCODING=utf-8 |
 | CI dev 测试全挂 `Author identity unknown` | CI runner 无全局 git 身份，`git commit` 失败 | `commit_all` 用 `git -c user.name/-c user.email` 注入 dev 机器人身份 |
+| 任务"卡住不动了"（Abort after 3 consecutive tool errors in round 1） | 连续错误熔断按**单个调用**计数；模型一轮并行 3 个调用全失败即触顶，模型没看到任何反馈就被终止 | 改为按**轮次**计数（一轮全失败记 1 次），保证模型每轮收到错误结果并有 N 轮换思路 |
+| Windows 上 bash 工具全报错（`&&` not a valid statement separator） | PowerShell 5.x 不支持 POSIX 语法，模型按 Linux 习惯写命令 | 自动探测 Git Bash 并在检出 POSIX 语法时改用它；无 bash 时错误附带语法提示；工具描述声明宿主 shell |
+| web_search 失败但 error 为空白 | `httpx.ConnectTimeout` 的 `str()` 为空串；且 DDG html 端点国内不可达 | `_describe_exc` 补可读原因；Bing 优先 + DDG 兜底；全失败建议改用 web_fetch |
 
 ---
 
@@ -1450,7 +1458,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **324 个测试用例**
+- 共计 **331 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证
@@ -1465,7 +1473,7 @@ beautifulsoup4>=4.12.0
 | test_context.py | 上下文管理 | 10 |
 | test_context_window.py | 滑动窗口 | 11 |
 | test_dev.py | dev 模式（URL 解析、分支安全白名单、真实 git worktree、SQLite 队列原子认领、pipeline 端到端、成本熔断、多层验证探测、reviewer 解析、CI 联动、自适应预算、PLAN 阶段） | 45 |
-| test_engine.py | 引擎循环、流式思考聚合/回调、Provider 无重复流式、coordinator 工具分发 | 30 |
+| test_engine.py | 引擎循环、流式思考聚合/回调、Provider 无重复流式、coordinator 工具分发、并行失败按轮熔断 | 32 |
 | test_eval.py | 评测 harness（判分类型、任务加载、端到端判对错——假 provider 验证"修对了过、没修不过"） | 8 |
 | test_hello_my_zouwucode.py | hello-my-zouwucode 模块 | 53 |
 | test_hooks.py | 生命周期钩子（pre_tool 拦截/JSON block/工具过滤/协调器集成） | 7 |
@@ -1476,7 +1484,7 @@ beautifulsoup4>=4.12.0
 | test_session.py | 会话管理 | 5 |
 | test_stuck.py | 卡死检测（指纹滑窗提醒→熔断、提醒后恢复、禁用回落、变化动作豁免） | 4 |
 | test_subagent.py | 子 Agent 系统（隔离引擎、工具白名单、并行、级联打断） | 22 |
-| test_tools.py | 工具系统 | 9 |
+| test_tools.py | 工具系统（含 web 错误文本、shell 跨平台语法检测） | 14 |
 | test_tui.py | TUI/CLI 界面、思考开关与行缓冲 | 30 |
 | test_webui.py | Web 界面、SSE 流式协议、/api/thinking | 16 |
 

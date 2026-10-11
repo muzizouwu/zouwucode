@@ -22,6 +22,12 @@
   - **显式 PLAN/REFLECT**：dev 管线实现前增加规划轮（同一会话进前缀），验证失败回灌带反思指令——对齐 PLAN→ACT→OBSERVE→REFLECT 规范控制循环
   - **生命周期钩子**：`extensions.hooks` 注册 pre_tool（非零退出或 `{"block":true}` 拦截并回传原因）/ post_tool（编辑后自动化）钩子，Claude Code 风格确定性治理
 
+### Fixed
+- **并行工具失败即被误杀（"任务卡住不动了"）**：连续工具错误熔断此前按**单个调用**计数——模型一轮并行发出 3 个调用（如 bash + 2×web_search）全部失败时，阈值 3 在同一轮内直接触顶，模型还没看到任何错误反馈就被 abort，表现为"卡住"。现改为按**轮次**计数：一轮内全部失败才记 1 次，保证模型每轮都能收到错误结果并有 `max_consecutive_tool_errors` 轮机会换思路（真死循环仍会熔断）
+- **Windows 上 `bash` 工具执行 POSIX 语法即报错**：PowerShell 5.x 不支持 `&&`/`||`/`2>/dev/null`/`$()`，模型按 Linux 习惯写的命令全部失败。现在自动探测 Git for Windows 的 bash.exe，检测到 POSIX 语法时改用它执行；无 bash 时错误信息附带 PowerShell 语法提示（用 `;` 分隔）；工具描述声明当前宿主 shell
+- **web_search 静默失败（空错误信息）**：`httpx.ConnectTimeout` 的 `str()` 为空串，导致失败时 error 为空白，模型与用户都看不到原因。现在错误文本带类型与可读原因；搜索改为 Bing 优先 + DuckDuckGo 兜底（DDG 的 html 端点在国内网络常不可达），单引擎挂掉不再导致搜索整体失败；全部失败时建议改用 `web_fetch`
+- web_search 的 `count` 参数越界（负数/超大）不再导致异常，钳制到 1..10
+
 ## [1.0.0] - 2026-09-09
 
 ### Added
