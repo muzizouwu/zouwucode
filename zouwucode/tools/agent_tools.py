@@ -10,6 +10,7 @@ import json
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+from ..errors import describe_exc
 
 
 class TaskTool(BaseTool):
@@ -78,10 +79,10 @@ class TaskTool(BaseTool):
             agents = await self._manager.run_parallel(tasks)
         except (RuntimeError, ValueError) as exc:
             # e.g. max_agents exceeded / malformed specs
-            return ToolResult(success=False, output="", error=str(exc))
+            return ToolResult(success=False, output="", error=describe_exc(exc))
         except Exception as exc:  # noqa: BLE001 — report, don't crash the engine
             return ToolResult(success=False, output="",
-                              error=f"Sub-agent orchestration failed: {exc}")
+                              error=f"Sub-agent orchestration failed: {describe_exc(exc)}")
 
         lines = []
         for agent in agents:

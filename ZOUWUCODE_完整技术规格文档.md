@@ -289,6 +289,7 @@
 - `run()` 采用迭代循环而非递归：每轮一次 LLM 请求 + 其工具调用，多重安全限制（`max_tool_rounds` / `task_timeout_seconds` / `max_consecutive_tool_errors` / 成本熔断 / **卡死检测**）防止死循环与停顿
 - **卡死检测（stuck detection）**：滑动窗口记录每步动作指纹 `(tool, arguments, result)` 的 SHA1；同一指纹在窗口内重复达 `stuck_threshold` → 先注入一条 user 提醒（换思路/重规划/总结止损，措辞为信息而非禁令），再犯则抛 `TurnLimitExceeded`。补齐"工具全部成功但模型原地打转"这一连续错误熔断无法覆盖的死循环形态；提醒注入点在本轮工具结果之后，保持 append-only 前缀 API 合法
 - **连续错误熔断按轮次计数**：一轮内**所有**工具调用都失败才记 1 次连续错误（旧实现按单个调用计数——模型一轮并行发 3 个调用全失败即触顶，还没看到任何反馈就被 abort，表现为"任务卡住不动"）。按轮计数保证模型每轮都收到错误结果、有 `max_consecutive_tool_errors` 轮换思路，真死循环仍会熔断
+- **错误反馈永不空白（结构性保证）**：部分异常 `str()` 为空（httpx ConnectTimeout/ReadTimeout、asyncio.TimeoutError），直接 `str(e)` 回传会让模型收到空白错误（表现为"静默卡住"）。统一经 `errors.describe_exc()` 格式化（类型名+可读原因）；`AgentCoordinator` 再做最终兜底——失败的 ToolResult 若 content 为空则回填 output→error→兜底文案，任何工具/扩展的错误都无法以空白到达模型（tests/test_error_feedback.py 锁定该保证）
 - 助手响应必须在缓存中追加（含 `tool_calls`），否则后续的 `tool` 角色消息会报 400 错误
 - `freeze_session` 中调用 `cache.reset()` 确保跨会话缓存不累积
 - 打断后前缀清理：若带 `tool_calls` 的助手消息已追加，为每个未执行的调用补齐 synthetic "[interrupted]" 工具结果，保持前缀 API 有效
@@ -879,6 +880,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── __init__.py                     # 版本信息（v1.0.0）
 │   ├── __main__.py                     # CLI 入口、参数解析
 │   ├── config.py                       # 配置管理（Pydantic）
+│   ├── errors.py                       # describe_exc：错误反馈永不空白的统一格式化
 │   ├── project_memory.py               # 持久项目记忆系统
 │   ├── runtime.py                      # 共享运行时工厂（provider + 内置工具清单）
 │   │
@@ -986,7 +988,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（331 个测试用例）
+├── tests/                              # 测试套件（339 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1458,7 +1460,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **331 个测试用例**
+- 共计 **339 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证
@@ -1473,6 +1475,7 @@ beautifulsoup4>=4.12.0
 | test_context.py | 上下文管理 | 10 |
 | test_context_window.py | 滑动窗口 | 11 |
 | test_dev.py | dev 模式（URL 解析、分支安全白名单、真实 git worktree、SQLite 队列原子认领、pipeline 端到端、成本熔断、多层验证探测、reviewer 解析、CI 联动、自适应预算、PLAN 阶段） | 45 |
+| test_error_feedback.py | 错误反馈永不空白（describe_exc、coordinator 兜底、验证层静默退出标注） | 8 |
 | test_engine.py | 引擎循环、流式思考聚合/回调、Provider 无重复流式、coordinator 工具分发、并行失败按轮熔断 | 32 |
 | test_eval.py | 评测 harness（判分类型、任务加载、端到端判对错——假 provider 验证"修对了过、没修不过"） | 8 |
 | test_hello_my_zouwucode.py | hello-my-zouwucode 模块 | 53 |

@@ -29,6 +29,7 @@ import sys
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+from ..errors import describe_exc
 
 _MAX_OUTPUT = 30_000
 _DEFAULT_TIMEOUT = 60.0
@@ -188,7 +189,8 @@ class PythonExecTool(BaseTool):
                 return ToolResult(success=not failed, output=out)
             except Exception as exc:  # noqa: BLE001
                 await self._restart()
-                return ToolResult(success=False, output="", error=str(exc))
+                return ToolResult(success=False, output="",
+                                  error=describe_exc(exc))
 
     async def _restart(self) -> None:
         """Kill and forget the session; next execute() spawns a fresh one."""

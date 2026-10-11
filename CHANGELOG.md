@@ -27,6 +27,15 @@
 - **Windows 上 `bash` 工具执行 POSIX 语法即报错**：PowerShell 5.x 不支持 `&&`/`||`/`2>/dev/null`/`$()`，模型按 Linux 习惯写的命令全部失败。现在自动探测 Git for Windows 的 bash.exe，检测到 POSIX 语法时改用它执行；无 bash 时错误信息附带 PowerShell 语法提示（用 `;` 分隔）；工具描述声明当前宿主 shell
 - **web_search 静默失败（空错误信息）**：`httpx.ConnectTimeout` 的 `str()` 为空串，导致失败时 error 为空白，模型与用户都看不到原因。现在错误文本带类型与可读原因；搜索改为 Bing 优先 + DuckDuckGo 兜底（DDG 的 html 端点在国内网络常不可达），单引擎挂掉不再导致搜索整体失败；全部失败时建议改用 `web_fetch`
 - web_search 的 `count` 参数越界（负数/超大）不再导致异常，钳制到 1..10
+- **系统性排查"静默失败"同类问题并根治**（不止截图那两处）：
+  - 新增 `zouwucode/errors.py` `describe_exc()`：统一异常格式化，空 `str()` 异常（httpx 超时、asyncio.TimeoutError 等）补可读原因
+  - **coordinator 结构性兜底**：任何失败的工具结果若 content 为空，自动回填可读原因（取 output→error→兜底文案）——从架构上杜绝"模型收到空白错误"这一类 bug 再复发
+  - 全部 14 处工具/扩展错误路径（file/git/shell/code_exec/task 委派/MCP/LSP 工具）统一改用 `describe_exc`
+  - WebUI SSE error 事件与 /api/chat 500 响应不再可能输出空错误（用户侧同样可见）
+  - 子 Agent 失败记录、dev worker 队列 error 字段改用 `describe_exc`
+  - dev 验证层：命令非零退出且无任何输出时标注 `(no output; exit code N)`，不再给模型空 FAIL
+  - `/rules edit` 打开编辑器改为跨平台（Windows `os.startfile` / macOS `open` / Linux `xdg-open`），不再硬编码 notepad
+  - 新增 `tests/test_error_feedback.py`（8 用例）锁定三条结构保证
 
 ## [1.0.0] - 2026-09-09
 

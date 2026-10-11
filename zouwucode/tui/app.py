@@ -598,8 +598,15 @@ Rules:
                     print(f"  Created empty rules file: {path}")
                 # Try to open in default editor
                 import subprocess
+                import sys
                 try:
-                    subprocess.Popen(["notepad", str(path)])
+                    if sys.platform == "win32":
+                        import os
+                        os.startfile(str(path))  # type: ignore[attr-defined]
+                    elif sys.platform == "darwin":
+                        subprocess.Popen(["open", str(path)])
+                    else:
+                        subprocess.Popen(["xdg-open", str(path)])
                     print(f"  Opened rules file in editor: {path}")
                 except Exception:
                     print(f"  Rules file: {path}")

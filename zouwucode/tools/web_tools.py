@@ -6,21 +6,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from .base import BaseTool, ToolSpec, ToolResult
-
-
-def _describe_exc(exc: Exception) -> str:
-    """Human-readable error text — httpx ConnectTimeout/ReadTimeout have an
-    EMPTY str(), so `str(e)` alone produced a blank error the model could not
-    act on (and that looked like a silent hang in the UI)."""
-    name = type(exc).__name__
-    msg = str(exc).strip()
-    if not msg:
-        msg = {
-            "ConnectTimeout": "连接超时（网络不可达或被防火墙拦截）",
-            "ReadTimeout": "读取超时",
-            "ConnectError": "无法建立连接",
-        }.get(name, "无错误详情")
-    return f"{name}: {msg}"
+from ..errors import describe_exc as _describe_exc
 
 
 async def _check_network(sandbox) -> Optional[str]:

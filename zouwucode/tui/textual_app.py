@@ -758,8 +758,15 @@ class ZOUWUCODETUI(App):
                     self.rule_loader.save("# Project Rules\n\nDefine your project-specific rules here.\n")
                     chat.write(_style(f"  Created empty rules file: {path}", "green"))
                 import subprocess
+                import sys
                 try:
-                    subprocess.Popen(["notepad", str(path)])
+                    if sys.platform == "win32":
+                        import os
+                        os.startfile(str(path))  # type: ignore[attr-defined]
+                    elif sys.platform == "darwin":
+                        subprocess.Popen(["open", str(path)])
+                    else:
+                        subprocess.Popen(["xdg-open", str(path)])
                     chat.write(_style(f"  Opened rules file in editor", "green"))
                 except Exception:
                     chat.write(_style(f"  Rules file: {path}", "cyan"))

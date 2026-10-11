@@ -83,6 +83,10 @@ async def _run_shell(cmd: str, cwd: Path, timeout: float = 600.0) -> tuple[bool,
         proc.kill()
         return False, f"command timed out after {timeout:.0f}s: {cmd}"
     output = stdout.decode("utf-8", errors="replace")
+    if proc.returncode != 0 and not output.strip():
+        # A silent non-zero exit would give the model a "FAIL" with nothing
+        # to act on — always leave at least the exit code.
+        output = f"(no output; exit code {proc.returncode})"
     return proc.returncode == 0, output[-_MAX_OUTPUT_CHARS:]
 
 

@@ -11,6 +11,7 @@ import logging
 from typing import Optional
 
 from ..tools.base import BaseTool, ToolResult, ToolSpec
+from ..errors import describe_exc
 from .host import Extension, ExtensionContext
 
 logger = logging.getLogger("zouwucode.extensions.mcp")
@@ -51,7 +52,8 @@ class MCPTool(BaseTool):
                 text = str(content)
             return ToolResult(success=True, output=text)
         except Exception as exc:  # noqa: BLE001
-            return ToolResult(success=False, output="", error=str(exc))
+            return ToolResult(success=False, output="",
+                              error=describe_exc(exc))
 
 
 class McpExtension(Extension):

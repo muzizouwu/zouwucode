@@ -13,6 +13,7 @@ import traceback
 from typing import Optional
 
 from ..engine.loop import EngineLoop, TaskInterrupted
+from ..errors import describe_exc
 from ..tools.registry import ToolRegistry
 from ..agent.coordinator import AgentCoordinator
 from ..config import ZOUWUCODEConfig
@@ -1523,7 +1524,7 @@ class WebUIServer:
                 "message": str(e),
             })
         except Exception as e:
-            await self._sse_send(writer, {"type": "error", "error": str(e)})
+            await self._sse_send(writer, {"type": "error", "error": describe_exc(e)})
         finally:
             self._chat_busy = False
             self.engine.on_thinking_delta = None
@@ -1646,7 +1647,7 @@ class WebUIServer:
                     "stats": f"Cache: {self.engine.stats.hit_rate * 100:.0f}% | Cost: ${self.engine.stats.total_cost:.4f}",
                 })
             except Exception as e:
-                err_msg = str(e)
+                err_msg = describe_exc(e)
                 tb = traceback.format_exc()
                 return self._json_response({"error": err_msg, "detail": tb}, 500)
             finally:

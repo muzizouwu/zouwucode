@@ -12,6 +12,7 @@ from ..engine.loop import EngineLoop, TurnContext
 from ..engine.providers.base import ToolCall, ToolResult
 from ..tools.registry import ToolRegistry
 from ..config import ZOUWUCODEConfig
+from ..errors import describe_exc
 from .hooks import HookRunner
 
 
@@ -57,9 +58,19 @@ class AgentCoordinator:
                     is_error=True,
                 )
             result = await self.tools.execute(tool_call.name, **args)
+            content = result.output
+            if not result.success:
+                # An error result must ALWAYS carry a reason. Some tools
+                # surface str(exc) which can be empty (httpx timeouts,
+                # asyncio.TimeoutError), and some put the reason in .error
+                # rather than .output. A blank error leaves the model blind —
+                # it either retries identically (looks "stuck") or the user
+                # sees nothing. Backfill so feedback is never silent.
+                content = (content or result.error or "").strip() or \
+                    f"Tool '{tool_call.name}' failed with no error message"
             tool_result = ToolResult(
                 tool_call_id=tool_call.id,
-                content=result.output,
+                content=content,
                 is_error=not result.success,
             )
             # ── PostToolUse hooks (observe-only; never corrupt the result)
@@ -68,6 +79,6 @@ class AgentCoordinator:
         except Exception as e:
             return ToolResult(
                 tool_call_id=tool_call.id,
-                content=str(e),
+                content=describe_exc(e),
                 is_error=True,
             )

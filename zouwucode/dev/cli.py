@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import ZOUWUCODEConfig
+from ..errors import describe_exc
 from ..logging_setup import setup_logging
 from .github import GitHubClient, GitHubError
 from .pipeline import DevPipeline, DevResult
@@ -109,7 +110,7 @@ async def run_worker(config: ZOUWUCODEConfig, once: bool = False) -> int:
                          error=f"task timed out after {timeout:.0f}s")
         except Exception as exc:  # noqa: BLE001 — worker must survive task crashes
             logger.exception("Worker task %s crashed", task_id)
-            queue.finish(task_id, success=False, error=str(exc))
+            queue.finish(task_id, success=False, error=describe_exc(exc))
         processed += 1
         if once:
             break

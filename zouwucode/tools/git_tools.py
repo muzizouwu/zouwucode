@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+from ..errors import describe_exc
 
 
 class GitTool(BaseTool):
@@ -92,4 +93,4 @@ class GitTool(BaseTool):
         except ValueError as e:
             return ToolResult(success=False, output="", error=f"Invalid arguments: {e}")
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return ToolResult(success=False, output="", error=describe_exc(e))

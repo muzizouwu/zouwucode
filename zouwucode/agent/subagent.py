@@ -27,6 +27,7 @@ from typing import Optional
 from ..engine.loop import EngineLoop, TaskInterrupted, TurnContext
 from ..engine.providers.base import BaseProvider, ModelResponse, ToolResult
 from ..config import ZOUWUCODEConfig
+from ..errors import describe_exc
 from .coordinator import AgentCoordinator
 
 logger = logging.getLogger("zouwucode.subagent")
@@ -138,7 +139,7 @@ class SubAgent:
             raise
         except Exception as exc:
             self.status = AgentStatus.FAILED
-            self.error = str(exc)
+            self.error = describe_exc(exc)
             logger.error("Sub-agent %s failed: %s", self.id, exc)
             raise
         finally:
@@ -271,7 +272,7 @@ class SubAgentManager:
                 logger.error("Sub-agent %s timed out.", agent.id)
             elif isinstance(outcome, BaseException) and agent.status is AgentStatus.RUNNING:
                 agent.status = AgentStatus.FAILED
-                agent.error = str(outcome)
+                agent.error = describe_exc(outcome)
         return agents
 
     # ── Introspection ─────────────────────────────────────────────────────

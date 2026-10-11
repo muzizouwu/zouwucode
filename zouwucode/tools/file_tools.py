@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+from ..errors import describe_exc
 
 
 async def _check_path_access(sandbox, path: Path) -> Optional[str]:
@@ -68,7 +69,7 @@ class ReadTool(BaseTool):
             return ToolResult(success=True, output=output)
 
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return ToolResult(success=False, output="", error=describe_exc(e))
 
 
 class WriteTool(BaseTool):
@@ -101,7 +102,7 @@ class WriteTool(BaseTool):
             path.write_text(content, encoding="utf-8")
             return ToolResult(success=True, output=f"Written {len(content)} bytes to {file_path}")
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return ToolResult(success=False, output="", error=describe_exc(e))
 
 
 class EditTool(BaseTool):
@@ -154,7 +155,7 @@ class EditTool(BaseTool):
             return ToolResult(success=True, output=f"Edited {file_path} ({len(old_lines)} → {len(new_lines)} lines)")
 
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return ToolResult(success=False, output="", error=describe_exc(e))
 
 
 class LsTool(BaseTool):
@@ -192,7 +193,7 @@ class LsTool(BaseTool):
             return ToolResult(success=True, output="\n".join(lines))
 
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return ToolResult(success=False, output="", error=describe_exc(e))
 
 
 class GlobTool(BaseTool):
@@ -224,4 +225,4 @@ class GlobTool(BaseTool):
             lines = [str(m.relative_to(root)) for m in matches if m.is_file()]
             return ToolResult(success=True, output="\n".join(lines[:200]))  # limit output
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return ToolResult(success=False, output="", error=describe_exc(e))

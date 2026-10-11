@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+from ..errors import describe_exc
 
 # POSIX-isms that Windows PowerShell 5.x cannot parse ('&&' is a hard
 # syntax error there). When we spot these on Windows we prefer a real
@@ -154,4 +155,4 @@ class ShellTool(BaseTool):
             return ToolResult(success=True, output=output)
 
         except Exception as e:
-            return ToolResult(success=False, output="", error=str(e))
+            return ToolResult(success=False, output="", error=describe_exc(e))
