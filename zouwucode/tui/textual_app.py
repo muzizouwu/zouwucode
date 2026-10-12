@@ -178,9 +178,37 @@ class ZOUWUCODETUI(App):
     cache_stats = reactive("")
     context_stats = reactive("")
 
-    def __init__(self, config_path: Optional[Path] = None, skill_names: list[str] | None = None):
+    def __init__(self, config_path: Optional[Path] = None,
+                 skill_names: list[str] | None = None,
+                 overrides: Optional[dict] = None):
         super().__init__()
         self.config = ZOUWUCODEConfig.load(config_path)
+        # CLI overrides inherited from `zouwucode --tui …`: previously the
+        # TUI built its app straight from config.yaml, so --model/--api-key/
+        # --mode/--reasoning/--compress/--max-tokens/--keep-turns were
+        # silently ignored in TUI mode (they only worked for CLI/Web).
+        self._cli_overrides = dict(overrides or {})
+        if self._cli_overrides:
+            ov = self._cli_overrides
+            if ov.get("model") and self.config.default_provider in self.config.providers:
+                self.config.providers[self.config.default_provider].model = ov["model"]
+            if ov.get("api_key") and self.config.default_provider in self.config.providers:
+                self.config.providers[self.config.default_provider].api_key = ov["api_key"]
+            if ov.get("reasoning"):
+                self.config.reasoning_intensity = ov["reasoning"]
+            if ov.get("mode"):
+                self.config.sandbox.default_mode = ov["mode"]
+            ctx = self.config.context
+            if ov.get("compress") is not None:
+                ctx.enabled = ov["compress"] != "off"
+                if ctx.enabled:
+                    ctx.level = ov["compress"]
+            elif ov.get("max_tokens") is not None or ov.get("keep_turns") is not None:
+                ctx.enabled = True
+            if ov.get("max_tokens") is not None:
+                ctx.max_context_tokens = ov["max_tokens"]
+            if ov.get("keep_turns") is not None:
+                ctx.keep_last_n = ov["keep_turns"]
         self.data_dir = Path(self.config.data_dir)
 
         # ── Logging (rotating file under <data_dir>/logs/) ────────────
@@ -230,6 +258,19 @@ class ZOUWUCODETUI(App):
         self.compressor_level = "balanced"
         self.max_context_tokens = 1048576
         self.keep_turns = 50
+        # Second half of the --tui override application: attrs that depend
+        # on objects created above (compressor / engine / reactive state).
+        if self._cli_overrides:
+            ctx = self.config.context
+            self.compressor_level = ctx.level if ctx.enabled else "off"
+            self.max_context_tokens = ctx.max_context_tokens
+            self.keep_turns = ctx.keep_last_n
+            mode = self._cli_overrides.get("mode")
+            if mode:
+                self.current_mode = mode
+            reasoning = self._cli_overrides.get("reasoning")
+            if reasoning:
+                self.engine.set_reasoning_intensity(reasoning)
 
         # ── Session ──────────────────────────────────────────────────────
         self.sessions = SessionManager(self.config)
@@ -1166,9 +1207,10 @@ class ApprovalScreen(ModalScreen):
 
 def run_tui(config_path: Optional[Path] = None,
             skill_names: list[str] | None = None,
-            resume_session: str | None = None) -> None:
+            resume_session: str | None = None,
+            overrides: Optional[dict] = None) -> None:
     """Run the Textual TUI application."""
-    app = ZOUWUCODETUI(config_path, skill_names=skill_names)
+    app = ZOUWUCODETUI(config_path, skill_names=skill_names, overrides=overrides)
     # on_mount() reads this attribute (avoids touching __init__ signature).
     app._resume_session = resume_session
     try:

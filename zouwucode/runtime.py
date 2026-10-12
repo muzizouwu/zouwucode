@@ -37,10 +37,16 @@ def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTo
     provided and sandbox shell access is allowed — it can do what bash +
     files can do, so it follows the same permission posture.
     """
+    # sandbox.allow_file_write used to be declared but never read; it now
+    # gates write/edit at construction time (create_builtin_tools is THE
+    # shared builtin toolset for CLI/TUI/Web/dev/eval).
+    allow_write = True
+    if config is not None:
+        allow_write = getattr(config.sandbox, "allow_file_write", True)
     tools = [
         ReadTool(sandbox),
-        WriteTool(sandbox),
-        EditTool(sandbox),
+        WriteTool(sandbox, allow_write=allow_write),
+        EditTool(sandbox, allow_write=allow_write),
         LsTool(sandbox),
         GlobTool(sandbox),
         ShellTool(sandbox),

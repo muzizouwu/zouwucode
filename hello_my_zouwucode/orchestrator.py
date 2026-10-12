@@ -49,8 +49,15 @@ class SisyphusOrchestrator:
         self.intent_gate = intent_gate or IntentGate()
         self.skills_manager = skills_manager
         self.boulder = BoulderState(self.omo_dir)
+        # config.hello_my_zouwucode.default_category used to be dead: worker
+        # fallbacks hardcoded "deep". It now routes both the orchestrator
+        # fallback and Atlas's per-todo fallback.
+        self.default_category = getattr(
+            getattr(config, "hello_my_zouwucode", None), "default_category", "deep"
+        ) or "deep"
         self.planner = Planner(engine, self.omo_dir, on_event=self.on_event)
-        self.atlas = Atlas(engine, self.boulder, self.omo_dir, on_event=self.on_event)
+        self.atlas = Atlas(engine, self.boulder, self.omo_dir, on_event=self.on_event,
+                           default_category=self.default_category)
 
     # ── Event helpers ────────────────────────────────────────────────────────
 
@@ -108,7 +115,8 @@ class SisyphusOrchestrator:
         return await self.atlas.execute(session_id=session_id)
 
     async def run_plan(self, task: str, interview: bool = True,
-                       high_accuracy: bool = False) -> OrchestrationResult:
+                       high_accuracy: bool = False,
+                       max_review_rounds: int = 2) -> OrchestrationResult:
         """Run Prometheus planning: interview → research → write plan.
 
         Equivalent to oh-my-opencode's `@plan` / Prometheus mode.
@@ -119,6 +127,7 @@ class SisyphusOrchestrator:
             high_accuracy=high_accuracy,
             metis=self._metis,
             momus=self._momus,
+            max_review_rounds=max_review_rounds,
         )
         if plan_path is None:
             return OrchestrationResult(False, Intent.PLANNING, content="Plan creation cancelled or failed.")
@@ -173,7 +182,8 @@ class SisyphusOrchestrator:
         if plan_path is None:
             # Plan failed — fall back to a single deep worker
             self._emit("warning", "Plan creation failed — falling back to single worker.")
-            content = await self._run_subagent("deep", "hephaestus", request)
+            content = await self._run_subagent(
+                self.default_category, "hephaestus", request)
             return OrchestrationResult(True, intent, content=content)
 
         # Start boulder + execute

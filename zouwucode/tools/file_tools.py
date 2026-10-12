@@ -95,7 +95,11 @@ class ReadTool(BaseTool):
 
 
 class WriteTool(BaseTool):
-    """Write content to a file."""
+    """Write content to a file (honors sandbox.allow_file_write)."""
+
+    def __init__(self, sandbox: Optional[object] = None, allow_write: bool = True):
+        super().__init__(sandbox)
+        self.allow_write = allow_write
 
     def get_spec(self) -> ToolSpec:
         return ToolSpec(
@@ -115,6 +119,10 @@ class WriteTool(BaseTool):
         )
 
     async def execute(self, file_path: str, content: str) -> ToolResult:
+        if not self.allow_write:
+            return ToolResult(
+                success=False, output="",
+                error="File writes are disabled (sandbox.allow_file_write=false).")
         try:
             path = Path(file_path).resolve()
             denied = await _check_path_access(self.sandbox, path)
@@ -128,7 +136,11 @@ class WriteTool(BaseTool):
 
 
 class EditTool(BaseTool):
-    """Edit a file by replacing a specific string."""
+    """Edit a file by replacing a specific string (honors allow_file_write)."""
+
+    def __init__(self, sandbox: Optional[object] = None, allow_write: bool = True):
+        super().__init__(sandbox)
+        self.allow_write = allow_write
 
     def get_spec(self) -> ToolSpec:
         return ToolSpec(
@@ -152,6 +164,10 @@ class EditTool(BaseTool):
         )
 
     async def execute(self, file_path: str, old_string: str, new_string: str) -> ToolResult:
+        if not self.allow_write:
+            return ToolResult(
+                success=False, output="",
+                error="File writes are disabled (sandbox.allow_file_write=false).")
         try:
             path = Path(file_path).resolve()
             denied = await _check_path_access(self.sandbox, path)

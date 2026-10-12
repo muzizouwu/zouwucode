@@ -139,10 +139,17 @@ class HelloMyZouwucodeModule:
         }
 
     async def _run_plan(self, task: str) -> dict:
+        # The config knobs now actually reach the planner: max_review_rounds
+        # > 0 enables the high-accuracy Momus review loop. It used to be
+        # hardcoded (high_accuracy=False, rounds never passed), so neither
+        # the knob nor the review pass could ever do anything.
+        review_rounds = getattr(
+            self.config.hello_my_zouwucode, "max_review_rounds", 2)
         result = await self.orchestrator.run_plan(
             task,
             interview=self.config.hello_my_zouwucode.interactive_planning,
-            high_accuracy=False,
+            high_accuracy=review_rounds > 0,
+            max_review_rounds=review_rounds,
         )
         return {
             "title": "Prometheus Plan",

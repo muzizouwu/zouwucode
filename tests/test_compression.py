@@ -133,6 +133,40 @@ class TestCompressionOn:
         assert all(m.get("role") != "tool" for m in repaired)
 
 
+class TestLateEnable:
+    """CLI applies --compress AFTER the app (and engine) is constructed —
+    the compressor must follow the current config, not only what was set
+    when the engine was built, or the flags are silently ignored."""
+
+    def test_enabling_after_construction_takes_effect(self):
+        eng = _engine(enabled=False)
+        msgs = _text_history()
+        assert eng._prepare_messages(msgs) is msgs  # off at construction
+        eng.config.context.enabled = True
+        eng.config.context.level = "aggressive"
+        eng.config.context.max_context_tokens = 1000
+        eng.config.context.keep_last_n = 10
+        out = eng._prepare_messages(msgs)
+        assert out is not msgs and len(out) < len(msgs)
+
+    def test_disabling_after_construction_stops_compressing(self):
+        eng = _engine(enabled=True, level="aggressive",
+                      max_context_tokens=1000, keep_last_n=10)
+        eng.config.context.enabled = False
+        msgs = _text_history()
+        assert eng._prepare_messages(msgs) is msgs
+
+    def test_level_change_rebuilds_the_compressor(self):
+        eng = _engine(enabled=True, level="balanced",
+                      max_context_tokens=1000, keep_last_n=10)
+        eng._prepare_messages(_text_history())
+        first = eng._context_compressor
+        eng.config.context.level = "aggressive"
+        eng._prepare_messages(_text_history())
+        assert eng._context_compressor is not first
+        assert eng._context_compressor.level == "aggressive"
+
+
 class TestCompressorTermination:
     """Pinned defect: an unreachable token budget made
     compress_conversation recurse with identical arguments until

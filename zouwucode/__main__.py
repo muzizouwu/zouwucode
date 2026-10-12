@@ -211,7 +211,17 @@ def main():
         # ── Textual TUI mode ────────────────────────────────────────────────
         from .tui.textual_app import run_tui
         resume = args.session or ("__latest__" if args.resume else None)
-        run_tui(config_path, skill_names=args.skills, resume_session=resume)
+        # Same overrides the CLI path applies — previously dropped for TUI.
+        run_tui(config_path, skill_names=args.skills, resume_session=resume,
+                overrides={
+                    "mode": args.mode,
+                    "model": args.model,
+                    "api_key": args.api_key,
+                    "reasoning": args.reasoning,
+                    "compress": args.compress,
+                    "max_tokens": args.max_tokens,
+                    "keep_turns": args.keep_turns,
+                })
     elif args.web:
         # ── Web UI mode ─────────────────────────────────────────────────────
         asyncio.run(app.run_web(port=args.port))

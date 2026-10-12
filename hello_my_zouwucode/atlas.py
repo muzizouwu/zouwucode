@@ -48,11 +48,15 @@ class Atlas:
         boulder: BoulderState,
         omo_dir: Path,
         on_event: Optional[EventCallback] = None,
+        default_category: str = "deep",
     ):
         self.engine = engine
         self.boulder = boulder
         self.omo_dir = Path(omo_dir).resolve()
         self.on_event = on_event or (lambda *_: None)
+        # Category used for plan todos that do not name one
+        # (config.hello_my_zouwucode.default_category; "deep" fallback).
+        self.default_category = default_category or "deep"
 
     def _emit(self, etype: str, message: str, payload: Optional[dict] = None) -> None:
         self.on_event(etype, message, payload or {})
@@ -83,7 +87,7 @@ class Atlas:
         for todo in todos:
             task_id = todo["id"]
             title = todo.get("title", "(untitled)")
-            category = todo.get("category", "deep") or "deep"
+            category = todo.get("category") or self.default_category
 
             self.boulder.set_todo_in_progress(task_id)
             self._emit("task", f"▶ {title}", {"task_id": task_id, "status": "in_progress"})

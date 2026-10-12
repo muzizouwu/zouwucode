@@ -1442,7 +1442,13 @@ class WebUIServer:
             return True
         queue = self._approval_queue
         if queue is None:
-            return False
+            # No open SSE stream to ask through (e.g. the legacy non-stream
+            # /api/chat endpoint). Raising makes the coordinator report
+            # "approval prompt failed — NOT executed" instead of a silent
+            # denial that would look like the user answered no.
+            raise RuntimeError(
+                "no interactive approval channel for this request — use the "
+                "streaming chat endpoint in agent mode")
         args = getattr(tool_call, "arguments", "") or ""
         if isinstance(args, dict):
             args = json.dumps(args, ensure_ascii=False)

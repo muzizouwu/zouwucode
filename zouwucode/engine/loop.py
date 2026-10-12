@@ -437,6 +437,24 @@ class EngineLoop:
         _close_pending()
         return [m for m in out if m is not None]
 
+    def _get_context_compressor(self):
+        """Return the compressor for the CURRENT config, or None.
+
+        CLI/TUI overrides (--compress/--max-tokens/--keep-turns) are applied
+        AFTER the engine is constructed, so building the compressor only in
+        __init__ silently ignored those flags. This rebuilds lazily and
+        follows the config (including level changes and off→on→off).
+        """
+        ctx_cfg = getattr(self.config, "context", None)
+        if ctx_cfg is None or not ctx_cfg.enabled:
+            return None
+        level = getattr(ctx_cfg, "level", "balanced")
+        if (self._context_compressor is None
+                or getattr(self._context_compressor, "level", None) != level):
+            from ..context.compressor import DialogueCompressor
+            self._context_compressor = DialogueCompressor(level=level)
+        return self._context_compressor
+
     def _prepare_messages(self, messages: list[dict]) -> list[dict]:
         """Compress the outgoing prompt when enabled and oversized.
 
@@ -444,8 +462,10 @@ class EngineLoop:
         regression-pinned), when nothing is oversized, or when compression
         fails for any reason. Never mutates the cached prefix.
         """
-        comp = self._context_compressor
-        if comp is None or not messages:
+        if not messages:
+            return messages
+        comp = self._get_context_compressor()
+        if comp is None:
             return messages
         cfg = self.config.context
         est = sum(len(str(m.get("content") or "")) // 2 + 4 for m in messages)
