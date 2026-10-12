@@ -61,10 +61,16 @@ class TestDeadKnobsRemoved:
         cfg = ZOUWUCODEConfig()
         for dead in ("theme", "language"):
             assert not hasattr(cfg, dead), dead
-        for dead in ("enabled", "append_only", "stats_window"):
+        for dead in ("enabled", "append_only"):
             assert not hasattr(cfg.cache, dead), dead
-        for dead in ("auto_save_interval", "rollback_enabled"):
+        for dead in ("auto_save_interval",):
             assert not hasattr(cfg.session, dead), dead
+
+    def test_readded_functional_knobs_are_present(self):
+        # 1.0.4 re-added the two knobs that CAN do something real.
+        cfg = ZOUWUCODEConfig()
+        assert cfg.cache.stats_window == 50
+        assert cfg.session.rollback_enabled is True
 
     def test_config_files_do_not_mention_them(self):
         from pathlib import Path
@@ -74,8 +80,7 @@ class TestDeadKnobsRemoved:
             if not path.exists():
                 continue
             text = path.read_text(encoding="utf-8")
-            for dead in ("append_only", "stats_window", "rollback_enabled",
-                         "auto_save_interval"):
+            for dead in ("append_only", "auto_save_interval"):
                 assert dead not in text, f"{dead} still in {name}"
             assert "\ntheme:" not in text, f"theme still in {name}"
             assert "\nlanguage:" not in text, f"language still in {name}"

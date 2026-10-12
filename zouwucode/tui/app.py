@@ -247,6 +247,11 @@ class ZOUWUCODEApp:
             print(f"  [Resumed {self._session_id}] "
                   f"{self._replayed} messages replayed into context")
 
+        # Baseline snapshot for workspace rollback (/rollback). A no-op when
+        # rollback is disabled or git is unavailable.
+        if getattr(self.sessions, "snapshotter", None) is not None:
+            self.sessions.snapshot_workspace("session start")
+
         self.transcripts.start_session(self._session_id)
         return self._session_id
 
@@ -511,6 +516,7 @@ Rules:
         print("  /exit       - Exit ZOUWUCODE")
         print("  /cache      - Show cache statistics")
         print("  /sessions   - List saved sessions")
+        print("  /rollback   - Undo the last N turns' file changes (/rollback [N|list])")
         print("  /mode       - Show current mode")
         print("  /memory     - Show project memory context")
         print("  /goal       - Show current goal")
@@ -653,6 +659,24 @@ Rules:
                 for s in sessions:
                     ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(s.get("updated", 0)))
                     print(f"    {s['id']}: {s['turns']} turns ({ts})")
+        elif command == "/rollback":
+            if arg.strip() in ("list", "ls"):
+                snaps = self.sessions.list_snapshots()
+                if not snaps:
+                    print("  No workspace snapshots (rollback disabled, or nothing changed yet).")
+                else:
+                    print("  Workspace snapshots (newest first):")
+                    for s in snaps:
+                        print(f"    {s['commit']}  {s['at']}  {s['label']}")
+            else:
+                steps = int(arg.strip()) if arg.strip().isdigit() else 1
+                res = self.sessions.rollback_workspace(steps)
+                if res.get("ok"):
+                    print(f"  ✓ Rolled back {res['steps']} turn(s) to {res['target']}: "
+                          f"{len(res.get('changed') or [])} file(s) restored, "
+                          f"{len(res.get('removed') or [])} removed.")
+                else:
+                    print(f"  ✗ Rollback failed: {res.get('error')}")
         elif command == "/rules":
             if arg == "edit":
                 # Open rules.md in editor

@@ -406,6 +406,9 @@ class ZOUWUCODETUI(App):
         resumed = bool(requested) and self.sessions.load_session(requested) is not None
         self._session_id = (requested if resumed
                             else self.sessions.start_session())
+        # Baseline snapshot for workspace rollback (/rollback).
+        if getattr(self.sessions, "snapshotter", None) is not None:
+            self.sessions.snapshot_workspace("session start")
         system_prompt = self._build_system_prompt()
         self.engine.freeze_session(system_prompt, self.tools.get_schemas())
         self.context_window.add_to_hot([
@@ -702,6 +705,7 @@ class ZOUWUCODETUI(App):
             chat.write("    /exit          - Exit ZOUWUCODE")
             chat.write("    /cache         - Show cache statistics")
             chat.write("    /sessions      - List saved sessions")
+            chat.write("    /rollback      - Undo the last N turns' file changes (/rollback [N|list])")
             chat.write("    /mode          - Show current mode")
             chat.write("    /memory        - Show project memory context")
             chat.write("    /goal          - Show current goal")
@@ -852,6 +856,26 @@ class ZOUWUCODETUI(App):
                                        time.localtime(s.get("updated", 0)))
                     # Text(...) keeps any "[...]" in ids/dates literal.
                     chat.write(Text(f"    {s['id']}: {s['turns']} turns ({ts})"))
+
+        elif command == "/rollback":
+            if arg.strip() in ("list", "ls"):
+                snaps = self.sessions.list_snapshots()
+                if not snaps:
+                    chat.write("  No workspace snapshots (rollback disabled, or nothing changed yet).")
+                else:
+                    chat.write(_style("  Workspace snapshots (newest first):", "bold cyan"))
+                    for s in snaps:
+                        chat.write(Text(f"    {s['commit']}  {s['at']}  {s['label']}"))
+            else:
+                steps = int(arg.strip()) if arg.strip().isdigit() else 1
+                res = self.sessions.rollback_workspace(steps)
+                if res.get("ok"):
+                    chat.write(_style(
+                        f"  ✓ Rolled back {res['steps']} turn(s) to {res['target']}: "
+                        f"{len(res.get('changed') or [])} file(s) restored, "
+                        f"{len(res.get('removed') or [])} removed.", "green"))
+                else:
+                    chat.write(_style(f"  ✗ Rollback failed: {res.get('error')}", "red"))
 
         elif command == "/clear":
             self.query_one("#chat-view", RichLog).clear()

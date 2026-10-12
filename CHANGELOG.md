@@ -31,6 +31,35 @@
 ### Known — 仍待实现（不假装已修）
 - 交互式审批（agent/yolo 语义区分）、CLI/dev 接入上下文压缩、MCP 的 SSE/Streamable HTTP 传输、`rollback_enabled`/`auto_save_interval`/`cache.enabled` 等配置项仍是"声明存在但未接线"。
 
+## [1.0.4] — 2026-10-13
+
+把 1.0.3 删掉的两个"死配置"里**真正有需求的那一个**补成功能再加回来，并如实交代其余为什么不能加。
+
+### Added — 工作区回滚（`session.rollback_enabled`）
+- `SessionManager` 的 docstring 从第一天就写着 "save, resume, fork, and rollback"，
+  但代码里从来没有 rollback——这次把它做实。
+- 新建 `zouwucode/session/snapshot.py`：`WorkspaceSnapshotter` 用**侧仓库 git 快照**
+  （独立 `GIT_DIR`，work tree 指向工作区）记录工作区状态，**完全不碰项目自己的 `.git`**
+  （仿 DeepSeek-TUI 思路；仅调用标准 `git` 可执行文件，缺 git 时降级为安全空操作）。
+- 快照时机：会话开始（基线）+ 每完成一轮（`SessionManager.log_turn` 之后），
+  因此 `HEAD` 恒等于"最后一轮之后的状态"。
+- `/rollback [N|list]` 三端可用（CLI / TUI / Web `POST /api/rollback`、`GET /api/snapshots`）：
+  用 `git reset --hard` 回到 `HEAD~N`（撤销最近 N 轮的改动 —— 被重置删除的新增文件一并清除），
+  连续 `/rollback` 会继续向更早回退。排除 `node_modules/`、`__pycache__/`、`.venv/`、
+  `zouwucode_data/` 等噪声；工作区里从未被快照过的未跟踪文件不会被删。
+- 回归测试：`tests/test_rollback.py`（快照/回滚/连续回滚/边界拒绝/禁用空操作/排除项/接线）。
+
+### Added — 缓存命中率统计窗口（`cache.stats_window`）
+- `CacheStats(window_size=...)` 的滚动窗口长度现在由 `cache.stats_window` 决定
+  （驱动 `/cache` 与状态栏的 `window_hit_rate`），不再是写死的 50。
+
+### Unchanged — 另外两个"死配置"为什么**不**加回来（不是漏做，是刻意）
+- `cache.enabled` / `cache.append_only`：缓存在这个引擎里是**结构性不变的**
+  （只追加），而 `PrefixCache` 同时充当会话消息存储——把它关掉会让模型看不到工具结果，
+  这个开关**没有可实现的真实语义**，留着只会骗人。
+- `auto_save_interval`：轮次是同步落盘的，间隔旋钮不可能生效。
+- `theme` / `language`：UI 是单主题、zh-first，无第二套实现可切。
+
 ## [Unreleased]
 
 ### Added

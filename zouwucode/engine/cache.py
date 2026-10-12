@@ -13,16 +13,26 @@ from typing import Optional
 
 @dataclass
 class CacheStats:
-    """Real-time cache performance statistics."""
+    """Real-time cache performance statistics.
 
+    ``window_size`` (from config.cache.stats_window) sets the length of the
+    rolling hit-hit/miss windows behind ``window_hit_rate``.
+    """
+
+    window_size: int = 50
     total_requests: int = 0
     cache_hits: int = 0
     total_prompt_tokens: int = 0
     cached_prompt_tokens: int = 0
     total_output_tokens: int = 0
     total_cost: float = 0.0
-    window_hits: deque = field(default_factory=lambda: deque(maxlen=50))
-    window_misses: deque = field(default_factory=lambda: deque(maxlen=50))
+    window_hits: deque = field(default=None)
+    window_misses: deque = field(default=None)
+
+    def __post_init__(self):
+        size = max(1, int(self.window_size or 50))
+        self.window_hits = deque(maxlen=size)
+        self.window_misses = deque(maxlen=size)
     _start_time: float = field(default_factory=time.time)
 
     @property

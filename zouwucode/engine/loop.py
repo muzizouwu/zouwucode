@@ -120,7 +120,7 @@ class EngineLoop:
         if ctx_cfg is not None and ctx_cfg.enabled:
             from ..context.compressor import DialogueCompressor
             self._context_compressor = DialogueCompressor(level=ctx_cfg.level)
-        self.stats = CacheStats()
+        self.stats = CacheStats(window_size=getattr(config.cache, "stats_window", 50))
         self._tool_executor: Optional[ToolExecutor] = None
         self._mode = config.sandbox.default_mode
         self._running = False

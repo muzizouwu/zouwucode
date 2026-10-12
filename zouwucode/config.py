@@ -99,11 +99,16 @@ class DevConfig(BaseModel):
 class CacheConfig(BaseModel):
     """Prefix-cache tuning parameters.
 
-    enabled / append_only / stats_window were removed in 1.0.3: declared
-    but never read anywhere (the cache is always on and append-only by
-    construction; can_append() now enforces the budget with a warning).
+    enabled / append_only were removed in 1.0.3 and stay removed: a
+    cache-first engine only ever appends, and PrefixCache doubles as the
+    conversation store, so disabling it would hide tool results from the
+    model — the "knob" could never mean anything.
+
+    stats_window (1.0.4): window length (in turns) for the rolling cache
+    hit-rate shown by /cache and the status line.
     """
 
+    stats_window: int = 50
     max_prefix_tokens: int = 128_000
 
 
@@ -122,13 +127,18 @@ class SandboxConfig(BaseModel):
 class SessionConfig(BaseModel):
     """Session persistence settings.
 
-    auto_save_interval and rollback_enabled were removed in 1.0.3: turns
-    save synchronously (an interval knob did nothing) and no rollback
-    implementation ever existed; session --resume is the recovery path.
+    auto_save_interval was removed in 1.0.3: turns save synchronously, so an
+    interval knob could do nothing.
+
+    rollback_enabled (1.0.4): enables workspace rollback via side-git
+    snapshots (zouwucode/session/snapshot.py) — a snapshot is taken at
+    session start and after each turn, and /rollback <n> undoes the last n
+    turns without touching the project's own .git.
     """
 
     save_enabled: bool = True
     max_sessions: int = 50
+    rollback_enabled: bool = True
 
 
 class HelloMyZouwucodeConfig(BaseModel):

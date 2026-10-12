@@ -33,6 +33,7 @@ engine:
   stuck_threshold: 3                # 窗口内同一动作重复达此数即提醒/熔断
 
 cache:
+  stats_window: 50              # 缓存命中率统计窗口（轮数）
   max_prefix_tokens: 128000
 
 sandbox:
@@ -48,6 +49,7 @@ sandbox:
 session:
   save_enabled: true
   max_sessions: 50
+  rollback_enabled: true        # 工作区回滚（侧 git 快照，/rollback N）
 
 # 多智能体编排模块（hello-my-zouwucode）
 hello_my_zouwucode:

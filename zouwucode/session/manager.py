@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import ZOUWUCODEConfig
+from .snapshot import WorkspaceSnapshotter
 
 
 class SessionManager:
@@ -21,6 +22,43 @@ class SessionManager:
         self._sessions_dir = Path(config.data_dir) / "sessions"
         self._current_session_id: Optional[str] = None
         self._current_log: list[dict] = []
+        # Workspace rollback (session.rollback_enabled): side-git snapshots
+        # under <data_dir>/snapshots/<hash-of-workspace>.git, isolated from
+        # the project's own .git.
+        self._snapshotter: Optional[WorkspaceSnapshotter] = None
+        try:
+            enabled = bool(getattr(config.session, "rollback_enabled", True))
+            root = Path.cwd().resolve()
+            import hashlib
+            tag = hashlib.sha1(str(root).encode("utf-8")).hexdigest()[:16]
+            self._snapshotter = WorkspaceSnapshotter(
+                workspace=root,
+                repo_dir=Path(config.data_dir) / "snapshots" / ("%s.git" % tag),
+                enabled=enabled,
+            )
+        except Exception:  # never let rollback wiring break session startup
+            self._snapshotter = None
+
+    @property
+    def snapshotter(self) -> Optional[WorkspaceSnapshotter]:
+        return self._snapshotter
+
+    def snapshot_workspace(self, label: str = "") -> Optional[str]:
+        """Take a workspace snapshot (no-op when rollback is disabled)."""
+        if self._snapshotter is None:
+            return None
+        return self._snapshotter.snapshot(label)
+
+    def rollback_workspace(self, steps: int = 1) -> dict:
+        """Undo the last ``steps`` turns' file changes (see WorkspaceSnapshotter)."""
+        if self._snapshotter is None:
+            return {"ok": False, "error": "workspace rollback is unavailable"}
+        return self._snapshotter.rollback(steps)
+
+    def list_snapshots(self, limit: int = 20) -> list:
+        if self._snapshotter is None:
+            return []
+        return self._snapshotter.list_snapshots(limit)
 
     @property
     def current_session_id(self) -> Optional[str]:
@@ -43,6 +81,11 @@ class SessionManager:
         self._current_log.append(entry)
         if self.config.session.save_enabled:
             self._save_session()
+            # Snapshot AFTER the turn, so HEAD == "state after last turn"
+            # and /rollback n undoes the last n turns.
+            if self._snapshotter is not None:
+                role = entry.get("role", "turn")
+                self._snapshotter.snapshot("turn: %s" % role)
 
     def _save_session(self) -> None:
         """Persist the current session to disk."""

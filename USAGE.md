@@ -895,12 +895,6 @@ data_dir: ""                         # 留空使用默认数据目录（可自�
 # 默认提供商
 default_provider: deepseek
 
-# 语言
-language: zh
-
-# 主题
-theme: dark
-
 show_thinking: true                  # 流式显示思考过程（/thinking 切换）
 
 # LLM 提供商配置
@@ -913,10 +907,8 @@ providers:
 
 # 缓存配置
 cache:
-  enabled: true                      # 启用缓存
-  append_only: true                  # 只追加模式（保持前缀一致性）
+  stats_window: 50                   # 缓存命中率滚动窗口（轮数）
   max_prefix_tokens: 128000          # 最大前缀 token 数
-  stats_window: 50                   # 统计窗口大小
 
 # 引擎安全限制 — 防止死循环与执行停顿
 engine:
@@ -978,9 +970,8 @@ reasoning_intensity: medium             # low | medium | max
 # 会话配置
 session:
   save_enabled: true                 # 启用保存
-  auto_save_interval: 60             # 自动保存间隔（秒）
   max_sessions: 50                   # 最大会话数
-  rollback_enabled: true             # 启用回滚
+  rollback_enabled: true             # 工作区回滚（侧 git 快照，/rollback N）
 
 # 多智能体编排模块（hello-my-zouwucode，复刻自 oh-my-opencode）
 hello_my_zouwucode:

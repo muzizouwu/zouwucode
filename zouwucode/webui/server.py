@@ -930,6 +930,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       addMsg('system', '  /skill load <name> - Load a skill');
       addMsg('system', '  /skill unload <name> - Unload a skill');
       addMsg('system', '  /sessions     - List sessions');
+      addMsg('system', '  /rollback     - Undo last N turns\' file changes (/rollback [N|list])');
       addMsg('system', '  /mode         - Show current mode');
       addMsg('system', 'hello-my-zouwucode (multi-agent orchestration):');
       addMsg('system', '  /hello-ultrawork <task> - Full-autonomy pipeline');
@@ -1002,6 +1003,31 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (parts[1] === 'load' && parts[2]) { loadSkill(parts[2]); return; }
       if (parts[1] === 'unload' && parts[2]) { unloadSkill(parts[2]); return; }
       addMsg('system', 'Usage: /skill list | load <name> | unload <name>');
+      return;
+    }
+    if (cmd.startsWith('/rollback')) {
+      const parts = cmd.split(' ');
+      if (parts[1] === 'list' || parts[1] === 'ls') {
+        fetch('/api/snapshots').then(r => r.json()).then(d => {
+          if (!d.snapshots || !d.snapshots.length) { addMsg('system', 'No workspace snapshots.'); return; }
+          addMsg('system', 'Workspace snapshots (newest first):');
+          d.snapshots.forEach(s => addMsg('system', '  ' + s.commit + '  ' + s.at + '  ' + s.label));
+        }).catch(() => addMsg('system', 'Snapshot list failed.'));
+        return;
+      }
+      const steps = parseInt(parts[1]) || 1;
+      fetch('/api/rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steps }),
+      }).then(r => r.json()).then(d => {
+        if (d.ok) {
+          addMsg('system', '✓ Rolled back ' + d.steps + ' turn(s) to ' + d.target +
+                 ' (' + (d.changed || []).length + ' changed, ' + (d.removed || []).length + ' removed)');
+        } else {
+          addMsg('system', '✗ Rollback failed: ' + (d.error || 'unknown'));
+        }
+      }).catch(() => addMsg('system', 'Rollback request failed.'));
       return;
     }
     if (cmd === '/sessions') {
@@ -1843,6 +1869,24 @@ class WebUIServer:
                         "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(s.get("updated", 0))),
                     })
             return self._json_response({"sessions": sessions_list})
+
+        elif path == "/api/rollback" and method == "POST":
+            manager = getattr(self, "sessions_manager", None)
+            if manager is None or getattr(manager, "snapshotter", None) is None:
+                return self._json_response(
+                    {"ok": False, "error": "rollback unavailable"}, 400)
+            try:
+                data = json.loads(body or "{}")
+                steps = int(data.get("steps", 1) or 1)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                return self._json_response(
+                    {"ok": False, "error": "invalid steps"}, 400)
+            return self._json_response(manager.rollback_workspace(steps))
+
+        elif path == "/api/snapshots" and method == "GET":
+            manager = getattr(self, "sessions_manager", None)
+            snaps = manager.list_snapshots() if manager is not None else []
+            return self._json_response({"snapshots": snaps})
 
         elif path == "/api/hello-my-zouwucode" and method == "POST":
             if self.modules is None:

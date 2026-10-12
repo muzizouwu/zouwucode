@@ -688,9 +688,9 @@
 **配置模型**：
 - `ProviderConfig`：LLM 提供商配置（api_key、base_url、model、api_type）
 - `EngineConfig`：引擎安全限制（max_tool_rounds=25、max_round_extensions=2 轮数软着陆、turn_timeout_seconds=300、task_timeout_seconds=1800、max_consecutive_tool_errors=3、max_llm_retries=2、max_cost_usd=0 成本熔断、stuck_detection_enabled/stuck_window/stuck_threshold 卡死检测）
-- `CacheConfig`：缓存配置（enabled、max_prefix_tokens、append_only、stats_window）
+- `CacheConfig`：缓存配置（stats_window、max_prefix_tokens）
 - `SandboxConfig`：沙箱配置（enabled、default_mode、allow_*、allowed_paths）
-- `SessionConfig`：会话配置（save_enabled、auto_save_interval、max_sessions、rollback_enabled）
+- `SessionConfig`：会话配置（save_enabled、max_sessions、rollback_enabled 工作区回滚）
 - `SubAgentConfig`：子 Agent 配置（max_agents=8、default_timeout=600）
 - `McpServerConfig`：单个 MCP 服务器连接（name、command、args）
 - `ExtensionsConfig`：扩展层配置（mcp_servers=[]、lsp_enabled=false、hooks=[] 生命周期钩子，默认不激活）
@@ -1052,9 +1052,6 @@ zouwucode/                             # 仓库克隆目录（项目根）
 # ZOUWUCODE 配置
 data_dir: ""                              # 数据目录（留空使用默认 zouwucode_data/）
 default_provider: deepseek                 # 默认 LLM 提供商
-language: zh                               # 语言
-theme: dark                                # 主题
-
 # LLM 提供商
 providers:
   deepseek:
@@ -1078,10 +1075,8 @@ engine:
 
 # 缓存配置
 cache:
-  enabled: true                            # 启用缓存
-  append_only: true                        # 只追加模式
+  stats_window: 50                         # 缓存命中率滚动窗口（轮数）
   max_prefix_tokens: 128000                # 最大前缀 token 数
-  stats_window: 50                         # 统计窗口大小
 
 # 沙箱配置
 sandbox:
@@ -1097,9 +1092,8 @@ sandbox:
 # 会话配置
 session:
   save_enabled: true                       # 启用保存
-  auto_save_interval: 60                   # 自动保存间隔（秒）
   max_sessions: 50                         # 最大会话数
-  rollback_enabled: true                   # 启用回滚
+  rollback_enabled: true                   # 工作区回滚（侧 git 快照，/rollback N）
 
 # 子 Agent 系统
 subagent:
