@@ -308,6 +308,8 @@ class ZOUWUCODETUI(App):
         self._last_project_context = ""  # only re-send project memory when it changes
         self._show_thinking = self.config.show_thinking  # /thinking toggles thinking-block display
         self._thinking_buf = ""  # line buffer for streamed thinking deltas
+        self._content_buf = ""   # line buffer for streamed assistant text
+        self._content_started = False  # True once the live assistant block began
 
     def _create_provider(self):
         return create_provider(self.config)
@@ -544,20 +546,24 @@ class ZOUWUCODETUI(App):
             project_context = self.project_memory.get_full_context()
             messages = []
             if project_context and project_context != self._last_project_context:
-                messages.append({"role": "system", "content": project_context})
+                # NOT "system" mid-conversation (see CLI): use user role.
+                messages.append({"role": "user", "content": "[project memory]\n" + project_context})
                 self._last_project_context = project_context
             messages.append({"role": "user", "content": message})
 
             # Add to context window (stats only)
             self.context_window.add_to_warm({"role": "user", "content": message})
 
-            # Wire streaming thinking (opencode-style; /thinking toggle)
+            # Wire streaming thinking AND body (opencode-style).
             self._thinking_buf = ""
+            self._content_buf = ""
+            self._content_started = False
             if self._show_thinking:
                 self.engine.on_thinking_delta = self._on_thinking_delta
             else:
                 self.engine.on_thinking_delta = None
                 chat.write(_style("  💭 Thinking...", "dim italic"))
+            self.engine.on_content_delta = self._on_content_delta
 
             try:
                 # Run the engine
@@ -567,12 +573,16 @@ class ZOUWUCODETUI(App):
                 )
             finally:
                 self.engine.on_thinking_delta = None
+                self.engine.on_content_delta = None
                 if self._thinking_buf:
                     chat.write(_style(f"  💭 {self._thinking_buf}", "dim italic"))
                     self._thinking_buf = ""
+                if self._content_buf:
+                    self._flush_content_line(self._content_buf)
+                    self._content_buf = ""
 
-            # Show assistant response
-            if response.content:
+            # Show assistant response — only if it was NOT streamed live
+            if response.content and not self._content_started:
                 chat.write(_style(f"\n  ┃ assistant", "bold green"))
                 chat.write(f"  ┃ {response.content}")
 
@@ -694,6 +704,29 @@ class ZOUWUCODETUI(App):
                 if line.strip():
                     chat = self.query_one("#chat-view", RichLog)
                     chat.write(_style(f"  💭 {line}", "dim italic"))
+        except Exception:
+            pass  # never break the engine on UI hiccups
+
+    def _flush_content_line(self, line: str) -> None:
+        """Write one assistant line, opening the live block on first use."""
+        chat = self.query_one("#chat-view", RichLog)
+        if not self._content_started:
+            chat.write(_style("\n  ┃ assistant", "bold green"))
+            self._content_started = True
+        chat.write(f"  ┃ {line}")
+
+    def _on_content_delta(self, delta: str) -> None:
+        """Stream assistant BODY deltas into the chat view (opencode-style).
+
+        Only thinking used to stream; the prose appeared all at once at the
+        end. RichLog appends lines, so deltas are buffered and flushed as
+        complete lines (a trailing partial line is flushed when the turn ends).
+        """
+        try:
+            self._content_buf += delta
+            while "\n" in self._content_buf:
+                line, self._content_buf = self._content_buf.split("\n", 1)
+                self._flush_content_line(line)
         except Exception:
             pass  # never break the engine on UI hiccups
 

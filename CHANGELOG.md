@@ -4,6 +4,26 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.0.9] — 2026-10-13
+
+引擎压缩正确性 + 统一令牌估算 + TUI 正文流式（"经济实惠 + 正确"的硬核一轮）。
+
+### Fixed — 压缩器一组真 bug
+- **丢弃 tool 交互**（D10）：`_balanced` / `_lossless` 会丢掉「空 content 的 assistant 消息」——而这正是 `tool_calls` 的载体，导致配对的工具结果变成孤儿。现保留带 `tool_calls` 的消息。
+- **会话中插入 system 消息**（D9）：`_aggressive` 用 `role:"system"` 摘要，多数 provider 要求 system 在最前，会拒绝/忽略。改为 `user` 角色的 `[Compressed earlier history]` 便签。
+- **文件内容压缩丢全部信息**（D11）：原来 >20 行直接替换成 `"[File Content] N lines (compressed)"`。现保留**前 8 行 + 后 6 行 + 省略行数**，模型仍能看到文件形态。
+- **会话中注入 system**（D12）：项目记忆此前作为**会话中的 system 消息**注入（违反 system-first）。改为 `user` 便签（CLI + TUI 两端）。
+
+### Fixed — 统一令牌估算（D13）
+- 新增 `zouwucode/tokens.py`：`estimate_tokens`（CJK≈1/字、拉丁≈4 字符/token）+ `estimate_messages`（含 `tool_calls`）。
+- 四处旧的 `len(content)//2`（对英文**低估约 2×**）全部换用：`engine/cache.py`、`engine/loop.py`（压缩触发）、`context/compressor.py`、`context/sliding_window.py`。此前会**压缩触发过晚、预算告警失真、超大提示有 400 风险**。
+
+### Added — TUI 正文流式
+- TUI 此前只有思考流式、正文最后一次性蹦出。现 `engine.on_content_delta` 驱动**逐行实时渲染**助手正文（`_on_content_delta` / `_flush_content_line`），`_content_started` 守卫避免重复渲染。**至此三端正文流式全部具备**。
+
+### Tests
+- 新增 `tests/test_v109_compression.py`（+13：估算器精度/接线、保留 tool_calls、无中途 system、文件摘要保留首尾、D12、TUI 流式）。套件 **515 → 528 全绿**。
+
 ## [1.0.8] — 2026-10-13
 
 **逐消息 rewind**（对标 Claude Code `/rewind`、Cline checkpoints）：能回退到会话中的**任意消息点**，

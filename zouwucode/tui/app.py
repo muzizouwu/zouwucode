@@ -391,7 +391,10 @@ Rules:
         project_context = self.project_memory.get_full_context()
         messages = []
         if project_context and project_context != self._last_project_context:
-            messages.append({"role": "system", "content": project_context})
+            # NOT "system": the frozen system prompt is already first; a
+            # second system message mid-conversation violates "system first"
+            # on most providers. A user-role memory note is legal in-place.
+            messages.append({"role": "user", "content": "[project memory]\n" + project_context})
             self._last_project_context = project_context
         messages.append({"role": "user", "content": message})
 

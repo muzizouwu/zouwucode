@@ -30,6 +30,7 @@ from .providers.base import (
     Message,
 )
 from ..config import ZOUWUCODEConfig
+from ..tokens import estimate_messages
 
 logger = logging.getLogger("zouwucode.engine")
 
@@ -496,7 +497,7 @@ class EngineLoop:
         if comp is None:
             return messages
         cfg = self.config.context
-        est = sum(len(str(m.get("content") or "")) // 2 + 4 for m in messages)
+        est = estimate_messages(messages)
         if est <= cfg.max_context_tokens:
             return messages
         keep = max(1, int(cfg.keep_last_n))

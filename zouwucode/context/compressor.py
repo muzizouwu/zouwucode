@@ -10,6 +10,8 @@ The compression algorithm:
 
 import re
 
+from ..tokens import estimate_messages
+
 
 # ── Patterns for identifying compressible content ────────────────────────────
 
@@ -108,7 +110,7 @@ class DialogueCompressor:
         result = compressed + tail
 
         # If still too long, apply more aggressive compression
-        estimated_tokens = sum(len(m.get("content", "")) // 2 for m in result)
+        estimated_tokens = estimate_messages(result)
         if estimated_tokens > max_context_tokens and self.level != "lossless":
             # Keep even fewer messages uncompressed — but ONLY recurse when
             # that changes the parameters. min(0, 5) == 0 and min(5, 5) == 5
@@ -138,7 +140,9 @@ class DialogueCompressor:
         result = []
         for msg in messages:
             content = msg.get("content", "").strip()
-            if content:  # Remove empty turns
+            # A message with tool_calls may legitimately have empty content;
+            # dropping it strands its tool results (orphaned tool_call_id).
+            if content or msg.get("tool_calls"):
                 result.append({**msg, "content": content})
         return result
 
@@ -152,7 +156,9 @@ class DialogueCompressor:
             role = msg.get("role", "")
             content = msg.get("content", "")
 
-            if not content.strip():
+            # Keep tool_calls carriers (empty content is valid for them) —
+            # dropping them orphans the paired tool results.
+            if not content.strip() and not msg.get("tool_calls"):
                 continue
 
             # Always preserve system messages
@@ -205,7 +211,11 @@ class DialogueCompressor:
             # Summarize the group
             summary = self._summarize_interaction_group(group)
             if summary:
-                result.append({"role": "system", "content": f"[Compressed] {summary}"})
+                # NOT role "system": most providers require system first, so a
+                # mid-conversation system message is rejected or ignored. A
+                # user-role note is legal in-place and reads as history.
+                result.append(
+                    {"role": "user", "content": f"[Compressed earlier history] {summary}"})
 
         return result
 
@@ -239,10 +249,14 @@ class DialogueCompressor:
                     return f"[Tool] Error: {data.get('error', '')[:100]}"
             except Exception:
                 pass
-        # File content lines
+        # File content lines — keep head + tail so the model still sees the
+        # shape of the file (a bare "N lines (compressed)" loses everything).
         lines = content.splitlines()
         if len(lines) > 20:
-            return f"[File Content] {len(lines)} lines (compressed)"
+            head, tail = lines[:8], lines[-6:]
+            hidden = len(lines) - len(head) - len(tail)
+            return ("[File Content] %d lines\n%s\n... (%d more lines) ...\n%s"
+                    % (len(lines), "\n".join(head), hidden, "\n".join(tail)))
         return content[:200]
 
     def _summarize_assistant_content(self, content: str) -> str:
@@ -286,10 +300,5 @@ class DialogueCompressor:
         return " | ".join(parts)
 
     def estimate_tokens(self, messages: list[dict]) -> int:
-        """Rough token estimation (2 chars ≈ 1 token for Chinese + English)."""
-        total = 0
-        for msg in messages:
-            total += len(msg.get("content", "")) // 2
-            # Account for message overhead
-            total += 4  # role + metadata overhead
-        return total
+        """Token estimation via the shared estimator (was len//2)."""
+        return estimate_messages(messages)

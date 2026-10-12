@@ -9,6 +9,8 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
+from ..tokens import estimate_tokens
+
 
 # Per-model USD price per 1M tokens: (input_uncached, input_cached, output).
 # Cost was previously hardcoded to DeepSeek V4-Flash rates regardless of the
@@ -172,7 +174,7 @@ class PrefixCache:
         """Rough token count of the current prefix."""
         total = 0
         for msg in self._frozen_messages:
-            total += len(msg.get("content", "")) // 2  # rough est: 2 chars ≈ 1 token
+            total += estimate_tokens(msg.get("content") or "")
         return total
 
     def can_append(self, additional_tokens: int = 0) -> bool:

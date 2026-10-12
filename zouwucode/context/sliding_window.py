@@ -13,6 +13,9 @@ the most important context while archiving the rest.
 from typing import Optional
 
 
+from ..tokens import estimate_messages as _estimate_messages
+
+
 class ContextWindow:
     """Manages the sliding context window for conversation history.
 
@@ -102,11 +105,8 @@ class ContextWindow:
             target.pop(0)
 
     def _estimate_tokens(self, messages: list[dict]) -> int:
-        """Rough token estimation."""
-        total = 0
-        for msg in messages:
-            total += len(msg.get("content", "")) // 2 + 4
-        return total
+        """Rough token estimation (shared estimator; was len//2)."""
+        return _estimate_messages(messages)
 
     def get_stats(self) -> dict:
         """Get context window statistics."""
