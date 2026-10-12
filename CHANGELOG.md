@@ -4,6 +4,24 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.7.2] — 2026-10-13
+
+体检修复：文档与代码对齐 + 可观测性补漏（agent 自进化后"改了代码没同步文档"的典型偏差）。
+
+### Fixed
+- **文档命令错误**：README 与规格文档写 `zouwucode mcp-server`，实际子命令是 `zouwucode mcp-serve`（[__main__.py](zouwucode/__main__.py)），照文档执行会失败
+- **工具数量三处不一致**：README 两处写"12 个内置工具"，实测 `create_builtin_tools` 返回 **11 个**；规格文档 3.3 表头与 USAGE 第 12 章补 `oracle` 工具（11 内置 + oracle 复核 + task 委派）
+- **README 目录树缺 v1.1–v1.7 新增文件**：补 `sandbox/container.py`、`session/snapshot.py`、`tools/agent_tools.py`、`oracle_tool.py`、`_encoding.py`
+- **USAGE 缺三个已发布特性的使用说明**：补 §13.3 容器隔离（v1.6.0）、§14.4 消息回退 `/rewind`（v1.0.8）、§12 `oracle` 工具行
+- **9 处静默异常漏网**（v1.5.0"消灭静默吞异常"的遗漏，静态检查也漏了它们）：
+  - `modules/manager.py` 三处模块派发（message/command/event）失败时静默跳过 → 现在记录模块名与可读原因（第三方模块故障从此可诊断）
+  - `tui/textual_app.py` 四处 UI 回调容错（模块加载、工具摘要/思考/正文行渲染）`pass` → 改 `logger.debug`（UI 渲染故障不再无痕）
+  - `context/transcript.py` 读转录文件失败、`session/manager.py` 读会话文件失败 → 记 warning/debug，带 `describe_exc` 可读原因
+- **静态检查本身有盲区**：`test_v150_observability.py` 只匹配裸 `pass`（`pass  # 注释` 与 `continue` 均漏过）。强化为：正则匹配 pass/continue（含注释形式）、新增 `continue` 覆盖、排除三引号字符串体（python_exec 子进程 REPL driver 无 logger 且 stdout 即协议，跳过坏帧是唯一安全动作）；新增模块派发失败的日志行为测试
+
+### Changed
+- GitHub 仓库设置 11 个 topics（ai-agent / coding-agent / deepseek / mcp / tui 等），提升可发现性
+
 ## [1.7.1] — 2026-10-13
 
 体检修复：CI 红灯根治 + 文档/徽章同步。

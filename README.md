@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 605 passed](https://img.shields.io/badge/tests-605%20passed-green)](tests/)
+[![Tests: 606 passed](https://img.shields.io/badge/tests-606%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -22,7 +22,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **Cache-First 引擎** | Append-only 对话循环，DeepSeek 缓存命中率 90%+，成本降至约 1/5 |
 | **三种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面） |
 | **三种模式** | Plan（只读）、Agent（交互审批）、YOLO（自动执行） |
-| **完整工具集** | 文件读写、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 12 个内置工具 |
+| **完整工具集** | 文件读写、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 11 个内置工具 |
 | **模型路由 / oracle** | 便宜模型干活、更强模型只读复核（`/oracle`、`oracle` 工具）；主会话缓存不受影响 |
 | **会话共享 / 跨会话消息** | `/share` 导出自包含 Markdown；`/msg`·`/inbox`·`/peers` 让本机多个会话互通（本地 SQLite，无守护进程） |
 | **子代理 worktree 隔离** | 可选：每个子 Agent 在独立 git worktree（`dev/sub-<id>`）里干活，并行改文件互不冲突 |
@@ -36,7 +36,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **任务打断** | 三端统一：TUI/WebUI 按 `Esc`（带确认弹窗）、CLI 按 `Ctrl+C`，打断后可「继续」恢复或放弃 |
 | **子 Agent 系统** | 主 Agent 通过 `task` 工具分解任务并并行委派：每个子 Agent 独立引擎/缓存，支持工具白名单、独立超时、级联打断 |
 | **Devin 式 dev 模式** | `zouwucode dev <issue>` 自主完成 issue→隔离 worktree→实现→验证→Draft PR 全流程；支持队列并行、watch 自动认领、成本熔断 |
-| **扩展层（MCP/LSP）** | MCP 服务器工具桥接（stdio + Streamable HTTP），并可 `zouwucode mcp-server` 反向暴露为 MCP 服务器；LSP 三工具：诊断、hover 类型签名、go-to-definition，配置即启用，零配置零开销 |
+| **扩展层（MCP/LSP）** | MCP 服务器工具桥接（stdio + Streamable HTTP），并可 `zouwucode mcp-serve` 反向暴露为 MCP 服务器；LSP 三工具：诊断、hover 类型签名、go-to-definition，配置即启用，零配置零开销 |
 | **仓库地图（repo-map）** | 符号级代码库摘要注入上下文，大项目下模型"看得见全貌"而不烧 token |
 | **引擎安全限制** | 工具轮数上限、单请求/单任务超时、连续工具错误熔断 — 杜绝死循环与执行停顿 |
 | **会话管理** | 自动保存、恢复、回滚 |
@@ -355,7 +355,7 @@ zouwucode/                       # 核心包
 │       ├── deepseek.py          # DeepSeek 优化适配器
 │       └── openai.py            # OpenAI 兼容适配器
 │
-├── tools/                       # 工具系统（12 个内置工具）
+├── tools/                       # 工具系统（11 个内置工具）
 │   ├── base.py                  # 工具基类
 │   ├── registry.py              # 工具注册中心
 │   ├── file_tools.py            # 文件读写编辑搜索
@@ -363,7 +363,10 @@ zouwucode/                       # 核心包
 │   ├── code_exec_tool.py        # python_exec 持久 REPL（CodeAct 可执行动作）
 │   ├── git_tools.py             # Git 操作
 │   ├── web_tools.py             # Web 搜索与抓取
-│   └── repo_map_tool.py         # repo_map 代码地图（Aider 式签名地图）
+│   ├── repo_map_tool.py         # repo_map 代码地图（Aider 式签名地图）
+│   ├── agent_tools.py           # task 子 Agent 委派工具
+│   ├── oracle_tool.py           # oracle 只读复核工具
+│   └── _encoding.py             # 子进程输出按控制台编码解码
 │
 ├── agent/                       # Agent 层
 │   ├── coordinator.py           # 工具调用协调器（引擎 ↔ 工具注册中心 + 钩子）
@@ -401,10 +404,12 @@ zouwucode/                       # 核心包
 │   └── sliding_window.py        # 滑动窗口
 │
 ├── sandbox/                     # 权限沙箱
-│   └── permission.py            # 多层安全检测
-│
+│   ├── permission.py            # 多层安全检测
+│   └── container.py             # 可选容器隔离（一次性容器、默认断网）
+
 ├── session/                     # 会话管理
-│   └── manager.py               # 会话保存/恢复
+│   ├── manager.py               # 会话保存/恢复
+│   └── snapshot.py              # 消息回退（rewind：文件/对话/两者）
 │
 ├── mcp/                         # MCP 协议支持（客户端 + 服务端）
 │   ├── client.py                # MCP 客户端

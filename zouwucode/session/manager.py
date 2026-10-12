@@ -5,13 +5,17 @@ the project's own .git), inspired by DeepSeek-TUI's approach.
 """
 
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
 from typing import Optional
 
 from ..config import ZOUWUCODEConfig
+from ..errors import describe_exc
 from .snapshot import WorkspaceSnapshotter
+
+logger = logging.getLogger("zouwucode.session")
 
 
 class SessionManager:
@@ -198,7 +202,9 @@ class SessionManager:
                     "updated": data.get("updated_at", 0),
                     "project_root": data.get("project_root", ""),
                 })
-            except Exception:
+            except Exception as exc:
+                logger.warning("skipping unreadable session file %s: %s",
+                               f.name, describe_exc(exc))
                 continue
         sessions.sort(key=lambda s: s["updated"], reverse=True)
         return sessions[:self.config.session.max_sessions]

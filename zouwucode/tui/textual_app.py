@@ -314,8 +314,10 @@ class ZOUWUCODETUI(App):
                         skills_manager=self.skills,
                     )
                 )
-            except Exception:
-                pass  # module optional — never block TUI startup
+            except Exception as _exc:
+                logger.debug("module load skipped %s: %s",
+                             type(_exc).__name__, _exc)
+                # module optional — never block TUI startup
 
         # ── State ────────────────────────────────────────────────────────
         self._processing = False
@@ -737,8 +739,10 @@ class ZOUWUCODETUI(App):
                 args = json.dumps(args, ensure_ascii=False)
             summary = f"  → {name} {args}".rstrip()
             chat.write(_style(summary[:200], "magenta"))
-        except Exception:
-            pass  # never break the engine on UI hiccups
+        except Exception as _exc:
+            logger.debug("UI render skipped %s: %s",
+                         type(_exc).__name__, _exc)
+            # never break the engine on UI hiccups
 
     def _on_thinking_delta(self, delta: str) -> None:
         """Stream thinking deltas into the chat view (opencode-style, live).
@@ -755,8 +759,10 @@ class ZOUWUCODETUI(App):
                 if line.strip():
                     chat = self.query_one("#chat-view", RichLog)
                     chat.write(_style(f"  💭 {line}", "dim italic"))
-        except Exception:
-            pass  # never break the engine on UI hiccups
+        except Exception as _exc:
+            logger.debug("UI render skipped %s: %s",
+                         type(_exc).__name__, _exc)
+            # never break the engine on UI hiccups
 
     def _flush_content_line(self, line: str) -> None:
         """Write one assistant line, opening the live block on first use."""
@@ -778,8 +784,10 @@ class ZOUWUCODETUI(App):
             while "\n" in self._content_buf:
                 line, self._content_buf = self._content_buf.split("\n", 1)
                 self._flush_content_line(line)
-        except Exception:
-            pass  # never break the engine on UI hiccups
+        except Exception as _exc:
+            logger.debug("UI render skipped %s: %s",
+                         type(_exc).__name__, _exc)
+            # never break the engine on UI hiccups
 
     async def _handle_command(self, cmd: str) -> None:
         """Handle a slash command."""

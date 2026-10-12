@@ -6,9 +6,14 @@ never fully loaded into context. Instead, they are grepped for
 specific identifiers when needed.
 """
 
+import logging
 import re
 from pathlib import Path
 from typing import Optional
+
+from ..errors import describe_exc
+
+logger = logging.getLogger("zouwucode.transcript")
 
 
 class TranscriptManager:
@@ -58,7 +63,9 @@ class TranscriptManager:
                     for line in f:
                         if re.search(pattern, line, re.IGNORECASE):
                             results.append(line.rstrip())
-            except Exception:
+            except Exception as exc:
+                logger.debug("skipping unreadable transcript %s: %s",
+                             path, describe_exc(exc))
                 continue
 
         return results[:100]  # limit results

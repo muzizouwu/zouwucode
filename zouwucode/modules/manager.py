@@ -15,7 +15,12 @@ If a module returns ``None`` the core falls through to its built-in handling.
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
+
+from ..errors import describe_exc
+
+logger = logging.getLogger("zouwucode.modules")
 
 
 class ModuleManager:
@@ -69,13 +74,18 @@ class ModuleManager:
 
         Returns a renderable result dict, or None if no module handled it.
         """
-        for module in self._modules.values():
+        for name, module in self._modules.items():
             handler = getattr(module, "handle_message", None)
             if handler is None:
                 continue
             try:
                 result = await handler(text)
-            except Exception:
+            except Exception as exc:
+                # A broken module must not swallow the user's message, but its
+                # failure must be visible — silently skipping made third-party
+                # module bugs undiagnosable.
+                logger.warning("module '%s' handle_message failed: %s",
+                               name, describe_exc(exc))
                 continue
             if result is not None:
                 return result
@@ -88,13 +98,15 @@ class ModuleManager:
 
         Returns a renderable result dict, or None if no module handled it.
         """
-        for module in self._modules.values():
+        for name, module in self._modules.items():
             handler = getattr(module, "handle_command", None)
             if handler is None:
                 continue
             try:
                 result = await handler(command, arg, context or {})
-            except Exception:
+            except Exception as exc:
+                logger.warning("module '%s' handle_command failed: %s",
+                               name, describe_exc(exc))
                 continue
             if result is not None:
                 return result
@@ -102,11 +114,13 @@ class ModuleManager:
 
     def dispatch_event(self, etype: str, message: str, payload: dict) -> None:
         """Broadcast an orchestration event to all loaded modules."""
-        for module in self._modules.values():
+        for name, module in self._modules.items():
             handler = getattr(module, "on_event", None)
             if handler is None:
                 continue
             try:
                 handler(etype, message, payload)
-            except Exception:
+            except Exception as exc:
+                logger.warning("module '%s' on_event failed: %s",
+                               name, describe_exc(exc))
                 continue

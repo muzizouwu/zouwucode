@@ -103,7 +103,7 @@
 | TUI | `--tui` | OpenAI Code 风格 | Textual 框架，彩色消息 |
 | Web UI | `--web` | DeepCode 暗色风格 | 浏览器界面，API 端点 |
 
-### 3.3 工具系统（11 个内置工具 + task 委派工具）
+### 3.3 工具系统（11 个内置工具 + oracle 复核 + task 委派工具）
 
 | 工具 | 类别 | 说明 |
 |------|------|------|
@@ -141,7 +141,7 @@
 | 生命周期钩子 | pre_tool（可拦截）/ post_tool（自动化）shell 钩子，配置驱动 | `agent/hooks.py` |
 | Rules & Skills | `.zouwucode/rules.md` 项目规则 + `.zouwucode/skills/*.md` 技能包 | `skills/manager.py` |
 | 模块系统 | 可加载扩展模块，内置 hello-my-zouwucode 多智能体编排 | `modules/manager.py`, `hello_my_zouwucode/` |
-| MCP 协议 | 支持 Model Context Protocol 扩展（客户端 stdio + Streamable HTTP；服务端 `zouwucode mcp-server`） | `mcp/client.py` · `mcp/server.py` |
+| MCP 协议 | 支持 Model Context Protocol 扩展（客户端 stdio + Streamable HTTP；服务端 `zouwucode mcp-serve`） | `mcp/client.py` · `mcp/server.py` |
 | LSP 集成 | 编辑后自动诊断 + hover 类型签名 + go-to-definition（3 工具，按需启用） | `lsp/client.py`, `extensions/lsp_ext.py` |
 | 便捷启动 | `z` 命令一键启动，PowerShell 安装脚本 | `z.bat`, `install.ps1` |
 | 流式思考 | 思考过程实时逐字显示，`show_thinking` 默认开启，`/thinking` 三端统一开关 | `loop.py` + CLI/TUI/Web |
@@ -999,7 +999,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（605 个测试用例）
+├── tests/                              # 测试套件（606 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1471,7 +1471,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **605 个测试用例**
+- 共计 **606 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证
