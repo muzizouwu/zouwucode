@@ -4,6 +4,29 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.3.0] — 2026-10-13
+
+会话共享 + 跨会话消息：从"单机单人"走向"能分享、能互相协作"。
+
+### Added — `/share`（会话导出，本地优先）
+- 新增 `zouwucode/share.py`：把会话渲染成**自包含 Markdown** 并写入 `<data_dir>/shares/`。
+- **本地导出、不上传**（无账号、无网络）：可贴进 issue / PR / 聊天，或随代码提交。
+- 三端命令：CLI/TUI `/share`；Web `POST /api/share` + `/share`。
+
+### Added — 跨会话消息（本地 SQLite 总线）
+- 新增 `zouwucode/messaging.py`：`MessageBus`（stdlib `sqlite3`）——**同一台机器**上多个
+  ZOUWUCODE 会话（任意前端/终端）互通；靠数据库自身加锁协调，**无常驻进程、无端口**。
+- `config.messaging`（默认开）：`enabled` / `name`（本会话地址，空 = 自动 `<workspace>-<short>`）。
+- 命令：`/msg <to|*> <text>`（`*` 广播）、`/inbox`（读取并标记已读）、`/peers`（对端 + 未读数）。
+- Web：`GET /api/inbox`、`GET /api/peers`、`POST /api/msg`。
+
+### Fixed — `data_dir` 为空时数据泄漏到当前目录
+- `config.load()`：配置文件 `data_dir: ""` 时 `Path("")` 等于 `"."`，会让会话/日志/导出/消息
+  全落进当前目录而非 `zouwucode_data/`。现空值回落到默认数据目录。
+
+### Tests
+- 新增 `tests/test_v130_share_messaging.py`（+11）。套件 **557 → 568 全绿**。
+
 ## [1.2.0] — 2026-10-13
 
 模型路由 + oracle 复核："便宜模型干活、更强模型复核"。

@@ -41,6 +41,8 @@ from ..context.compressor import DialogueCompressor
 from ..context.sliding_window import ContextWindow
 from ..sandbox.permission import PermissionManager
 from ..session.manager import SessionManager
+from ..share import export_session
+from ..messaging import MessageBus, format_inbox, format_peers
 from ..project_memory import ProjectMemory
 from ..skills import RuleLoader, SkillsManager
 from ..extensions import ExtensionContext
@@ -276,6 +278,8 @@ class ZOUWUCODETUI(App):
 
         # ── Session ──────────────────────────────────────────────────────
         self.sessions = SessionManager(self.config)
+        # Cross-session messaging (local SQLite bus; /msg /inbox /peers).
+        self._bus = self._init_message_bus()
         self._session_id = None
 
         # ── Rules & Skills ─────────────────────────────────────────────
@@ -327,6 +331,42 @@ class ZOUWUCODETUI(App):
         """Wire the sub-agent system and the extension layer (MCP/LSP)."""
         self.subagent_manager, self.extensions, self.router = create_subagents_and_extensions(
             self.config, self._provider, self.coordinator, self.engine, self.tools)
+
+    def _init_message_bus(self):
+        """Wire the local cross-session message bus (best-effort; None on failure)."""
+        mcfg = getattr(self.config, "messaging", None)
+        if mcfg is None or not getattr(mcfg, "enabled", True):
+            return None
+        try:
+            import uuid as _uuid
+            name = (getattr(mcfg, "name", "") or "").strip()
+            if not name:
+                base = Path.cwd().name[:20] or "session"
+                name = f"{base}-{_uuid.uuid4().hex[:4]}"
+            bus = MessageBus(Path(self.data_dir) / "messages.db", agent=name)
+            bus.register()
+            return bus
+        except Exception:  # never let messaging wiring break startup
+            return None
+
+    @property
+    def bus(self):
+        return getattr(self, "_bus", None)
+
+    def share_current_session(self) -> dict:
+        """Export the current session to <data_dir>/shares/ as Markdown."""
+        sid = self.sessions.current_session_id
+        data = self.sessions.get_session(sid) if sid else None
+        if not data:
+            data = {"session_id": sid or "session", "project_root": str(Path.cwd()),
+                    "turns": self.sessions.current_log()}
+        try:
+            path = export_session(data, Path(self.data_dir) / "shares",
+                                  session_id=data.get("session_id", ""))
+            return {"ok": True, "path": str(path), "format": "markdown",
+                    "turns": len(data.get("turns", []) or [])}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)}
 
     # ── Compose UI ───────────────────────────────────────────────────────────
 
@@ -748,6 +788,10 @@ class ZOUWUCODETUI(App):
             chat.write("    /cache         - Show cache statistics")
             chat.write("    /usage         - Token usage + cost (cache savings)")
             chat.write("    /oracle        - Second opinion from the oracle model (/oracle <q>)")
+            chat.write("    /share         - Export this session to Markdown")
+            chat.write("    /msg <to> <txt>- Message another local session (* = broadcast)")
+            chat.write("    /inbox         - Read messages from other local sessions")
+            chat.write("    /peers         - List other local sessions on this machine")
             chat.write("    /sessions      - List saved sessions")
             chat.write("    /rollback      - Undo the last N turns' file changes (/rollback [N|list])")
             chat.write("    /rewind        - Rewind to a message index (/rewind [N] [files|chat|both] | list)")
@@ -860,6 +904,33 @@ class ZOUWUCODETUI(App):
                         chat.write(resp.content or "  (empty response)")
                     except Exception as e:
                         chat.write(_style(f"  Oracle error: {e}", "red"))
+        elif command == "/share":
+            r = self.share_current_session()
+            if r.get("ok"):
+                chat.write(_style(f"  Shared session -> {r['path']} ({r['turns']} turns)", "green"))
+            else:
+                chat.write(_style(f"  Share failed: {r.get('error')}", "red"))
+        elif command == "/msg":
+            if self.bus is None:
+                chat.write(_style("  Messaging disabled.", "yellow"))
+            else:
+                parts = cmd[len("/msg"):].strip().split(None, 1)
+                if len(parts) < 2:
+                    chat.write(_style("  Usage: /msg <to|*> <text>", "yellow"))
+                else:
+                    chat.write(_style(f"  Sent #{self.bus.send(parts[0], parts[1])} to {parts[0]}.", "cyan"))
+        elif command == "/inbox":
+            if self.bus is None:
+                chat.write(_style("  Messaging disabled.", "yellow"))
+            else:
+                chat.write(_style("  Inbox:", "bold cyan"))
+                chat.write(format_inbox(self.bus.drain()))
+        elif command == "/peers":
+            if self.bus is None:
+                chat.write(_style("  Messaging disabled.", "yellow"))
+            else:
+                chat.write(_style("  Peers (other local sessions):", "bold cyan"))
+                chat.write(format_peers(self.bus.peers()))
         elif command == "/cache":
             summary = self.engine.get_cache_summary()
             chat.write(_style("  Cache Performance:", "bold cyan"))

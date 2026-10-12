@@ -33,6 +33,8 @@ from ..context.compressor import DialogueCompressor
 from ..context.sliding_window import ContextWindow
 from ..sandbox.permission import PermissionManager
 from ..session.manager import SessionManager
+from ..share import export_session
+from ..messaging import MessageBus, format_inbox, format_peers
 from ..project_memory import ProjectMemory
 from ..skills import RuleLoader, SkillsManager
 from ..webui import WebUIServer
@@ -112,6 +114,8 @@ class ZOUWUCODEApp:
 
         # ── Session ────────────────────────────────────────────────────────
         self.sessions = SessionManager(self.config)
+        # Cross-session messaging (local SQLite bus; /msg /inbox /peers).
+        self._bus = self._init_message_bus()
 
         # ── Rules & Skills (.zouwucode/rules.md + .zouwucode/skills/) ──────
         self.rule_loader = RuleLoader(workspace)
@@ -165,6 +169,42 @@ class ZOUWUCODEApp:
         """Wire the sub-agent system and the extension layer (MCP/LSP)."""
         self.subagent_manager, self.extensions, self.router = create_subagents_and_extensions(
             self.config, self._provider, self.coordinator, self.engine, self.tools)
+
+    def _init_message_bus(self):
+        """Wire the local cross-session message bus (best-effort; None on failure)."""
+        mcfg = getattr(self.config, "messaging", None)
+        if mcfg is None or not getattr(mcfg, "enabled", True):
+            return None
+        try:
+            import uuid as _uuid
+            name = (getattr(mcfg, "name", "") or "").strip()
+            if not name:
+                base = Path.cwd().name[:20] or "session"
+                name = f"{base}-{_uuid.uuid4().hex[:4]}"
+            bus = MessageBus(Path(self.data_dir) / "messages.db", agent=name)
+            bus.register()
+            return bus
+        except Exception:  # never let messaging wiring break startup
+            return None
+
+    @property
+    def bus(self):
+        return getattr(self, "_bus", None)
+
+    def share_current_session(self) -> dict:
+        """Export the current session to <data_dir>/shares/ as Markdown."""
+        sid = self.sessions.current_session_id
+        data = self.sessions.get_session(sid) if sid else None
+        if not data:
+            data = {"session_id": sid or "session", "project_root": str(Path.cwd()),
+                    "turns": self.sessions.current_log()}
+        try:
+            path = export_session(data, Path(self.data_dir) / "shares",
+                                  session_id=data.get("session_id", ""))
+            return {"ok": True, "path": str(path), "format": "markdown",
+                    "turns": len(data.get("turns", []) or [])}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)}
 
     # ── Mode Management ──────────────────────────────────────────────────────
 
@@ -580,6 +620,10 @@ Rules:
         print("  /cache      - Show cache statistics")
         print("  /usage      - Show token usage + cost (cache savings)")
         print("  /oracle     - Second opinion from the oracle model (/oracle <q>)")
+        print("  /share      - Export this session to Markdown (data_dir/shares/)")
+        print("  /msg <to> <text> - Message another local session (* = broadcast)")
+        print("  /inbox      - Read messages from other local sessions")
+        print("  /peers      - List other local sessions on this machine")
         print("  /sessions   - List saved sessions")
         print("  /rollback   - Undo the last N turns' file changes (/rollback [N|list])")
         print("  /rewind     - Rewind to a message index (/rewind [N] [files|chat|both] | list)")
@@ -712,6 +756,33 @@ Rules:
                         print(resp.content or "  (empty response)")
                     except Exception as e:
                         print(f"  Oracle error: {e}")
+        elif command == "/share":
+            r = self.share_current_session()
+            if r.get("ok"):
+                print(f"  Shared session -> {r['path']}  ({r['turns']} turns, markdown)")
+            else:
+                print(f"  Share failed: {r.get('error')}")
+        elif command == "/msg":
+            if self.bus is None:
+                print("  Messaging disabled (messaging.enabled=false).")
+            else:
+                parts = cmd[len("/msg"):].strip().split(None, 1)
+                if len(parts) < 2:
+                    print("  Usage: /msg <to|*> <text>")
+                else:
+                    print(f"  Sent #{self.bus.send(parts[0], parts[1])} to {parts[0]}.")
+        elif command == "/inbox":
+            if self.bus is None:
+                print("  Messaging disabled.")
+            else:
+                print("  Inbox:")
+                print(format_inbox(self.bus.drain()))
+        elif command == "/peers":
+            if self.bus is None:
+                print("  Messaging disabled.")
+            else:
+                print("  Peers (other local sessions):")
+                print(format_peers(self.bus.peers()))
         elif command == "/cache":
             summary = self.engine.get_cache_summary()
             print("  Cache Performance:")
@@ -926,6 +997,7 @@ Rules:
             config=self.config,
             sessions_manager=self.sessions,
             subagent_manager=self.subagent_manager,
+            bus=self.bus,
             app=self,
             port=port,
             skills_manager=self.skills,

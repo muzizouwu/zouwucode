@@ -222,6 +222,18 @@ class RouterConfig(BaseModel):
     oracle_temperature: float = 0.0
 
 
+class MessagingConfig(BaseModel):
+    """Cross-session messaging (local SQLite bus; /msg /inbox /peers).
+
+    Independent ZOUWUCODE sessions on ONE machine can message each other.
+    ``name`` is this session's address (empty = auto "<workspace>-<short>");
+    peers are discovered from the bus database, so there is no daemon.
+    """
+
+    enabled: bool = True
+    name: str = ""
+
+
 class ContextConfig(BaseModel):
     """Engine-side context compression (opt-in; OFF by default).
 
@@ -256,6 +268,7 @@ class ZOUWUCODEConfig(BaseModel):
     session: SessionConfig = Field(default_factory=SessionConfig)
     subagent: SubAgentConfig = Field(default_factory=SubAgentConfig)
     router: RouterConfig = Field(default_factory=RouterConfig)
+    messaging: MessagingConfig = Field(default_factory=MessagingConfig)
     extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig)
     github: GithubConfig = Field(default_factory=GithubConfig)
     dev: DevConfig = Field(default_factory=DevConfig)
@@ -306,7 +319,13 @@ class ZOUWUCODEConfig(BaseModel):
                 data = yaml.safe_load(raw)
             else:
                 data = json.loads(raw)
-            return cls(**data)
+            cfg = cls(**data)
+            # An empty data_dir must fall back to the documented default.
+            # Without this, Path("") == "." and sessions/logs/shares/messages
+            # all leak into the current directory instead of zouwucode_data/.
+            if not cfg.data_dir:
+                cfg.data_dir = str(_default_data_dir())
+            return cfg
 
         # Return defaults
         cfg = cls()

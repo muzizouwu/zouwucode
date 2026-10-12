@@ -942,6 +942,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       addMsg('system', '  /context      - Context window stats');
       addMsg('system', '  /usage        - Token usage + cost (cache savings)');
       addMsg('system', '  /oracle <q>   - Second opinion from the oracle model');
+      addMsg('system', '  /share        - Export this session to Markdown');
+      addMsg('system', '  /msg <to> <t> - Message another local session (* = broadcast)');
+      addMsg('system', '  /inbox        - Read messages from other local sessions');
+      addMsg('system', '  /peers        - List other local sessions');
       addMsg('system', '  /compress     - Compression settings');
       addMsg('system', '  /agents       - Sub-agent status');
       addMsg('system', '  /rollback     - Undo last N turns\' file changes (/rollback [N|list])');
@@ -1135,6 +1139,40 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         .then(d => addMsg('system', d.ok ? ('[oracle:' + (d.model||'?') + '] ' + d.answer)
                                          : ('Oracle error: ' + (d.error || ''))))
         .catch(() => addMsg('system', 'Oracle request failed.'));
+      return;
+    }
+    if (cmd.startsWith('/share')) {
+      fetch('/api/share', {method:'POST'}).then(r => r.json()).then(d => {
+        if (d.ok) addMsg('system', 'Shared session -> ' + d.path + ' (' + d.turns + ' turns)');
+        else addMsg('system', 'Share failed: ' + (d.error || ''));
+      }).catch(() => addMsg('system', 'Share request failed.'));
+      return;
+    }
+    if (cmd.startsWith('/msg ')) {
+      const rest = cmd.slice(5).trim();
+      const sp = rest.indexOf(' ');
+      if (sp < 0) { addMsg('system', 'Usage: /msg <to|*> <text>'); return; }
+      const to = rest.slice(0, sp).trim(), text = rest.slice(sp + 1).trim();
+      fetch('/api/msg', {method:'POST', headers:{'Content-Type':'application/json'},
+                         body: JSON.stringify({to: to, text: text})})
+        .then(r => r.json()).then(d => addMsg('system', d.ok ? ('Sent #' + d.id + ' to ' + d.to) : ('Send failed: ' + (d.error||''))))
+        .catch(() => addMsg('system', 'Send failed.'));
+      return;
+    }
+    if (cmd === '/inbox') {
+      fetch('/api/inbox').then(r => r.json()).then(d => {
+        if (!d.enabled) { addMsg('system', 'Messaging disabled.'); return; }
+        if (!d.messages.length) { addMsg('system', '(inbox empty)'); return; }
+        d.messages.forEach(m => addMsg('system', '  [' + m.id + '] ' + m.sender + ' -> ' + (m.recipient||'*') + ': ' + m.text));
+      }).catch(() => {});
+      return;
+    }
+    if (cmd === '/peers') {
+      fetch('/api/peers').then(r => r.json()).then(d => {
+        if (!d.enabled) { addMsg('system', 'Messaging disabled.'); return; }
+        if (!d.peers.length) { addMsg('system', '(no other sessions seen recently)'); return; }
+        d.peers.forEach(p => addMsg('system', '  ' + p.agent + ' (role=' + (p.role||'-') + ', unread=' + (p.unread||0) + ')'));
+      }).catch(() => {});
       return;
     }
     if (cmd === '/usage') {
@@ -1564,6 +1602,7 @@ class WebUIServer:
         modules=None,
         sessions_manager=None,
         subagent_manager=None,
+        bus=None,
         app=None,
     ):
         self.engine = engine
@@ -1579,6 +1618,8 @@ class WebUIServer:
         self.sessions_manager = sessions_manager
         # Sub-agent status (exposed to the browser so /agents reaches parity).
         self.subagent_manager = subagent_manager
+        # Cross-session messaging bus (may be None when disabled).
+        self.bus = bus
         # The owning application (for /resume etc.); optional so tests can
         # construct the server without a full app.
         self.app = app
@@ -2172,6 +2213,40 @@ class WebUIServer:
             return self._json_response({"ok": True,
                                         "model": getattr(provider, "model", ""),
                                         "answer": resp.content or ""})
+
+        elif path == "/api/share" and method == "POST":
+            app = getattr(self, "app", None)
+            if app is not None and hasattr(app, "share_current_session"):
+                return self._json_response(app.share_current_session())
+            return self._json_response({"ok": False, "error": "sharing unavailable"}, 400)
+
+        elif path == "/api/inbox" and method == "GET":
+            bus = getattr(self, "bus", None)
+            if bus is None:
+                return self._json_response({"enabled": False, "messages": []})
+            return self._json_response({"enabled": True, "messages": bus.drain()})
+
+        elif path == "/api/peers" and method == "GET":
+            bus = getattr(self, "bus", None)
+            if bus is None:
+                return self._json_response({"enabled": False, "peers": []})
+            keys = ("agent", "role", "pid", "last_seen", "unread")
+            peers = [{k: p.get(k) for k in keys} for p in bus.peers()]
+            return self._json_response({"enabled": True, "peers": peers})
+
+        elif path == "/api/msg" and method == "POST":
+            bus = getattr(self, "bus", None)
+            if bus is None:
+                return self._json_response({"ok": False, "error": "messaging disabled"}, 400)
+            try:
+                data = json.loads(body or "{}")
+            except json.JSONDecodeError:
+                return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+            to = (data.get("to") or "").strip()
+            text = (data.get("text") or "").strip()
+            if not to or not text:
+                return self._json_response({"ok": False, "error": "to and text required"}, 400)
+            return self._json_response({"ok": True, "id": bus.send(to, text), "to": to})
 
         elif path == "/api/usage" and method == "GET":
             engine = self.engine

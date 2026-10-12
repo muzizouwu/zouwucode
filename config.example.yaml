@@ -81,6 +81,13 @@ router:
 # 然后 router.enabled: true、router.oracle_provider: oracle。
 # 之后模型可调用 oracle 工具，你也可以 /oracle <问题> 直接求第二意见。
 
+# 跨会话消息（同一台机器上的多个 ZOUWUCODE 会话互通；本地 SQLite，无常驻进程）
+messaging:
+  enabled: true
+  name: ""                      # 本会话地址；留空自动 "<工作区名>-<短id>"（/peers 可查）
+# 用法：在另一个终端再开一个 zouwucode，然后 /peers 看对端、/msg <名> <内容> 发消息、/inbox 收。
+#        /msg * <内容> 为广播。/share 会把当前会话导出为 Markdown 到 zouwucode_data/shares/。
+
 # 扩展层（MCP/LSP — 默认不激活，配置后自动启用）
 extensions:
   mcp_servers: []               # 示例（stdio）：

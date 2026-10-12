@@ -304,6 +304,10 @@ zouwucode --mode yolo
 | `/cache` | 显示缓存性能统计 |
 | `/usage` | Token 用量与成本（含缓存省下的钱） |
 | `/oracle <q>` | 向配置的 oracle 模型求只读第二意见（需 router 配置） |
+| `/share` | 把当前会话导出为 Markdown（<data_dir>/shares/，本地不上传） |
+| `/msg <to\|*> <text>` | 给另一本地会话发消息（`*`=广播） |
+| `/inbox` | 读取其他本地会话发来的消息 |
+| `/peers` | 列出本机其他 ZOUWUCODE 会话 |
 | `/sessions` | 列出已保存的会话 |
 | `/memory` | 显示项目记忆上下文 |
 | `/goal` | 显示当前目标 |
@@ -943,6 +947,13 @@ router:
 # 然后 router.enabled: true、router.oracle_provider: oracle。
 # 之后模型可调用 oracle 工具，你也可以 /oracle <问题> 直接求第二意见。
 
+# 跨会话消息（同一台机器上的多个 ZOUWUCODE 会话互通；本地 SQLite，无常驻进程）
+messaging:
+  enabled: true
+  name: ""                      # 本会话地址；留空自动 "<工作区名>-<短id>"（/peers 可查）
+# 用法：在另一个终端再开一个 zouwucode，然后 /peers 看对端、/msg <名> <内容> 发消息、/inbox 收。
+#        /msg * <内容> 为广播。/share 会把当前会话导出为 Markdown 到 zouwucode_data/shares/。
+
 # 扩展层（MCP/LSP — 默认不激活，配置后自动启用）
 extensions:
   mcp_servers: []               # MCP 服务器列表（stdio），配置后自动连接
@@ -1393,4 +1404,4 @@ hello_my_zouwucode/       # 多智能体编排模块（复刻自 oh-my-opencode�
 
 ---
 
-*文档版本: v1.2.0 · 最后更新: 2026-10-13*
+*文档版本: v1.3.0 · 最后更新: 2026-10-13*
