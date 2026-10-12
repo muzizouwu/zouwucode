@@ -23,6 +23,11 @@
 - **TLS 可诊断**：证书校验失败给出可操作提示；`ZOUWUCODE_TLS_INSECURE=1` 可显式关闭校验（默认仍然校验，仅本机/离线场景使用）。
 - **日志加 pid**：多进程共享同一日志文件时来源可归因（此前出现过两个进程行交错、时间倒流）。
 
+### Fixed — TUI 可读性（用户实测反馈）
+- **回复里的 `[...]` 不再被吞**：聊天区以 `markup=True` 渲染，模型文本中的 `[interrupted]`/`[dim]` 会被 Rich 当标记吃掉，`[/]` 更会直接抛错把整条回复替换成 Error 行。现改为 `markup=False` + 全部经 `Text` 对象渲染，任何方括号原样显示。
+- **上翻历史不再被拽回底部**：RichLog 默认每次写入都自动滚到底部，流式输出（思考增量/工具行/回复）会把正在阅读的视口扯走。新增 `_StickyRichLog`：只有视口本来就在底部时才自动跟随；发送自己的消息时仍会主动跳到底部。
+- **新增键盘滚动**：PgUp/PgDn 翻页、Ctrl+Home/Ctrl+End 跳顶/底（输入框聚焦时同样有效），`/help` 已列出；鼠标滚轮本就可用。此前输入框占着焦点，没有任何键能滚动聊天区，加上 Windows Terminal 里 TUI 处于备用屏幕、窗口滚动条不可用，"看不到上面的内容"因此无解。
+
 ### Known — 仍待实现（不假装已修）
 - 交互式审批（agent/yolo 语义区分）、CLI/dev 接入上下文压缩、MCP 的 SSE/Streamable HTTP 传输、`rollback_enabled`/`auto_save_interval`/`cache.enabled` 等配置项仍是"声明存在但未接线"。
 

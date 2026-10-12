@@ -24,6 +24,7 @@ from textual.reactive import reactive
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 from textual import events
+from rich.text import Text
 
 from ..config import ZOUWUCODEConfig
 from ..logging_setup import setup_logging
@@ -46,11 +47,39 @@ from ..extensions import ExtensionContext, ExtensionHost, LspExtension, McpExten
 
 
 # ── ANSI style helpers for RichLog messages ─────────────────────────────────
-def _style(msg: str, style: str = "") -> str:
-    """Wrap text in Rich markup."""
-    if style:
-        return f"[{style}]{msg}[/]"
-    return msg
+def _style(msg: str, style: str = "") -> Text:
+    """Return chat content as a Rich Text object (no markup parsing).
+
+    The chat view deliberately runs with markup disabled: model and user
+    text is arbitrary data, never markup. Previously "[interrupted]" or
+    "[dim]" inside a reply was silently swallowed by the markup parser,
+    and a stray "[/]" raised and replaced the whole message with an error.
+    """
+    return Text(str(msg), style=style) if style else Text(str(msg))
+
+
+class _StickyRichLog(RichLog):
+    """Chat log that follows new output only when the user is at the bottom.
+
+    Plain RichLog auto-scrolls on every write, so streaming output (thinking
+    deltas, tool lines, replies) yanks the viewport away from whatever the
+    user is reading. This keeps the reading position unless the view was
+    already at the end — the behaviour every chat UI has.
+    """
+
+    def write(self, content, *args, **kwargs):
+        # RichLog.write(content, width=None, expand=False, shrink=True,
+        # scroll_end=None, animate=False). Textual replays deferred renders
+        # with these passed positionally, so mirror the full signature and
+        # only fill scroll_end when the caller left it unset.
+        scroll_end_given = len(args) > 3 or kwargs.get("scroll_end") is not None
+        if not scroll_end_given:
+            try:
+                at_bottom = self.is_vertical_scroll_end
+            except Exception:  # layout not ready yet
+                at_bottom = True
+            kwargs["scroll_end"] = at_bottom
+        return super().write(content, *args, **kwargs)
 
 
 class InterruptConfirmScreen(ModalScreen):
@@ -136,6 +165,11 @@ class ZOUWUCODETUI(App):
         # Esc: interrupt while a task runs, focus input when idle.
         Binding("escape", "interrupt", "Interrupt", show=True),
         Binding("ctrl+c", "copy", "Copy", show=False),
+        # Read history without fighting the input box for focus.
+        Binding("pageup", "chat_scroll_up", "Scroll Up", show=True),
+        Binding("pagedown", "chat_scroll_down", "Scroll Down", show=True),
+        Binding("ctrl+home", "chat_scroll_top", "Scroll Top", show=False),
+        Binding("ctrl+end", "chat_scroll_bottom", "Scroll Bottom", show=False),
     ]
 
     # ── Reactive properties ─────────────────────────────────────────────────
@@ -267,9 +301,11 @@ class ZOUWUCODETUI(App):
 
         # Chat view
         with Container(id="chat-container"):
-            yield RichLog(
+            yield _StickyRichLog(
                 id="chat-view",
-                markup=True,
+                # markup=False on purpose: model/user content must render
+                # literally; our own styles come through Text objects.
+                markup=False,
                 highlight=True,
                 wrap=True,
                 max_lines=10000,
@@ -433,8 +469,10 @@ class ZOUWUCODETUI(App):
         chat = self.query_one("#chat-view", RichLog)
 
         # Show user message (opencode-style ┃ frame)
-        chat.write(_style(f"\n  ┃ You", "bold blue"))
-        chat.write(_style(f"  ┃ {message}", "blue"))
+        # Jump to the bottom for the user's own message — then stay glued
+        # to the end while the reply streams (sticky log handles the rest).
+        chat.write(_style(f"\n  ┃ You", "bold blue"), scroll_end=True)
+        chat.write(_style(f"  ┃ {message}", "blue"), scroll_end=True)
 
         # Modules may intercept messages ("ultrawork ..." / "ulw ..." prefix)
         module_result = await self.modules.dispatch_message(message)
@@ -638,6 +676,10 @@ class ZOUWUCODETUI(App):
             chat.write("    Ctrl+R     - Cycle reasoning (low/medium/max)")
             chat.write("    Ctrl+L     - Clear chat")
             chat.write("    Esc        - Interrupt running task (with confirm dialog); focus input when idle")
+            chat.write("    PgUp/PgDn  - Scroll the chat history")
+            chat.write("    Ctrl+Home  - Jump to the top of the chat")
+            chat.write("    Ctrl+End   - Jump back to the latest output")
+            chat.write("    (mouse wheel also scrolls the chat area)")
 
         elif command == "/exit":
             # Stop extensions synchronously — a fire-and-forget task would be
@@ -654,13 +696,13 @@ class ZOUWUCODETUI(App):
                 chat.write(_style("  ── Sub-agents ──", "bold cyan"))
                 for a in agents:
                     err = f" — {a['error']}" if a["error"] else ""
-                    chat.write(f"    {a['id']}  {a['role']:<12} {a['status']:<10} "
-                               f"{a['duration']}s  tools={a['tools']}{err}")
+                    chat.write(Text(f"    {a['id']}  {a['role']:<12} {a['status']:<10} "
+                                    f"{a['duration']}s  tools={a['tools']}{err}"))
             exts = self.extensions.status_summary()
             if exts:
                 chat.write(_style("  ── Extensions ──", "bold cyan"))
                 for e in exts:
-                    chat.write(f"    {e['name']:<12} tools={e['tools']} dynamic={e['dynamic']}")
+                    chat.write(Text(f"    {e['name']:<12} tools={e['tools']} dynamic={e['dynamic']}"))
 
         elif command == "/plan":
             if arg:
@@ -753,7 +795,8 @@ class ZOUWUCODETUI(App):
                 for s in sessions:
                     ts = time.strftime("%Y-%m-%d %H:%M",
                                        time.localtime(s.get("updated", 0)))
-                    chat.write(f"    {s['id']}: {s['turns']} turns ({ts})")
+                    # Text(...) keeps any "[...]" in ids/dates literal.
+                    chat.write(Text(f"    {s['id']}: {s['turns']} turns ({ts})"))
 
         elif command == "/clear":
             self.query_one("#chat-view", RichLog).clear()
@@ -787,7 +830,7 @@ class ZOUWUCODETUI(App):
                 if self.rule_loader.exists():
                     content = self.rule_loader.load()
                     chat.write(_style("  ── Project Rules (.zouwucode/rules.md) ──", "bold cyan"))
-                    chat.write(f"  {content[:2000]}{'...' if len(content) > 2000 else ''}")
+                    chat.write(Text(f"  {content[:2000]}{'...' if len(content) > 2000 else ''}"))
                 else:
                     chat.write("  No project rules. Use /rules edit to create.")
 
@@ -852,6 +895,27 @@ class ZOUWUCODETUI(App):
     def action_focus_input(self) -> None:
         """Focus the input box (bound to Escape)."""
         self.query_one("#input-box", Input).focus()
+
+    # ── Chat history scrolling ───────────────────────────────────────────────
+
+    def _chat_log(self) -> RichLog:
+        return self.query_one("#chat-view", RichLog)
+
+    def action_chat_scroll_up(self) -> None:
+        """PgUp — scroll the chat history up one page."""
+        self._chat_log().scroll_page_up(animate=False)
+
+    def action_chat_scroll_down(self) -> None:
+        """PgDn — scroll the chat history down one page."""
+        self._chat_log().scroll_page_down(animate=False)
+
+    def action_chat_scroll_top(self) -> None:
+        """Ctrl+Home — jump to the start of the chat history."""
+        self._chat_log().scroll_home(animate=False)
+
+    def action_chat_scroll_bottom(self) -> None:
+        """Ctrl+End — jump back to the latest output."""
+        self._chat_log().scroll_end(animate=False)
 
     def action_interrupt(self) -> None:
         """Interrupt the running task (bound to Esc).

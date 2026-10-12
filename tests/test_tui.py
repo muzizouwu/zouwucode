@@ -3,6 +3,8 @@
 import pytest
 from pathlib import Path
 
+from rich.text import Text
+
 from zouwucode.tui.textual_app import (
     ZOUWUCODETUI, _style, run_tui, _restore_terminal)
 from zouwucode.tui.app import ZOUWUCODEApp
@@ -38,23 +40,34 @@ class TestRestoreTerminal:
 
 
 class TestStyleHelper:
-    """Tests for the _style helper function."""
+    """Tests for the _style helper.
+
+    _style now returns a Rich ``Text`` object rather than a markup string:
+    chat content is arbitrary model/user data and must never be parsed as
+    markup (see TestChatViewUX for the end-to-end regressions).
+    """
 
     def test_style_with_style(self):
         result = _style("Hello", "bold green")
-        assert result == "[bold green]Hello[/]"
+        assert isinstance(result, Text)
+        assert result.plain == "Hello"
+        assert "bold" in str(result.style) and "green" in str(result.style)
 
     def test_style_without_style(self):
         result = _style("Hello")
-        assert result == "Hello"
+        assert isinstance(result, Text)
+        assert result.plain == "Hello"
 
     def test_style_empty_string(self):
         result = _style("", "red")
-        assert result == "[red][/]"
+        assert isinstance(result, Text)
+        assert result.plain == ""
 
     def test_style_multiple_styles(self):
         result = _style("Test", "bold italic cyan")
-        assert result == "[bold italic cyan]Test[/]"
+        assert result.plain == "Test"
+        s = str(result.style)
+        assert "bold" in s and "italic" in s and "cyan" in s
 
 
 class TestZOUWUCODETUI:
@@ -188,20 +201,22 @@ class TestZOUWUCODETUI:
         assert hasattr(app, '_update_status')
 
     def test_style_integration(self):
-        """Test that _style works with the app's message display."""
+        """Test that _style produces styled Text for the app's display."""
         app = ZOUWUCODETUI()
         # User message style
         user_msg = _style("Hello", "bold blue")
-        assert "[bold blue]" in user_msg
-        assert "Hello" in user_msg
+        assert isinstance(user_msg, Text)
+        assert user_msg.plain == "Hello"
+        assert "bold" in str(user_msg.style) and "blue" in str(user_msg.style)
 
         # Assistant message style
         asst_msg = _style("Response", "bold green")
-        assert "[bold green]" in asst_msg
+        assert asst_msg.plain == "Response"
+        assert "green" in str(asst_msg.style)
 
         # Error message style
         err_msg = _style("Error", "red")
-        assert "[red]" in err_msg
+        assert "red" in str(err_msg.style)
 
 
     def test_show_thinking_defaults_from_config(self):
@@ -317,3 +332,80 @@ class TestCLIApp:
         assert "write" in tools
         assert "bash" in tools
         assert "git" in tools
+
+class TestChatViewUX:
+    """Regressions for chat readability (2026-10 user reports):
+
+    - model text containing "[...]" was eaten by Rich markup ("[/]" even
+      raised and the whole reply collapsed into an Error line)
+    - every new write auto-scrolled the viewport to the bottom, so the
+      user could not read history while output streamed
+    - there was no keyboard way to scroll the chat from the input box
+    """
+
+    def test_brackets_render_literally(self):
+        """[interrupted] / [dim] / [/] must survive as plain text."""
+        import asyncio
+        app = ZOUWUCODETUI()
+
+        async def run():
+            async with app.run_test(size=(120, 40)) as pilot:
+                await asyncio.sleep(0.2)
+                chat = app.query_one("#chat-view")
+                chat.write("plain [interrupted] stays")
+                chat.write(_style("styled [dim] literal [/] too", "bold"))
+                await pilot.pause()
+                text = "\n".join(getattr(s, "text", "") for s in chat.lines)
+                assert "[interrupted] stays" in text
+                assert "[dim] literal [/] too" in text
+
+        asyncio.run(run())
+
+    def test_reading_position_survives_new_output(self):
+        """Scrolled up + new writes => viewport must NOT jump to bottom."""
+        import asyncio
+        app = ZOUWUCODETUI()
+
+        async def run():
+            async with app.run_test(size=(120, 40)) as pilot:
+                await asyncio.sleep(0.2)
+                chat = app.query_one("#chat-view")
+                for i in range(150):
+                    chat.write(f"history line {i}")
+                await pilot.pause()
+                assert chat.scroll_y == chat.max_scroll_y  # following bottom
+
+                chat.scroll_home(animate=False)
+                await pilot.pause()
+                assert chat.scroll_y == 0
+
+                chat.write("NEW while reading history")
+                await pilot.pause()
+                assert chat.scroll_y == 0, "viewport was yanked to the bottom"
+
+                chat.scroll_end(animate=False)
+                await pilot.pause()
+                chat.write("NEW at bottom")
+                await pilot.pause()
+                assert chat.scroll_y == chat.max_scroll_y  # follows again
+
+        asyncio.run(run())
+
+    def test_pageup_scrolls_chat_from_input(self):
+        """PgUp must scroll the chat even while the input box has focus."""
+        import asyncio
+        app = ZOUWUCODETUI()
+
+        async def run():
+            async with app.run_test(size=(120, 40)) as pilot:
+                await asyncio.sleep(0.2)
+                chat = app.query_one("#chat-view")
+                for i in range(150):
+                    chat.write(f"history line {i}")
+                await pilot.pause()
+                app.query_one("#input-box").focus()
+                await pilot.press("pageup")
+                await pilot.pause()
+                assert chat.scroll_y < chat.max_scroll_y
+
+        asyncio.run(run())
