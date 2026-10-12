@@ -3,8 +3,6 @@
 # config.yaml 含密钥，已被 .gitignore 排除，切勿提交到版本库。
 
 default_provider: deepseek
-language: zh
-theme: dark
 show_thinking: true            # 流式显示思考过程（/thinking 切换）
 data_dir: ""                   # 数据目录（留空使用默认 zouwucode_data/）
 reasoning_intensity: medium   # low | medium | max
@@ -35,10 +33,7 @@ engine:
   stuck_threshold: 3                # 窗口内同一动作重复达此数即提醒/熔断
 
 cache:
-  enabled: true
-  append_only: true
   max_prefix_tokens: 128000
-  stats_window: 50
 
 sandbox:
   enabled: true
@@ -52,9 +47,7 @@ sandbox:
 
 session:
   save_enabled: true
-  auto_save_interval: 60
   max_sessions: 50
-  rollback_enabled: true
 
 # 多智能体编排模块（hello-my-zouwucode）
 hello_my_zouwucode:

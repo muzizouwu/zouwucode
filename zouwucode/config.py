@@ -97,12 +97,14 @@ class DevConfig(BaseModel):
 
 
 class CacheConfig(BaseModel):
-    """Prefix-cache tuning parameters."""
+    """Prefix-cache tuning parameters.
 
-    enabled: bool = True
+    enabled / append_only / stats_window were removed in 1.0.3: declared
+    but never read anywhere (the cache is always on and append-only by
+    construction; can_append() now enforces the budget with a warning).
+    """
+
     max_prefix_tokens: int = 128_000
-    append_only: bool = True
-    stats_window: int = 50  # number of recent turns for cache-hit stats
 
 
 class SandboxConfig(BaseModel):
@@ -118,12 +120,15 @@ class SandboxConfig(BaseModel):
 
 
 class SessionConfig(BaseModel):
-    """Session persistence settings."""
+    """Session persistence settings.
+
+    auto_save_interval and rollback_enabled were removed in 1.0.3: turns
+    save synchronously (an interval knob did nothing) and no rollback
+    implementation ever existed; session --resume is the recovery path.
+    """
 
     save_enabled: bool = True
-    auto_save_interval: int = 60  # seconds
     max_sessions: int = 50
-    rollback_enabled: bool = True
 
 
 class HelloMyZouwucodeConfig(BaseModel):
@@ -213,8 +218,8 @@ class ZOUWUCODEConfig(BaseModel):
     show_thinking: bool = True           # 流式显示思考过程（/thinking 三端切换，默认开）
     log_level: str = "info"              # 文件日志级别：debug | info | warning | error
     data_dir: str = ""
-    theme: str = "dark"
-    language: str = "zh"
+    # theme / language were removed in 1.0.3 — declared but never read:
+    # the UIs are single-theme and zh-first, so the knobs only lied.
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "ZOUWUCODEConfig":

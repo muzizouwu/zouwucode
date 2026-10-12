@@ -178,7 +178,8 @@ async def run_watch(config: ZOUWUCODEConfig, repo_slug: Optional[str],
             for issue in fresh:
                 seen.add(issue["number"])
                 url = issue["html_url"]
-                task_id = queue.submit(url)
+                task_id = queue.submit(
+                    url, timeout=config.dev.task_timeout_seconds)
                 logger.info("watch enqueued issue #%d → task %s",
                             issue["number"], task_id)
                 try:
@@ -246,7 +247,8 @@ def dev_main(argv: list[str]) -> int:
             print("  ✗ --queue 需要任务参数（issue URL 或任务描述）")
             return 2
         queue = DevQueue(_queue_path(config))
-        task_id = queue.submit(args.task)
+        task_id = queue.submit(
+            args.task, timeout=config.dev.task_timeout_seconds)
         print(f"  ✓ 已入队: {task_id}  （用 `zouwucode dev --workers N` 执行）")
         return 0
 
