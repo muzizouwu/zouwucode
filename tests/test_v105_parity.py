@@ -30,8 +30,8 @@ def _read(rel):
 
 
 class TestVersionConsistency:
-    def test_package_version(self):
-        assert zouwucode.__version__ == "1.0.5"
+    def test_package_version_is_semver(self):
+        assert re.match(r"^\d+\.\d+\.\d+$", zouwucode.__version__)
 
     def test_app_banner_uses_package_version(self):
         from zouwucode.tui.app import ZOUWUCODEApp
@@ -42,8 +42,8 @@ class TestVersionConsistency:
         assert "from zouwucode import __version__" in src
         assert 'VERSION = "1.0.0"' not in src
 
-    def test_pyproject_matches(self):
-        assert 'version = "1.0.5"' in _read("pyproject.toml")
+    def test_pyproject_matches_package(self):
+        assert 'version = "%s"' % zouwucode.__version__ in _read("pyproject.toml")
 
 
 class TestCliFlagsHonorConfig:

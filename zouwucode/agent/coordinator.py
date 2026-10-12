@@ -85,15 +85,16 @@ class AgentCoordinator:
                     is_error=True,
                 )
             result = await self.tools.execute(tool_call.name, **args)
-            content = result.output
+            content = result.output or ""
             if not result.success:
-                # An error result must ALWAYS carry a reason. Some tools
-                # surface str(exc) which can be empty (httpx timeouts,
-                # asyncio.TimeoutError), and some put the reason in .error
-                # rather than .output. A blank error leaves the model blind —
-                # it either retries identically (looks "stuck") or the user
-                # sees nothing. Backfill so feedback is never silent.
-                content = (content or result.error or "").strip() or \
+                # An error result must ALWAYS carry a reason, and keep BOTH
+                # streams: stdout may hold partial useful output while .error
+                # holds the real reason. Previously the error was dropped
+                # whenever output was non-empty, leaving the model (and the
+                # user) blind to why the tool failed.
+                parts = [pp for pp in (content.strip(),
+                                       (result.error or "").strip()) if pp]
+                content = "\n".join(parts) or \
                     f"Tool '{tool_call.name}' failed with no error message"
             tool_result = ToolResult(
                 tool_call_id=tool_call.id,

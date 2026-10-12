@@ -143,6 +143,7 @@ class ZOUWUCODEApp:
         self._running = False
         self._session_id: Optional[str] = None
         self._thinking_streaming = False  # set while streaming thinking deltas
+        self._content_streaming = False   # set while streaming assistant text
 
         # ── Register signal handlers for graceful shutdown ─────────────────
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -446,20 +447,26 @@ Rules:
                         self._render_module_result(module_result)
                         continue
 
-                    # Wire streaming thinking (opencode-style; /thinking toggle)
+                    # Stream BOTH thinking and the assistant body
+                    # (opencode-style). Previously only thinking streamed and
+                    # the prose appeared all at once — perceived latency is the
+                    # dominant "feels slow" factor.
                     self._thinking_streaming = False
-                    if self.config.show_thinking:
-                        self.engine.on_thinking_delta = self._stream_thinking
-                    else:
-                        self.engine.on_thinking_delta = None
+                    self._content_streaming = False
+                    self.engine.on_thinking_delta = (
+                        self._stream_thinking if self.config.show_thinking else None)
+                    self.engine.on_content_delta = self._stream_content
                     try:
                         response = await self.process_message(user_input)
                     finally:
                         self.engine.on_thinking_delta = None
+                        self.engine.on_content_delta = None
                         if self._thinking_streaming:
                             print()  # close the streamed thinking block
+                        if self._content_streaming:
+                            print()  # close the streamed body
 
-                    if response["content"]:
+                    if response["content"] and not self._content_streaming:
                         print(f"\n{response['content']}")
 
                     # Show cache status
@@ -545,6 +552,13 @@ Rules:
         if not self._thinking_streaming:
             print("\n  ── Thinking ──")
             self._thinking_streaming = True
+        print(delta, end="")
+        sys.stdout.flush()
+
+    def _stream_content(self, delta: str) -> None:
+        """CLI streaming hook — print assistant text as it arrives."""
+        if not self._content_streaming:
+            self._content_streaming = True
         print(delta, end="")
         sys.stdout.flush()
 
@@ -830,16 +844,21 @@ Rules:
 
         # Wire streaming thinking (opencode-style; /thinking toggle)
         self._thinking_streaming = False
-        if self.config.show_thinking:
-            self.engine.on_thinking_delta = self._stream_thinking
+        self._content_streaming = False
+        self.engine.on_thinking_delta = (self._stream_thinking
+                                         if self.config.show_thinking else None)
+        self.engine.on_content_delta = self._stream_content
         try:
             response = await self.process_message(message)
         finally:
             self.engine.on_thinking_delta = None
+            self.engine.on_content_delta = None
             if self._thinking_streaming:
                 print()
+            if self._content_streaming:
+                print()
 
-        if response["content"]:
+        if response["content"] and not self._content_streaming:
             print(response["content"])
 
         self.save_state()

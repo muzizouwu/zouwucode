@@ -392,6 +392,31 @@ class EngineLoop:
 
     # ── Context compression (opt-in) ────────────────────────────────────────
 
+    async def _exec_one_tool(self, tool_call, context, timeout: float) -> ToolResult:
+        """Run a single tool with a hard per-tool timeout.
+
+        A hung tool used to stall the whole task — the deadline was only
+        checked at round boundaries. Now it returns an error result the model
+        can react to, and parallel siblings are unaffected.
+        """
+        # Safe point before EACH tool (restores "interrupt between tools"):
+        # a batch respects an interrupt raised by an earlier sibling tool.
+        self._check_interrupt(f"before tool '{getattr(tool_call, 'name', 'tool')}'")
+        try:
+            return await asyncio.wait_for(
+                self._tool_executor(tool_call, context), timeout=timeout)
+        except asyncio.TimeoutError:
+            name = getattr(tool_call, "name", "tool")
+            logger.warning("Tool '%s' exceeded %.0fs — aborted; returning error.",
+                           name, timeout)
+            return ToolResult(
+                tool_call_id=getattr(tool_call, "id", ""),
+                content=f"Tool '{name}' timed out after {timeout:.0f}s and was aborted.",
+                is_error=True,
+            )
+        except TaskInterrupted:
+            raise
+
     @staticmethod
     def _repair_tool_pairing(messages: list[dict]) -> list[dict]:
         """Keep the API contract: tool results need their requesting call.
@@ -700,41 +725,65 @@ class EngineLoop:
                     break
 
                 round_all_errored = True
-                for tool_call in response.tool_calls:
-                    # Safe point: user interrupt before each tool executes.
-                    self._check_interrupt(f"before tool '{tool_call.name}'")
+                tool_calls_round = list(response.tool_calls)
 
-                    # Notify UI (opencode-style "→ Read file …" rendering)
+                # Notify the UI and take an interrupt safe point up front.
+                # on_tool_event is a cheap, ordered UI callback, so it runs
+                # synchronously for every call before the batch starts.
+                for tool_call in tool_calls_round:
+                    self._check_interrupt(f"before tool '{tool_call.name}'")
                     if self.on_tool_event is not None:
                         try:
                             self.on_tool_event(tool_call)
                         except Exception:
                             pass
 
-                    exec_start = time.monotonic()
-                    result = await self._tool_executor(tool_call, context)
+                def _record(tool_call, result):
+                    """Append one tool result to the live prefix + bookkeeping.
+
+                    Recording PER RESULT (not once per batch) is what makes an
+                    interrupt safe: a tool that already ran keeps its result,
+                    and only the not-yet-run calls get synthetic results.
+                    """
+                    nonlocal round_all_errored
                     context.tool_results.append(result)
                     self.cache.append(result.to_dict())
                     logger.info(
-                        "Round %d — tool '%s' finished in %.2fs | error=%s | "
-                        "output=%s",
-                        round_no, tool_call.name,
-                        time.monotonic() - exec_start, result.is_error,
+                        "Round %d — tool '%s' finished | error=%s | output=%s",
+                        round_no, tool_call.name, result.is_error,
                         (result.content[:120] + "…") if result.content and len(result.content) > 120 else result.content,
                     )
-
                     if not result.is_error:
                         round_all_errored = False
-
                     # Stuck fingerprint: tool name + arguments + result content.
-                    # Identical repeats mean no forward progress even when the
-                    # tool "succeeds". Only tracked when detection is enabled.
                     if engine_cfg.stuck_detection_enabled:
                         fp = hashlib.sha1(
                             f"{tool_call.name}\x00{tool_call.arguments}"
                             f"\x00{result.content}".encode("utf-8", "replace")
                         ).hexdigest()[:16]
                         _fp_window.append(fp)
+
+                # Independent tool calls run CONCURRENTLY (as Claude Code /
+                # opencode do): a round with N reads/fetches costs one wait,
+                # not N. Interactive agent mode stays sequential — concurrent
+                # approval prompts would fight over the terminal.
+                per_tool_timeout = max(1.0, min(engine_cfg.turn_timeout_seconds, remaining))
+                if len(tool_calls_round) > 1 and self._mode != "agent":
+                    outcomes = await asyncio.gather(*[
+                        self._exec_one_tool(tc, context, per_tool_timeout)
+                        for tc in tool_calls_round
+                    ], return_exceptions=True)
+                    pending = None
+                    for tc, out in zip(tool_calls_round, outcomes):
+                        if isinstance(out, BaseException):
+                            pending = out
+                            break
+                        _record(tc, out)
+                    if pending is not None:
+                        raise pending
+                else:
+                    for tc in tool_calls_round:
+                        _record(tc, await self._exec_one_tool(tc, context, per_tool_timeout))
 
                 # ── Consecutive-error breaker, counted in ROUNDS ──────────
                 # A round where EVERY tool call failed counts as 1. Counting
