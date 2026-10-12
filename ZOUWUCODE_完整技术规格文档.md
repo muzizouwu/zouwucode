@@ -103,7 +103,7 @@
 | TUI | `--tui` | OpenAI Code 风格 | Textual 框架，彩色消息 |
 | Web UI | `--web` | DeepCode 暗色风格 | 浏览器界面，API 端点 |
 
-### 3.3 工具系统（10 个内置工具 + task 委派工具）
+### 3.3 工具系统（11 个内置工具 + task 委派工具）
 
 | 工具 | 类别 | 说明 |
 |------|------|------|
@@ -117,6 +117,7 @@
 | Git | 执行 | Git 操作（status/diff/commit/log） |
 | WebSearch | 网络 | 联网搜索 |
 | WebFetch | 网络 | 获取网页内容 |
+| RepoMap | 代码 | 生成按被引用排序的代码地图（Aider 式签名地图） |
 | task | 委派 | 将子任务并行委派给隔离子 Agent（见 5.3） |
 
 ### 3.4 高级特性
@@ -135,7 +136,7 @@
 | 生命周期钩子 | pre_tool（可拦截）/ post_tool（自动化）shell 钩子，配置驱动 | `agent/hooks.py` |
 | Rules & Skills | `.zouwucode/rules.md` 项目规则 + `.zouwucode/skills/*.md` 技能包 | `skills/manager.py` |
 | 模块系统 | 可加载扩展模块，内置 hello-my-zouwucode 多智能体编排 | `modules/manager.py`, `hello_my_zouwucode/` |
-| MCP 协议 | 支持 Model Context Protocol 扩展 | `mcp/client.py` |
+| MCP 协议 | 支持 Model Context Protocol 扩展（客户端 + 服务端） | `mcp/client.py` · `mcp/server.py` |
 | LSP 集成 | 编辑后自动诊断 | `lsp/client.py` |
 | 便捷启动 | `z` 命令一键启动，PowerShell 安装脚本 | `z.bat`, `install.ps1` |
 | 流式思考 | 思考过程实时逐字显示，`show_thinking` 默认开启，`/thinking` 三端统一开关 | `loop.py` + CLI/TUI/Web |
@@ -606,7 +607,7 @@
 3. `DeepSeekProvider` / `OpenAIProvider` 创建 LLM 提供商（经 `runtime.create_provider` 工厂）
 4. `EngineLoop` 创建引擎
 5. `PermissionManager` 创建沙箱
-6. `ToolRegistry` 注册 10 个内置工具 + `task` 委派工具
+6. `ToolRegistry` 注册 11 个内置工具 + `task` 委派工具
 7. `AgentCoordinator` 创建协调器，`SubAgentManager` 创建子 Agent 管理器并绑定主引擎级联打断
 8. `ExtensionHost` 注册 `McpExtension` / `LspExtension`（默认不激活）
 9. `MemoryManager`、`TopicManager`、`TranscriptManager` 创建上下文管理
@@ -738,7 +739,7 @@
 **职责**：CLI / TUI / Web 三端共享的工厂函数，保证三端行为一致（历史上三端各自复制 provider 工厂与内置工具清单，已出现漂移）。
 
 - `create_provider(config)`：根据 `default_provider` 与 `api_type` 构建 DeepSeekProvider / OpenAIProvider（缺失时注入默认配置）
-- `create_builtin_tools(sandbox, config)`：返回 10 个内置工具实例清单（Read/Write/Edit/Ls/Glob/Shell/python_exec/Git/WebSearch/WebFetch；`python_exec` 在传入 config 且允许 shell 时加入）
+- `create_builtin_tools(sandbox, config)`：返回 11 个内置工具实例清单（Read/Write/Edit/Ls/Glob/Shell/python_exec/Git/WebSearch/WebFetch/RepoMap；`python_exec` 在传入 config 且允许 shell 时加入）
 - `build_agent_engine(config, sandbox_root, mode, with_subagents)`：一站式装配完整 agent 栈（引擎+沙箱+注册表+协调器+子 Agent），dev 管线与 eval harness 共用同一工厂——评测度量的就是生产跑的栈
 
 ### 5.16 `extensions/` — 扩展层
@@ -947,7 +948,8 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   │
 │   ├── mcp/                            # MCP 协议支持
 │   │   ├── __init__.py
-│   │   └── client.py                   # MCPClient
+│   │   ├── client.py                   # MCPClient
+│   │   └── server.py                   # McpServer（stdio 工具服务器）
 │   │
 │   ├── dev/                            # Devin 式自主开发工作流（zouwucode dev）
 │   │   ├── __init__.py

@@ -21,6 +21,11 @@ def main():
         from .eval.cli import eval_main
         sys.exit(eval_main(sys.argv[2:]))
 
+    # ── mcp-serve subcommand: expose tools over MCP (stdio) ──────────────────
+    if len(sys.argv) > 1 and sys.argv[1] == "mcp-serve":
+        from .mcp.server import main as mcp_main
+        sys.exit(mcp_main(sys.argv[2:]))
+
     parser = argparse.ArgumentParser(
         prog="zouwucode",
         description="ZOUWUCODE - DeepSeek-native AI coding agent for your terminal",

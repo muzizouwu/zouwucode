@@ -891,6 +891,31 @@ class EngineLoop:
         finally:
             self._mode = old_mode
 
+    def get_usage_summary(self) -> dict:
+        """Cost/usage transparency — where the money went and what cache saved.
+
+        DeepSeek cache hits bill ~5-20x cheaper than misses, so surfacing the
+        saved amount (not just the spend) is the difference between "why is
+        this costing money" and "this is cheap by design".
+        """
+        s = self.stats
+        cost = s.total_cost
+        saved = s.estimated_savings
+        full = cost + saved
+        return {
+            "model": getattr(self.provider, "model", "") or s.model,
+            "requests": s.total_requests,
+            "prompt_tokens": s.total_prompt_tokens,
+            "cached_prompt_tokens": s.cached_prompt_tokens,
+            "output_tokens": s.total_output_tokens,
+            "cache_hit_rate": f"{s.hit_rate * 100:.1f}%",
+            "cache_saved_usd": round(saved, 4),
+            "spent_usd": round(cost, 4),
+            "would_have_cost_usd": round(full, 4),
+            "saved_percent": f"{(saved / full * 100) if full else 0:.0f}%",
+            "uptime_min": round(s.uptime / 60, 1),
+        }
+
     def get_cache_summary(self) -> dict:
         """Return a human-readable cache performance summary."""
         return {

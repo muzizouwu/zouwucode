@@ -15,6 +15,7 @@ from .tools.shell_tools import ShellTool
 from .tools.git_tools import GitTool
 from .tools.web_tools import WebSearchTool, WebFetchTool
 from .tools.code_exec_tool import PythonExecTool
+from .tools.repo_map_tool import RepoMapTool
 
 
 def create_provider(config: ZOUWUCODEConfig) -> BaseProvider:
@@ -59,6 +60,7 @@ def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTo
         GitTool(sandbox),
         WebSearchTool(sandbox),
         WebFetchTool(sandbox),
+        RepoMapTool(sandbox),
     ]
     if config is not None and getattr(config.sandbox, "allow_shell", True):
         tools.append(PythonExecTool(sandbox))

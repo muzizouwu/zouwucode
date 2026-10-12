@@ -370,6 +370,17 @@ Rules:
         if skills_block:
             prompt += f"\n\n=== Loaded Skills ===\n{skills_block}"
 
+        # Repo map (Aider-style) — ranked code signatures in the frozen prompt.
+        # OFF by default; when on it saves the model a lot of exploration.
+        if getattr(self.config.context, "repo_map_enabled", False):
+            try:
+                from ..repo_map import build_repo_map, repo_map_max_tokens
+                rm = build_repo_map(".", max_tokens=repo_map_max_tokens(self.config))
+                if rm:
+                    prompt += f"\n\n{rm}"
+            except Exception:
+                pass
+
         if extra_context:
             prompt += f"\n\n{extra_context}"
         return prompt
@@ -566,6 +577,7 @@ Rules:
         print("  /help       Show this help")
         print("  /exit       - Exit ZOUWUCODE")
         print("  /cache      - Show cache statistics")
+        print("  /usage      - Show token usage + cost (cache savings)")
         print("  /sessions   - List saved sessions")
         print("  /rollback   - Undo the last N turns' file changes (/rollback [N|list])")
         print("  /rewind     - Rewind to a message index (/rewind [N] [files|chat|both] | list)")
@@ -667,6 +679,17 @@ Rules:
             print("  Switched to YOLO mode (auto-approve)")
         elif command == "/mode":
             print(f"  Current mode: {self._current_mode}")
+        elif command == "/usage":
+            u = self.engine.get_usage_summary()
+            print("  Usage & cost:")
+            print(f"    model:            {u['model']}")
+            print(f"    requests:         {u['requests']}")
+            print(f"    prompt tokens:    {u['prompt_tokens']:,} (cached {u['cached_prompt_tokens']:,})")
+            print(f"    output tokens:    {u['output_tokens']:,}")
+            print(f"    cache hit rate:   {u['cache_hit_rate']}")
+            print(f"    spent:            ${u['spent_usd']}")
+            print(f"    cache saved:      ${u['cache_saved_usd']} ({u['saved_percent']} of full price)")
+            print(f"    without cache:    ${u['would_have_cost_usd']}")
         elif command == "/cache":
             summary = self.engine.get_cache_summary()
             print("  Cache Performance:")

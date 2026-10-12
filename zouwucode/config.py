@@ -214,6 +214,11 @@ class ContextConfig(BaseModel):
     level: str = "balanced"              # lossless | balanced | aggressive
     max_context_tokens: int = 1_048_576  # compress once the estimate exceeds this
     keep_last_n: int = 50                # newest messages kept verbatim
+    # Repo map (Aider-style): a ranked overview of code signatures injected
+    # into the frozen system prompt at session start. OFF by default (it costs
+    # tokens); the `repo_map` tool is always available for on-demand use.
+    repo_map_enabled: bool = False
+    repo_map_max_tokens: int = 1024
 
 
 class ZOUWUCODEConfig(BaseModel):

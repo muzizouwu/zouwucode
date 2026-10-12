@@ -4,6 +4,25 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.1.0] — 2026-10-13
+
+"一步到位"特性轮：把 ZOUWUCODE 从"自身很强"推到"能被别人用、也更省钱"。
+
+### Added — repo-map（Aider 式代码地图）
+- 新增 `zouwucode/repo_map.py`：`build_repo_map(root, max_tokens)` 输出**按被引用次数排序**的文件地图（只列 class/函数签名），用一个小 token 预算给模型全仓视角，**少探索轮次 = 直接省钱**。
+- 新增 `repo_map` 工具（`tools/repo_map_tool.py`），**始终可用**（模型按需调用，零成本）；配置 `context.repo_map_enabled=true` 时还会自动注入系统提示（默认关）。
+- 忽略 `node_modules`/`__pycache__`/`.venv` 等噪声目录。
+
+### Added — 成本透视图 `/usage`
+- `engine.get_usage_summary()`：请求数、prompt/cached/output tokens、缓存命中率、**已花费、缓存省下的钱、省了多少百分比**。
+- 三端命令：CLI/TUI `/usage`，Web `GET /api/usage` + `/usage`。DeepSeek 缓存命中便宜数倍——把"省了多少"显式呈现，才让"经济实惠"看得见。
+
+### Added — MCP server 模式
+- 新增 `zouwucode/mcp/server.py`：`zouwucode mcp-serve` 以 stdio JSON-RPC 暴露**全部内置工具**（initialize/tools/list/tools/call/ping），供 Claude Code / Goose / Cursor 等 MCP 客户端消费。此前 ZOUWUCODE 只是 MCP *客户端*，现在**双向**。
+
+### Tests
+- 新增 `tests/test_v110_repomap_usage.py`（+11）与 `tests/test_mcp_server.py`（+5，含真实子进程 MCP 往返）。套件 **528 → 544 全绿**。
+
 ## [1.0.9] — 2026-10-13
 
 引擎压缩正确性 + 统一令牌估算 + TUI 正文流式（"经济实惠 + 正确"的硬核一轮）。

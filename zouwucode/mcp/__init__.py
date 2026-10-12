@@ -1,4 +1,4 @@
-"""MCP (Model Context Protocol) support — first-class MCP client."""
+"""MCP (Model Context Protocol) support — client and server."""
 
 from .client import MCPClient
 

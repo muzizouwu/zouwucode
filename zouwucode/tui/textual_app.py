@@ -745,6 +745,7 @@ class ZOUWUCODETUI(App):
             chat.write("    /help          - Show this help")
             chat.write("    /exit          - Exit ZOUWUCODE")
             chat.write("    /cache         - Show cache statistics")
+            chat.write("    /usage         - Token usage + cost (cache savings)")
             chat.write("    /sessions      - List saved sessions")
             chat.write("    /rollback      - Undo the last N turns' file changes (/rollback [N|list])")
             chat.write("    /rewind        - Rewind to a message index (/rewind [N] [files|chat|both] | list)")
@@ -831,6 +832,12 @@ class ZOUWUCODETUI(App):
         elif command == "/mode":
             chat.write(_style(f"  Current mode: {self.current_mode.upper()}", "cyan"))
 
+        elif command == "/usage":
+            u = self.engine.get_usage_summary()
+            chat.write(_style("  Usage & cost:", "bold cyan"))
+            chat.write(f"    model {u['model']} | requests {u['requests']} | cache hit {u['cache_hit_rate']}")
+            chat.write(f"    prompt {u['prompt_tokens']:,} (cached {u['cached_prompt_tokens']:,}) | output {u['output_tokens']:,}")
+            chat.write(_style(f"    spent ${u['spent_usd']} | cache saved ${u['cache_saved_usd']} ({u['saved_percent']})", "green"))
         elif command == "/cache":
             summary = self.engine.get_cache_summary()
             chat.write(_style("  Cache Performance:", "bold cyan"))
@@ -1225,6 +1232,16 @@ Rules:
         skills_block = self.skills.get_context_block()
         if skills_block:
             prompt += f"\n\n=== Loaded Skills ===\n{skills_block}"
+
+        # Repo map (Aider-style) — ranked code signatures in the frozen prompt.
+        if getattr(self.config.context, "repo_map_enabled", False):
+            try:
+                from ..repo_map import build_repo_map, repo_map_max_tokens
+                rm = build_repo_map(".", max_tokens=repo_map_max_tokens(self.config))
+                if rm:
+                    prompt += f"\n\n{rm}"
+            except Exception:
+                pass
 
         return prompt
 

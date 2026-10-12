@@ -940,6 +940,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       addMsg('system', '  /goal [set X] - Show/set project goal');
       addMsg('system', '  /decide <text>- Record an architecture decision');
       addMsg('system', '  /context      - Context window stats');
+      addMsg('system', '  /usage        - Token usage + cost (cache savings)');
       addMsg('system', '  /compress     - Compression settings');
       addMsg('system', '  /agents       - Sub-agent status');
       addMsg('system', '  /rollback     - Undo last N turns\' file changes (/rollback [N|list])');
@@ -1121,6 +1122,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       fetch('/api/decide', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }) }).then(() => addMsg('system', '✓ Decision recorded.'))
         .catch(() => addMsg('system', 'Record failed.'));
+      return;
+    }
+    if (cmd === '/usage') {
+      fetch('/api/usage').then(r => r.json()).then(u => {
+        addMsg('system', 'Usage & cost:');
+        addMsg('system', '  model ' + (u.model || '') + ' | requests ' + (u.requests || 0) + ' | cache hit ' + (u.cache_hit_rate || '0%'));
+        addMsg('system', '  prompt ' + (u.prompt_tokens || 0) + ' (cached ' + (u.cached_prompt_tokens || 0) + ') | output ' + (u.output_tokens || 0));
+        addMsg('system', '  spent $' + (u.spent_usd || 0) + ' | cache saved $' + (u.cache_saved_usd || 0) + ' (' + (u.saved_percent || '0%') + ')');
+      }).catch(() => {});
       return;
     }
     if (cmd === '/context') {
@@ -2122,6 +2132,12 @@ class WebUIServer:
                 pm.add_decision("Decision", text)
                 pm.save_all()
             return self._json_response({"ok": True})
+
+        elif path == "/api/usage" and method == "GET":
+            engine = self.engine
+            if hasattr(engine, "get_usage_summary"):
+                return self._json_response(engine.get_usage_summary())
+            return self._json_response({})
 
         elif path == "/api/context" and method == "GET":
             ctx = getattr(self.config, "context", None)

@@ -302,6 +302,7 @@ zouwucode --mode yolo
 | 命令 | 说明 |
 |------|------|
 | `/cache` | 显示缓存性能统计 |
+| `/usage` | Token 用量与成本（含缓存省下的钱） |
 | `/sessions` | 列出已保存的会话 |
 | `/memory` | 显示项目记忆上下文 |
 | `/goal` | 显示当前目标 |
@@ -733,6 +734,7 @@ ZOUWUCODE 支持在任务执行过程中随时打断：
 
 - `mcp_servers`：配置 MCP 服务器（stdio）后自动连接，服务器工具以 `名称__工具名` 形式进入可用工具列表
 - `lsp_enabled: true`：启用 `check_diagnostics` 诊断工具（需对应语言服务器在 PATH 中）
+- 反向：`zouwucode mcp-serve` 以 stdio 暴露**全部内置工具**，供 Claude Code / Goose / Cursor 等 MCP 客户端消费（含 initialize/tools/list/tools/call/ping）
 
 详见 [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md)。
 
@@ -787,7 +789,7 @@ zouwucode dev --status                                   # 查看队列状态
 
 ## 12. 工具系统
 
-ZOUWUCODE 内置 10 个工具 + task 委派工具（子 Agent 并行任务分解），覆盖日常开发需求：
+ZOUWUCODE 内置 11 个工具 + task 委派工具（子 Agent 并行任务分解），覆盖日常开发需求：
 
 > 注：当前版本**没有交互式审批弹窗**——工具调用会直接执行，安全性由沙箱承担（路径白名单、危险命令/破坏性模式拦截、网络与 git 开关）。plan 模式仍然只读。
 
@@ -800,6 +802,7 @@ ZOUWUCODE 内置 10 个工具 + task 委派工具（子 Agent 并行任务分解
 | `Edit` | 编辑文件（精确替换） | 沙箱（路径白名单） |
 | `Ls` | 列出目录内容 | 只读 |
 | `Glob` | 搜索文件（通配符模式） | 只读 |
+| `RepoMap` | 生成按被引用排序的代码地图（类/函数签名） | 只读 |
 
 ### 执行工具
 
@@ -1282,7 +1285,8 @@ zouwucode/
 │   ├── shell_tools.py   # Shell 命令执行
 │   ├── code_exec_tool.py# python_exec 持久 REPL（CodeAct 可执行动作）
 │   ├── git_tools.py     # Git 操作
-│   └── web_tools.py     # Web 搜索与抓取
+│   ├── web_tools.py     # Web 搜索与抓取
+│   └── repo_map_tool.py # repo_map 代码地图（Aider 式）
 │
 ├── agent/               # 工具调用协调器
 │   ├── __init__.py
@@ -1329,9 +1333,10 @@ zouwucode/
 │   ├── __init__.py
 │   └── manager.py       # 会话保存/恢复
 │
-├── mcp/                 # MCP 协议支持
+├── mcp/                 # MCP 协议支持（客户端 + 服务端）
 │   ├── __init__.py
-│   └── client.py        # MCP 客户端
+│   ├── client.py        # MCP 客户端
+│   └── server.py        # MCP 服务端（stdio）
 │
 ├── lsp/                 # LSP 诊断集成
 │   ├── __init__.py
@@ -1370,4 +1375,4 @@ hello_my_zouwucode/       # 多智能体编排模块（复刻自 oh-my-opencode�
 
 ---
 
-*文档版本: v1.0.0 · 最后更新: 2026-08-04*
+*文档版本: v1.1.0 · 最后更新: 2026-10-13*

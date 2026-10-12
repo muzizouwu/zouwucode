@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 528 passed](https://img.shields.io/badge/tests-344%20passed-green)](tests/)
+[![Tests: 544 passed](https://img.shields.io/badge/tests-344%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -22,7 +22,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **Cache-First 引擎** | Append-only 对话循环，DeepSeek 缓存命中率 90%+，成本降至约 1/5 |
 | **三种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面） |
 | **三种模式** | Plan（只读）、Agent（交互审批）、YOLO（自动执行） |
-| **完整工具集** | 文件读写、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 11 个内置工具 |
+| **完整工具集** | 文件读写、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 12 个内置工具 |
 | **项目记忆** | 跨会话持久化，保存目标、决策、状态、摘要 |
 | **项目规则** | `.zouwucode/rules.md` 定义项目专属规则，自动注入系统提示词 |
 | **技能系统** | `.zouwucode/skills/` 可插拔知识包，`/skill` 命令动态加载/卸载 |
@@ -351,14 +351,15 @@ zouwucode/                       # 核心包
 │       ├── deepseek.py          # DeepSeek 优化适配器
 │       └── openai.py            # OpenAI 兼容适配器
 │
-├── tools/                       # 工具系统（11 个内置工具）
+├── tools/                       # 工具系统（12 个内置工具）
 │   ├── base.py                  # 工具基类
 │   ├── registry.py              # 工具注册中心
 │   ├── file_tools.py            # 文件读写编辑搜索
 │   ├── shell_tools.py           # Shell 命令执行
 │   ├── code_exec_tool.py        # python_exec 持久 REPL（CodeAct 可执行动作）
 │   ├── git_tools.py             # Git 操作
-│   └── web_tools.py             # Web 搜索与抓取
+│   ├── web_tools.py             # Web 搜索与抓取
+│   └── repo_map_tool.py         # repo_map 代码地图（Aider 式签名地图）
 │
 ├── agent/                       # Agent 层
 │   ├── coordinator.py           # 工具调用协调器（引擎 ↔ 工具注册中心 + 钩子）
@@ -401,8 +402,9 @@ zouwucode/                       # 核心包
 ├── session/                     # 会话管理
 │   └── manager.py               # 会话保存/恢复
 │
-├── mcp/                         # MCP 协议支持
-│   └── client.py                # MCP 客户端
+├── mcp/                         # MCP 协议支持（客户端 + 服务端）
+│   ├── client.py                # MCP 客户端
+│   └── server.py                # MCP 服务端（stdio，zouwucode mcp-serve）
 │
 ├── lsp/                         # LSP 集成
 │   └── client.py                # LSP 客户端
