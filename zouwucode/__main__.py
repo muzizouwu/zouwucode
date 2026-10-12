@@ -64,11 +64,16 @@ def main():
 
     # ── Context / Compression ───────────────────────────────────────────────
     parser.add_argument("--compress", choices=["lossless", "balanced", "aggressive", "off"],
-                        default="balanced", help="Dialogue compression level (default: balanced)")
-    parser.add_argument("--max-tokens", type=int, default=1048576,
-                        help="Max context tokens (default: 1048576 for 1M support)")
-    parser.add_argument("--keep-turns", type=int, default=50,
-                        help="Number of recent turns to keep uncompressed (default: 50)")
+                        default=None,
+                        help="Engine-side context compression: lossless|balanced|"
+                             "aggressive enables it, 'off' disables it. Default: off "
+                             "unless --max-tokens/--keep-turns is given.")
+    parser.add_argument("--max-tokens", type=int, default=None,
+                        help="Compress once the estimated prompt exceeds this "
+                             "many tokens (implies --compress balanced)")
+    parser.add_argument("--keep-turns", type=int, default=None,
+                        help="Newest messages always kept uncompressed "
+                             "(default: 50)")
 
     # ── Reasoning / Thinking ────────────────────────────────────────────────
     parser.add_argument("--reasoning", choices=["low", "medium", "max"],
@@ -169,11 +174,22 @@ def main():
         if app.config.default_provider in app.config.providers:
             app.config.providers[app.config.default_provider].api_key = args.api_key
 
-    # Set compression level
-    if args.compress and args.compress != "off":
-        app.compressor_level = args.compress
-    app.max_context_tokens = args.max_tokens
-    app.keep_turns = args.keep_turns
+    # Context compression — wired into config.context so the ENGINE actually
+    # honors it (previously these flags only changed /compress display text).
+    ctx = app.config.context
+    if args.compress is not None:
+        ctx.enabled = args.compress != "off"
+        if args.compress != "off":
+            ctx.level = args.compress
+    elif args.max_tokens is not None or args.keep_turns is not None:
+        ctx.enabled = True
+    if args.max_tokens is not None:
+        ctx.max_context_tokens = args.max_tokens
+    if args.keep_turns is not None:
+        ctx.keep_last_n = args.keep_turns
+    app.compressor_level = ctx.level if ctx.enabled else "off"
+    app.max_context_tokens = ctx.max_context_tokens
+    app.keep_turns = ctx.keep_last_n
 
     # Resume intent — applied when the session is initialised
     if args.session:
@@ -194,7 +210,8 @@ def main():
     if args.tui:
         # ── Textual TUI mode ────────────────────────────────────────────────
         from .tui.textual_app import run_tui
-        run_tui(config_path, skill_names=args.skills)
+        resume = args.session or ("__latest__" if args.resume else None)
+        run_tui(config_path, skill_names=args.skills, resume_session=resume)
     elif args.web:
         # ── Web UI mode ─────────────────────────────────────────────────────
         asyncio.run(app.run_web(port=args.port))

@@ -113,6 +113,13 @@ class EngineLoop:
         self.cache = PrefixCache(
             max_prefix_tokens=config.cache.max_prefix_tokens
         )
+        # Optional context compression (opt-in, default off — ContextConfig).
+        # Lazily imported so the disabled path has an identical import graph.
+        self._context_compressor = None
+        ctx_cfg = getattr(config, "context", None)
+        if ctx_cfg is not None and ctx_cfg.enabled:
+            from ..context.compressor import DialogueCompressor
+            self._context_compressor = DialogueCompressor(level=ctx_cfg.level)
         self.stats = CacheStats()
         self._tool_executor: Optional[ToolExecutor] = None
         self._mode = config.sandbox.default_mode
@@ -380,6 +387,95 @@ class EngineLoop:
             cache_hit=cache_hit,
         )
 
+    # ── Context compression (opt-in) ────────────────────────────────────────
+
+    @staticmethod
+    def _repair_tool_pairing(messages: list[dict]) -> list[dict]:
+        """Keep the API contract: tool results need their requesting call.
+
+        Compression can drop empty-content assistant messages (tool_calls
+        with content=""); a surviving role:"tool" reply would then dangle
+        and providers reject the whole request. Assistant answers whose
+        results vanished lose their tool_calls (text content is kept);
+        replies whose call is gone are dropped.
+        """
+        out: list[dict] = []
+        pending_idx = None
+        pending_ids: set = set()
+
+        def _close_pending() -> None:
+            nonlocal pending_idx, pending_ids
+            if pending_idx is not None and pending_ids:
+                msg = out[pending_idx]
+                stripped = {k: v for k, v in msg.items() if k != "tool_calls"}
+                if (stripped.get("content") or "").strip():
+                    out[pending_idx] = stripped
+                else:
+                    out[pending_idx] = None  # nothing left — remove it
+            pending_idx, pending_ids = None, set()
+
+        for msg in messages:
+            role = msg.get("role")
+            if role == "assistant":
+                _close_pending()
+                calls = msg.get("tool_calls") or []
+                if calls:
+                    pending_idx = len(out)
+                    pending_ids = {c.get("id") for c in calls
+                                   if isinstance(c, dict) and c.get("id")}
+                out.append(msg)
+            elif role == "tool":
+                tid = msg.get("tool_call_id")
+                if pending_idx is not None and (not pending_ids or tid in pending_ids):
+                    if tid:
+                        pending_ids.discard(tid)
+                    out.append(msg)
+                # else: orphan result whose call was compressed away — drop
+            else:
+                _close_pending()
+                out.append(msg)
+        _close_pending()
+        return [m for m in out if m is not None]
+
+    def _prepare_messages(self, messages: list[dict]) -> list[dict]:
+        """Compress the outgoing prompt when enabled and oversized.
+
+        Returns the input object itself when compression is off (identity —
+        regression-pinned), when nothing is oversized, or when compression
+        fails for any reason. Never mutates the cached prefix.
+        """
+        comp = self._context_compressor
+        if comp is None or not messages:
+            return messages
+        cfg = self.config.context
+        est = sum(len(str(m.get("content") or "")) // 2 + 4 for m in messages)
+        if est <= cfg.max_context_tokens:
+            return messages
+        keep = max(1, int(cfg.keep_last_n))
+        if len(messages) <= keep + 2:
+            return messages
+        s = len(messages) - keep
+        # Never split a tool group across the boundary: push the whole
+        # assistant(tool_calls)+results group into the verbatim tail,
+        # otherwise the compressed head would strand orphan results.
+        while s > 1 and messages[s].get("role") == "tool":
+            s -= 1
+        while (s > 1 and messages[s - 1].get("role") == "assistant"
+               and messages[s - 1].get("tool_calls")):
+            s -= 1
+        head, tail = messages[:s], messages[s:]
+        try:
+            compressed = comp.compress_conversation(
+                head, keep_last_n=0, max_context_tokens=cfg.max_context_tokens)
+        except Exception as exc:  # never let compression break a turn
+            logger.warning(
+                "Context compression failed (%s) — sending uncompressed.", exc)
+            return messages
+        repaired = self._repair_tool_pairing(compressed)
+        if not repaired:
+            return messages
+        return repaired + tail
+
     async def run(
         self,
         messages: list[dict],
@@ -503,7 +599,7 @@ class EngineLoop:
                 try:
                     response = await self._run_interruptible(
                         self._stream_once(
-                            messages=self.cache.get_prefix(),
+                            messages=self._prepare_messages(self.cache.get_prefix()),
                             tools=tools,
                             temperature=temperature,
                             max_tokens=max_tokens,

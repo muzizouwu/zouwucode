@@ -129,3 +129,13 @@ class TestTimeAnchor:
             cli_mod.ZOUWUCODEApp._build_system_prompt)
         assert "Current date:" in inspect.getsource(
             tui_mod.ZOUWUCODETUI._build_system_prompt)
+
+
+class TestResumeWiring:
+    def test_tui_run_accepts_resume_and_on_mount_reads_it(self):
+        from zouwucode.tui import textual_app as tui_mod
+        sig = inspect.signature(tui_mod.run_tui)
+        assert "resume_session" in sig.parameters
+        src = inspect.getsource(tui_mod.ZOUWUCODETUI.on_mount)
+        assert "_resume_session" in src
+        assert "replay_history" in src

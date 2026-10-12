@@ -29,6 +29,11 @@ class AgentCoordinator:
         self.engine = engine
         self.tools = tool_registry
         self.hooks = HookRunner(getattr(config.extensions, "hooks", []))
+        # Optional interactive approval (agent mode only). Frontends that can
+        # ask a human (CLI/TUI/Web) install an async callback returning True
+        # to allow; headless paths (dev/eval/single-message) leave it None so
+        # behavior stays byte-identical to before the gate existed.
+        self.approval_callback = None
 
     async def execute_tool(self, tool_call: ToolCall, context: TurnContext) -> ToolResult:
         """Execute a tool call with permission checking.
@@ -46,6 +51,28 @@ class AgentCoordinator:
                     content=f"Blocked by pre-tool hook: {block_reason}",
                     is_error=True,
                 )
+            # ── Interactive approval (agent mode only; None elsewhere) ────
+            # A denied call comes back as a normal error result, so the model
+            # SEES the refusal and can adapt instead of silently proceeding.
+            if (self.approval_callback is not None
+                    and getattr(context, "mode", None) == "agent"):
+                try:
+                    approved = await self.approval_callback(tool_call, context)
+                except Exception as exc:  # a broken prompt must not wedge the loop
+                    return ToolResult(
+                        tool_call_id=tool_call.id,
+                        content=(f"Approval prompt failed ({type(exc).__name__}: {exc}) "
+                                 f"— '{tool_call.name}' was NOT executed."),
+                        is_error=True,
+                    )
+                if not approved:
+                    return ToolResult(
+                        tool_call_id=tool_call.id,
+                        content=(f"User DENIED tool '{tool_call.name}'. It was not "
+                                 "executed. Do not retry it as-is — ask the user what "
+                                 "they want, or choose a safer alternative."),
+                        is_error=True,
+                    )
             # tool_call.arguments is a JSON string from the stream — parse it
             # before unpacking with ** (TypeError otherwise)
             args = tool_call.arguments

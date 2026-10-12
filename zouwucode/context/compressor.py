@@ -110,12 +110,17 @@ class DialogueCompressor:
         # If still too long, apply more aggressive compression
         estimated_tokens = sum(len(m.get("content", "")) // 2 for m in result)
         if estimated_tokens > max_context_tokens and self.level != "lossless":
-            # Keep even fewer messages uncompressed
-            return self.compress_conversation(
-                messages,
-                keep_last_n=min(keep_last_n, 5),
-                max_context_tokens=max_context_tokens,
-            )
+            # Keep even fewer messages uncompressed — but ONLY recurse when
+            # that changes the parameters. min(0, 5) == 0 and min(5, 5) == 5
+            # made the old version call itself with identical arguments and
+            # spin until RecursionError whenever the budget was unreachable.
+            tighter = 5 if keep_last_n <= 0 else min(keep_last_n, 5)
+            if tighter != keep_last_n:
+                return self.compress_conversation(
+                    messages,
+                    keep_last_n=tighter,
+                    max_context_tokens=max_context_tokens,
+                )
 
         return result
 

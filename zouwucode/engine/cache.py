@@ -100,6 +100,9 @@ class PrefixCache:
         self.max_prefix_tokens = max_prefix_tokens
         self._frozen_messages: list[dict] = []
         self._frozen = False
+        # Warn (once) when the prefix exceeds its budget: can_append() used to
+        # have zero production callers, so the limit was never even checked.
+        self._over_budget_warned = False
 
     def freeze(self, messages: list[dict]) -> None:
         """Freeze the initial message prefix once at session start."""
@@ -112,8 +115,20 @@ class PrefixCache:
         return self._frozen
 
     def append(self, message: dict) -> None:
-        """Append a message — NEVER prepend or reorder."""
+        """Append a message — NEVER prepend or reorder.
+
+        Signals (once per instance) when the prefix crosses max_prefix_tokens;
+        the append-only contract keeps the data intact — this is a heads-up
+        that cost/latency may rise, not a hard stop.
+        """
         self._frozen_messages.append(message)
+        if not self._over_budget_warned and not self.can_append():
+            self._over_budget_warned = True
+            import logging
+            logging.getLogger("zouwucode.cache").warning(
+                "Prefix cache over budget: ~%d tokens > max_prefix_tokens=%d "
+                "(data kept; consider --compress to cap prompt size).",
+                self.get_prefix_length(), self.max_prefix_tokens)
 
     def get_prefix(self) -> list[dict]:
         """Return the full append-only message list."""

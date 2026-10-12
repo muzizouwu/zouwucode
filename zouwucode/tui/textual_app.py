@@ -208,6 +208,9 @@ class ZOUWUCODETUI(App):
         # ── Agent ────────────────────────────────────────────────────────
         self.coordinator = AgentCoordinator(self.config, self.engine, self.tools)
         self.engine.set_tool_executor(self.coordinator.execute_tool)
+        # Interactive TUI: the tool-approval gate is always available here.
+        self._approved_tools: set = set()
+        self.coordinator.approval_callback = self._approve_tool
 
         # ── Sub-agents & extensions (MCP/LSP reserved space) ─────────────
         self._setup_agents_and_extensions()
@@ -354,13 +357,32 @@ class ZOUWUCODETUI(App):
                 chat = self.query_one("#chat-view", RichLog)
                 chat.write(_style(f"  [Warning] {e}", "yellow"))
 
-        # Initialize session
-        self._session_id = self.sessions.start_session()
+        # Initialize session — resuming when --resume/--session was given.
+        requested = getattr(self, "_resume_session", None)
+        if requested == "__latest__":
+            latest = self.sessions.latest_session()
+            requested = latest["id"] if latest else None
+        resumed = bool(requested) and self.sessions.load_session(requested) is not None
+        self._session_id = (requested if resumed
+                            else self.sessions.start_session())
         system_prompt = self._build_system_prompt()
         self.engine.freeze_session(system_prompt, self.tools.get_schemas())
         self.context_window.add_to_hot([
             {"role": "system", "content": system_prompt},
         ])
+        if resumed:
+            # Same replay rule as the CLI: a loaded file alone leaves the
+            # model with an empty conversation.
+            replayed = self.sessions.replay_history(
+                self.sessions.current_log(), self.engine.cache,
+                self.context_window)
+            self.query_one("#chat-view", RichLog).write(
+                _style(f"  [Resumed {self._session_id}] "
+                       f"{replayed} messages replayed into context", "cyan"))
+        elif requested:
+            self.query_one("#chat-view", RichLog).write(
+                _style(f"  [Warning] session '{requested}' not found — "
+                       f"starting a new session", "yellow"))
 
         chat = self.query_one("#chat-view", RichLog)
         chat.write("")
@@ -1019,6 +1041,26 @@ class ZOUWUCODETUI(App):
         except Exception:
             pass
 
+    async def _approve_tool(self, tool_call, context) -> bool:
+        """Ask the human (modal y/n/a) before a tool runs in agent mode."""
+        name = getattr(tool_call, "name", "tool")
+        if name in self._approved_tools:
+            return True
+        preview = str(getattr(tool_call, "arguments", "") or "")[:200]
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+
+        def _done(result) -> None:
+            if not fut.done():
+                fut.set_result(result or "n")
+
+        self.push_screen(ApprovalScreen(name, preview), callback=_done)
+        answer = await fut
+        if answer == "a":
+            self._approved_tools.add(name)
+            return True
+        return answer == "y"
+
     def _build_system_prompt(self) -> str:
         """Build the frozen system prompt."""
         # Session date — frozen with the rest of the prompt (see CLI app).
@@ -1029,8 +1071,11 @@ Current date: {datetime.now().strftime('%Y-%m-%d (%A)')}
 
 Current mode: {self.current_mode}
 - plan: Read-only exploration. No changes.
-- agent: Interactive mode. Tool calls run automatically, constrained
-  by the sandbox (there is no interactive approval prompt yet).
+- agent: Interactive mode (CLI/TUI/Web). Each tool call asks for your
+  approval first: y = allow once, a = always allow this tool for the
+  session, n = deny. Denied calls come back to the model as errors it
+  must adapt to. Headless runs (single message, dev, eval) execute
+  without prompting, still constrained by the sandbox.
 - yolo: Auto-approve mode. All tool calls execute automatically.
 
 Rules:
@@ -1076,9 +1121,56 @@ def _restore_terminal() -> None:
         pass
 
 
-def run_tui(config_path: Optional[Path] = None, skill_names: list[str] | None = None) -> None:
+class ApprovalScreen(ModalScreen):
+    """Modal y/n/a confirmation shown before a tool runs in agent mode.
+
+    Deliberately separate from InterruptConfirmScreen (whose ids and text
+    are regression-pinned); this screen only ever answers the approval
+    question and dismisses with "y" / "a" / "n".
+    """
+
+    BINDINGS = [
+        Binding("y", "approve", "允许一次", show=False),
+        Binding("a", "always", "始终允许", show=False),
+        Binding("n", "deny", "拒绝", show=False),
+        Binding("escape", "deny", "拒绝", show=False),
+    ]
+
+    def __init__(self, tool_name: str, preview: str) -> None:
+        super().__init__()
+        self._tool_name = tool_name
+        self._preview = preview
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="approval-dialog"):
+            yield Label(f"⚠ 允许执行 {self._tool_name} ？", id="approval-title")
+            yield Label(self._preview or "（无参数）", id="approval-preview")
+            yield Button("允许一次 (y)", variant="success", id="btn-approval-yes")
+            yield Button("本会话始终允许 (a)", variant="primary", id="btn-approval-always")
+            yield Button("拒绝 (n)", variant="error", id="btn-approval-no")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        mapping = {"btn-approval-yes": "y", "btn-approval-always": "a",
+                   "btn-approval-no": "n"}
+        self.dismiss(mapping.get(event.button.id, "n"))
+
+    def action_approve(self) -> None:
+        self.dismiss("y")
+
+    def action_always(self) -> None:
+        self.dismiss("a")
+
+    def action_deny(self) -> None:
+        self.dismiss("n")
+
+
+def run_tui(config_path: Optional[Path] = None,
+            skill_names: list[str] | None = None,
+            resume_session: str | None = None) -> None:
     """Run the Textual TUI application."""
     app = ZOUWUCODETUI(config_path, skill_names=skill_names)
+    # on_mount() reads this attribute (avoids touching __init__ signature).
+    app._resume_session = resume_session
     try:
         app.run()
     except BaseException as exc:  # noqa: BLE001 — record then re-raise

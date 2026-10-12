@@ -177,6 +177,23 @@ class ExtensionsConfig(BaseModel):
     hooks: list[HookConfig] = Field(default_factory=list)  # 生命周期钩子（默认空）
 
 
+class ContextConfig(BaseModel):
+    """Engine-side context compression (opt-in; OFF by default).
+
+    When enabled, the engine compresses OLD conversation turns once the
+    estimated prompt size exceeds max_context_tokens — reusing the same
+    DialogueCompressor the TUI exposes. Tool-call/result pairing is
+    preserved and the newest keep_last_n messages always pass through
+    verbatim. Disabled means byte-identical payloads (the shipped default:
+    the server-side prefix cache depends on that stability).
+    """
+
+    enabled: bool = False
+    level: str = "balanced"              # lossless | balanced | aggressive
+    max_context_tokens: int = 1_048_576  # compress once the estimate exceeds this
+    keep_last_n: int = 50                # newest messages kept verbatim
+
+
 class ZOUWUCODEConfig(BaseModel):
     """Root configuration model."""
 
@@ -184,6 +201,7 @@ class ZOUWUCODEConfig(BaseModel):
     default_provider: str = "deepseek"
     engine: EngineConfig = Field(default_factory=EngineConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     subagent: SubAgentConfig = Field(default_factory=SubAgentConfig)

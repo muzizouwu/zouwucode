@@ -8,6 +8,7 @@ Integrates:
 - Quick launch support
 """
 
+import asyncio
 import os
 import sys
 import time
@@ -79,6 +80,10 @@ class ZOUWUCODEApp:
         self.coordinator = AgentCoordinator(self.config, self.engine, self.tools)
         self.coordinator.project_memory = self.project_memory  # inject for web UI
         self.engine.set_tool_executor(self.coordinator.execute_tool)
+        # Interactive approval state (agent mode): tools the user chose to
+        # always allow for this session. The callback itself is installed by
+        # run_interactive() — a headless run_single() must never block stdin.
+        self._approved_tools: set = set()
 
         # ── Sub-agents & extensions (MCP/LSP reserved space) ───────────────
         self._setup_agents_and_extensions()
@@ -204,6 +209,9 @@ class ZOUWUCODEApp:
             latest = self.sessions.latest_session()
             requested = latest["id"] if latest else None
         resumed = bool(requested) and self.sessions.load_session(requested) is not None
+        if requested and not resumed:
+            print(f"  [Warning] session '{requested}' not found — "
+                  f"starting a new session.")
         self._session_id = (requested if resumed
                             else self.sessions.start_session())
 
@@ -242,6 +250,24 @@ class ZOUWUCODEApp:
         self.transcripts.start_session(self._session_id)
         return self._session_id
 
+    async def _cli_approve(self, tool_call, context) -> bool:
+        """Ask the human before a tool runs in agent mode (CLI frontend)."""
+        name = getattr(tool_call, "name", "tool")
+        if name in self._approved_tools:
+            return True
+        args = str(getattr(tool_call, "arguments", "") or "")[:160]
+        prompt = (f"\n  ⚠ [agent] 允许执行 {name}？\n"
+                  f"     参数: {args}\n"
+                  f"     y=允许一次  a=本会话始终允许  n=拒绝 [y]: ")
+        try:
+            answer = (await asyncio.to_thread(input, prompt)).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return False
+        if answer == "a":
+            self._approved_tools.add(name)
+            return True
+        return answer in ("", "y", "yes")
+
     def save_state(self) -> None:
         """Save all persistent state before exit."""
         self.project_memory.save_all()
@@ -275,8 +301,11 @@ You have access to a set of tools that can:
 
 Current mode: {self._current_mode}
 - plan: Read-only exploration. You can examine code but not make changes.
-- agent: Interactive mode. Tool calls run automatically, constrained
-  by the sandbox (there is no interactive approval prompt yet).
+- agent: Interactive mode (CLI/TUI/Web). Each tool call asks for your
+  approval first: y = allow once, a = always allow this tool for the
+  session, n = deny. Denied calls come back to the model as errors it
+  must adapt to. Headless runs (single message, dev, eval) execute
+  without prompting, still constrained by the sandbox.
 - yolo: Auto-approve mode. All tool calls execute automatically.
 
 Rules:
@@ -368,6 +397,9 @@ Rules:
         # Start extensions BEFORE initialize_session() — extension tools
         # must be registered before the engine freezes tool schemas.
         await self._start_extensions()
+
+        # Interactive CLI: install the agent-mode approval gate.
+        self.coordinator.approval_callback = self._cli_approve
 
         session_id = self.initialize_session()
 

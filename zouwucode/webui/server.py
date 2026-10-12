@@ -859,6 +859,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             if (!thinkingBody) thinkingBody = addThinkingStream();
             thinkingBody.textContent += evt.delta;
             chat.scrollTop = chat.scrollHeight;
+          } else if (evt.type === 'approval_request') {
+            const ans = window.prompt('⚠ [agent 模式] 允许执行 ' + evt.tool + ' ？\n\n参数: ' + (evt.preview || '') + '\n\ny=允许一次  a=本会话始终允许  n=拒绝', 'y');
+            const decision = (ans || 'n').trim().toLowerCase().charAt(0);
+            const decisionZh = decision === 'a' ? '始终允许' : (decision === 'y' ? '允许一次' : '已拒绝');
+            addMsg('system', '🔐 ' + evt.tool + ' → ' + decisionZh);
+            try {
+              await fetch('/api/approve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ id: evt.id, decision: decision })
+              });
+            } catch (e) { /* the chat stream reports failures */ }
           } else if (evt.type === 'done') {
             if (evt.module) {
               addMsg('module', '🤖 [hello-my-zouwucode] ' + (evt.module || 'module'));
@@ -1398,6 +1410,13 @@ class WebUIServer:
         # The engine owns a single PrefixCache and single-slot streaming
         # callbacks — only one chat turn may run at a time.
         self._chat_busy = False
+        # Interactive approvals (agent mode): decisions arrive via
+        # POST /api/approve and resolve one pending future per tool call.
+        self._approval_futures: dict = {}
+        self._approval_queue = None
+        self._approved_always: set = set()
+        if self.coordinator is not None:
+            self.coordinator.approval_callback = self._web_approve
         if self.engine is not None:
             self.engine.on_tool_event = self._on_tool_event
 
@@ -1411,6 +1430,42 @@ class WebUIServer:
             self._tool_buffer.append({"name": name, "arguments": str(args)[:200]})
         except Exception:
             pass
+
+    async def _web_approve(self, tool_call, context) -> bool:
+        """Ask the browser (y/n/a) before a tool runs in agent mode.
+
+        Falls back to DENY when there is no open chat stream to ask through
+        — an unapproved call must never silently execute.
+        """
+        name = getattr(tool_call, "name", "tool")
+        if name in self._approved_always:
+            return True
+        queue = self._approval_queue
+        if queue is None:
+            return False
+        args = getattr(tool_call, "arguments", "") or ""
+        if isinstance(args, dict):
+            args = json.dumps(args, ensure_ascii=False)
+        call_id = str(getattr(tool_call, "id", "") or id(tool_call))
+        loop = asyncio.get_running_loop()
+        fut = loop.create_future()
+        self._approval_futures[call_id] = fut
+        try:
+            queue.put_nowait({
+                "type": "approval_request",
+                "id": call_id,
+                "tool": name,
+                "preview": str(args)[:300],
+            })
+            decision = await asyncio.wait_for(fut, timeout=300)
+        except asyncio.TimeoutError:
+            decision = "n"
+        finally:
+            self._approval_futures.pop(call_id, None)
+        if decision == "a":
+            self._approved_always.add(name)
+            return True
+        return decision == "y"
 
     async def _sse_send(self, writer, obj: dict) -> None:
         """Write one SSE `data:` event, swallowing broken-pipe errors."""
@@ -1475,6 +1530,8 @@ class WebUIServer:
                 return
 
         queue: asyncio.Queue = asyncio.Queue()
+        # Approvals for this turn are asked through the same SSE stream.
+        self._approval_queue = queue
         show_thinking = getattr(self.config, "show_thinking", True)
 
         def _on_thinking(delta: str) -> None:
@@ -1504,8 +1561,11 @@ class WebUIServer:
                 if task.done() and queue.empty():
                     break
                 try:
-                    delta = await asyncio.wait_for(queue.get(), timeout=0.2)
-                    await self._sse_send(writer, {"type": "thinking", "delta": delta})
+                    item = await asyncio.wait_for(queue.get(), timeout=0.2)
+                    if isinstance(item, dict):
+                        await self._sse_send(writer, item)
+                    else:
+                        await self._sse_send(writer, {"type": "thinking", "delta": item})
                 except asyncio.TimeoutError:
                     continue
 
@@ -1529,6 +1589,7 @@ class WebUIServer:
             await self._sse_send(writer, {"type": "error", "error": describe_exc(e)})
         finally:
             self._chat_busy = False
+            self._approval_queue = None
             self.engine.on_thinking_delta = None
             writer.close()
 
@@ -1654,6 +1715,22 @@ class WebUIServer:
                 return self._json_response({"error": err_msg, "detail": tb}, 500)
             finally:
                 self._chat_busy = False
+
+        elif path == "/api/approve" and method == "POST":
+            # Interactive approval decision from the browser (agent mode).
+            try:
+                data = json.loads(body)
+                call_id = str(data.get("id", ""))
+                decision = str(data.get("decision", "n")).lower()[:1]
+                if decision not in ("y", "a", "n"):
+                    decision = "n"
+                fut = self._approval_futures.get(call_id)
+                if fut is None or fut.done():
+                    return self._json_response({"resolved": False}, 404)
+                fut.set_result(decision)
+                return self._json_response({"resolved": True, "decision": decision})
+            except Exception as e:
+                return self._json_response({"error": str(e)}, 400)
 
         elif path == "/api/interrupt" and method == "POST":
             # Interrupt the currently running task (TUI/WebUI parity).

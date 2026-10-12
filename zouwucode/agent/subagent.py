@@ -71,6 +71,11 @@ class SubAgent:
         # current setting.
         self.engine = EngineLoop(manager.config, manager.provider)
         self.engine.set_tool_executor(self._make_executor(manager.coordinator))
+        # Sub-agents never prompt: the spawn itself was approved by the user,
+        # and individual calls stay bounded by the sandbox + whitelist.
+        # Without this, the agent-mode approval callback would fire for every
+        # tool call of every worker (8 workers × N calls = prompt storm).
+        self.engine.set_mode("yolo")
 
     # ── Tool execution with whitelist enforcement ────────────────────────
 
