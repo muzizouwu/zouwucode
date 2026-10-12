@@ -21,11 +21,11 @@ no changes to the engine, coordinator or UI layers.
 """
 
 import logging
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from abc import ABC
+from dataclasses import dataclass
 from typing import Callable, Optional
 
-from ..tools.base import BaseTool, ToolResult, ToolSpec
+from ..tools.base import BaseTool
 
 logger = logging.getLogger("zouwucode.extensions")
 

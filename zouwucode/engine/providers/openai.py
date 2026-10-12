@@ -52,8 +52,10 @@ class OpenAIProvider(BaseProvider):
                     resp.raise_for_status()
                 except httpx.HTTPStatusError:
                     error_body = await resp.aread()
-                    raise RuntimeError(
-                        f"OpenAI API {resp.status_code}: {error_body.decode('utf-8', errors='replace')[:500]}"
+                    raise ProviderAPIError(
+                        f"OpenAI API {resp.status_code}: "
+                        f"{error_body.decode('utf-8', errors='replace')[:500]}",
+                        status_code=resp.status_code,
                     )
                 tool_calls_buf = {}
                 usage = {}

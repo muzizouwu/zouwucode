@@ -8,7 +8,21 @@ server-side cache stays hot.
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional
+
+
+# Per-model USD price per 1M tokens: (input_uncached, input_cached, output).
+# Cost was previously hardcoded to DeepSeek V4-Flash rates regardless of the
+# model, so non-DeepSeek turns — and the engine.max_cost_usd breaker — were
+# wrong. First matching substring wins; unknown models fall back to V4-Flash.
+PRICING = {
+    "deepseek-v4-flash": (0.14, 0.028, 0.28),
+    "deepseek-v4-pro": (0.27, 0.027, 1.10),
+    "deepseek-chat": (0.27, 0.07, 1.10),
+    "deepseek-reasoner": (0.55, 0.14, 2.19),
+    "gpt-4o-mini": (0.15, 0.075, 0.60),
+    "gpt-4o": (2.50, 1.25, 10.00),
+}
+DEFAULT_PRICING = (0.14, 0.028, 0.28)
 
 
 @dataclass
@@ -20,6 +34,7 @@ class CacheStats:
     """
 
     window_size: int = 50
+    model: str = ""
     total_requests: int = 0
     cache_hits: int = 0
     total_prompt_tokens: int = 0
@@ -33,6 +48,14 @@ class CacheStats:
         size = max(1, int(self.window_size or 50))
         self.window_hits = deque(maxlen=size)
         self.window_misses = deque(maxlen=size)
+
+    def _pricing(self):
+        """(input_uncached, input_cached, output) USD per 1M tokens."""
+        m = (self.model or "").lower()
+        for key, price in PRICING.items():
+            if key in m:
+                return price
+        return DEFAULT_PRICING
     _start_time: float = field(default_factory=time.time)
 
     @property
@@ -70,9 +93,9 @@ class CacheStats:
         """
         if self.total_prompt_tokens == 0:
             return 0.0
-        uncached_cost = self.total_prompt_tokens * 0.14 / 1_000_000  # V4-Flash uncached
-        cached_cost = self.cached_prompt_tokens * 0.028 / 1_000_000  # V4-Flash cached
-        return (uncached_cost - cached_cost) * 0.8  # approximate
+        inp, cached_price, _ = self._pricing()
+        # Net saving: cached tokens billed at the cached rate, not the full rate.
+        return self.cached_prompt_tokens * max(0.0, inp - cached_price) / 1_000_000
 
     def record_turn(self, cache_hit: bool, usage: dict) -> None:
         """Record a single turn's cache performance."""
@@ -91,11 +114,12 @@ class CacheStats:
         self.cached_prompt_tokens += cached_tokens
         self.total_output_tokens += output_tokens
 
-        # Estimate cost: DeepSeek V4-Flash pricing
-        uncached_cost = (prompt_tokens - cached_tokens) * 0.14 / 1_000_000
-        cached_cost = cached_tokens * 0.028 / 1_000_000
-        output_cost = output_tokens * 0.28 / 1_000_000
-        self.total_cost += uncached_cost + cached_cost + output_cost
+        # Cost from this model's own price row (falls back to V4-Flash).
+        inp, cached_price, out_price = self._pricing()
+        uncached_tokens = max(0, prompt_tokens - cached_tokens)  # guard bad usage
+        self.total_cost += (uncached_tokens * inp
+                            + cached_tokens * cached_price
+                            + output_tokens * out_price) / 1_000_000
 
 
 class PrefixCache:

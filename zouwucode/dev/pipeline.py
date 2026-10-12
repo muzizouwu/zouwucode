@@ -26,7 +26,6 @@ from typing import Optional
 
 from ..config import ZOUWUCODEConfig
 from ..engine.loop import EngineLoop, TaskInterrupted, TurnLimitExceeded
-from ..errors import describe_exc
 from ..runtime import (create_provider, create_builtin_tools,
                        build_agent_engine)
 from ..tools.registry import ToolRegistry

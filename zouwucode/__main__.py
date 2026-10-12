@@ -44,10 +44,11 @@ def main():
     # ── Core options ────────────────────────────────────────────────────────
     parser.add_argument("--config", "-c", type=str, help="Path to config file")
     parser.add_argument("--version", "-v", action="store_true", help="Show version and exit")
-    parser.add_argument("--mode", "-m", choices=["plan", "agent", "yolo"], default="agent",
-                        help="Default operation mode (default: agent)")
+    parser.add_argument("--mode", "-m", choices=["plan", "agent", "yolo"], default=None,
+                        help="Default operation mode (default: from config, else agent)")
     parser.add_argument("--model", type=str, help="Model to use (e.g., deepseek-v4-flash)")
-    parser.add_argument("--provider", type=str, default="deepseek", help="LLM provider (deepseek, openai)")
+    parser.add_argument("--provider", type=str, default=None,
+                        help="LLM provider key to use (default: config default_provider)")
     parser.add_argument("--api-key", type=str, help="API key for the LLM provider")
 
     # ── Interface selection ─────────────────────────────────────────────────
@@ -77,9 +78,10 @@ def main():
 
     # ── Reasoning / Thinking ────────────────────────────────────────────────
     parser.add_argument("--reasoning", choices=["low", "medium", "max"],
-                        default="medium",
+                        default=None,
                         help="Reasoning intensity: low (fast, deterministic), "
-                             "medium (balanced thinking), max (deep reasoning)")
+                             "medium (balanced thinking), max (deep reasoning). "
+                             "Default: from config, else medium")
 
     # ── Skills / Rules ──────────────────────────────────────────────────────
     parser.add_argument("--skill", action="append", dest="skills", default=[],
@@ -162,7 +164,7 @@ def main():
         sys.exit(0)
 
     # ── Create app ──────────────────────────────────────────────────────────
-    app = ZOUWUCODEApp(config_path, skill_names=args.skills)
+    app = ZOUWUCODEApp(config_path, skill_names=args.skills, provider=args.provider)
 
     # Apply CLI overrides
     if args.mode:
@@ -214,6 +216,7 @@ def main():
         # Same overrides the CLI path applies — previously dropped for TUI.
         run_tui(config_path, skill_names=args.skills, resume_session=resume,
                 overrides={
+                    "provider": args.provider,
                     "mode": args.mode,
                     "model": args.model,
                     "api_key": args.api_key,

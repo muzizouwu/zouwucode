@@ -20,8 +20,14 @@ from .tools.code_exec_tool import PythonExecTool
 def create_provider(config: ZOUWUCODEConfig) -> BaseProvider:
     """Build the configured LLM provider (defaults injected if missing)."""
     if config.default_provider not in config.providers:
+        # Infer the API type from the provider key, so `--provider openai`
+        # (or any unconfigured key) builds the matching client instead of
+        # silently falling back to a DeepSeek client pointed at the wrong URL.
+        name = config.default_provider.lower()
+        api_type = "openai" if ("openai" in name or "gpt" in name) else "deepseek"
+        model = "gpt-4o" if api_type == "openai" else "deepseek-v4-flash"
         config.providers[config.default_provider] = ProviderConfig(
-            api_key="", model="deepseek-v4-flash", api_type="deepseek",
+            api_key="", model=model, api_type=api_type,
         )
     provider_config = config.providers[config.default_provider]
     api_type = getattr(provider_config, "api_type", "deepseek")
@@ -57,6 +63,27 @@ def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTo
     if config is not None and getattr(config.sandbox, "allow_shell", True):
         tools.append(PythonExecTool(sandbox))
     return tools
+
+
+def create_subagents_and_extensions(config, provider, coordinator, engine, tools):
+    """Wire the sub-agent system + extension host (shared by CLI and TUI).
+
+    Both UI apps carried byte-identical copies of this wiring (which had
+    started to drift); it lives here so the three frontends stay in sync.
+    Returns (subagent_manager, extension_host).
+    """
+    from .agent.subagent import SubAgentManager
+    from .tools.agent_tools import TaskTool
+    from .extensions import ExtensionHost, LspExtension, McpExtension
+
+    manager = SubAgentManager(config, provider, coordinator)
+    manager.bind_main_engine(engine)
+    tools.register(TaskTool(manager))
+
+    host = ExtensionHost()
+    host.register(McpExtension(config.extensions.mcp_servers))
+    host.register(LspExtension(config.extensions.lsp_enabled))
+    return manager, host
 
 
 def build_agent_engine(config: ZOUWUCODEConfig, sandbox_root, *,

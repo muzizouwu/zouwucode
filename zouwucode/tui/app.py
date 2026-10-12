@@ -16,15 +16,15 @@ import signal
 from pathlib import Path
 from typing import Optional
 
+from .. import __version__
 from ..config import ZOUWUCODEConfig
 from ..logging_setup import setup_logging
 from ..engine.loop import EngineLoop, TaskInterrupted
-from ..runtime import create_provider, create_builtin_tools
+from ..runtime import (create_provider, create_builtin_tools,
+                       create_subagents_and_extensions)
 from ..tools.registry import ToolRegistry
-from ..tools.agent_tools import TaskTool
 from ..agent.coordinator import AgentCoordinator
-from ..agent.subagent import SubAgentManager
-from ..extensions import ExtensionContext, ExtensionHost, LspExtension, McpExtension
+from ..extensions import ExtensionContext
 from ..context.memory import MemoryManager
 from ..context.topics import TopicManager
 from ..context.transcript import TranscriptManager
@@ -47,10 +47,13 @@ class ZOUWUCODEApp:
     """
 
     APP_NAME = "ZOUWUCODE"
-    APP_VERSION = "1.0.0"
+    APP_VERSION = __version__
 
-    def __init__(self, config_path: Optional[Path] = None, skill_names: list[str] | None = None):
+    def __init__(self, config_path: Optional[Path] = None, skill_names: list[str] | None = None,
+                 provider: str | None = None):
         self.config = ZOUWUCODEConfig.load(config_path)
+        if provider:
+            self.config.default_provider = provider
         self.data_dir = Path(self.config.data_dir)
 
         # ── Logging (rotating file under <data_dir>/logs/) ────────────────
@@ -158,18 +161,8 @@ class ZOUWUCODEApp:
 
     def _setup_agents_and_extensions(self):
         """Wire the sub-agent system and the extension layer (MCP/LSP)."""
-        # Sub-agents: isolated engine per worker, main-engine interrupt cascade
-        self.subagent_manager = SubAgentManager(
-            self.config, self._provider, self.coordinator,
-        )
-        self.subagent_manager.bind_main_engine(self.engine)
-        self.tools.register(TaskTool(self.subagent_manager))
-
-        # Extensions: MCP / LSP — reserved integration space, inactive
-        # unless configured in config.yaml (extensions.mcp_servers / lsp_enabled)
-        self.extensions = ExtensionHost()
-        self.extensions.register(McpExtension(self.config.extensions.mcp_servers))
-        self.extensions.register(LspExtension(self.config.extensions.lsp_enabled))
+        self.subagent_manager, self.extensions = create_subagents_and_extensions(
+            self.config, self._provider, self.coordinator, self.engine, self.tools)
 
     # ── Mode Management ──────────────────────────────────────────────────────
 
@@ -405,6 +398,8 @@ Rules:
 
         # Interactive CLI: install the agent-mode approval gate.
         self.coordinator.approval_callback = self._cli_approve
+        # opencode-style "→ Read file …" tool trace (was TUI/Web only).
+        self.engine.on_tool_event = self._on_tool_event
 
         session_id = self.initialize_session()
 
@@ -552,6 +547,16 @@ Rules:
             self._thinking_streaming = True
         print(delta, end="")
         sys.stdout.flush()
+
+    def _on_tool_event(self, tool_call) -> None:
+        """Render an opencode-style tool invocation line (→ Read file …)."""
+        name = getattr(tool_call, "name", "tool")
+        args = getattr(tool_call, "arguments", "") or ""
+        if isinstance(args, dict):
+            import json as _json
+            args = _json.dumps(args, ensure_ascii=False)
+        args = str(args).replace("\n", " ")[:160]
+        print(f"  → {name} {args}")
 
     def _on_module_event(self, etype: str, message: str, payload: dict) -> None:
         """Render a module event to the terminal."""
@@ -761,7 +766,17 @@ Rules:
         self._running = False
 
     def _signal_handler(self, sig, frame) -> None:
-        """Handle Ctrl+C gracefully."""
+        """Ctrl+C: interrupt a running task, otherwise exit gracefully.
+
+        Before this, Ctrl+C always called sys.exit(0) — so it killed the
+        process out from under a running task and the KeyboardInterrupt
+        recovery branch in the loop was unreachable. TUI/Web already
+        interrupt; the CLI now matches them.
+        """
+        if getattr(self.engine, "is_running", False):
+            self.engine.request_interrupt(reason="CLI Ctrl+C")
+            print("\n  \u23f9 打断请求已发送，正在停止当前任务…")
+            return
         self.save_state()
         print("\n  Goodbye!")
         sys.exit(0)
@@ -779,6 +794,7 @@ Rules:
             coordinator=self.coordinator,
             config=self.config,
             sessions_manager=self.sessions,
+            subagent_manager=self.subagent_manager,
             port=port,
             skills_manager=self.skills,
             rule_loader=self.rule_loader,

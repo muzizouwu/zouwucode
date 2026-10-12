@@ -22,7 +22,11 @@ DIST_DIR = PROJECT_ROOT / "dist"
 BUILD_DIR = PROJECT_ROOT / "build"
 SPEC_FILE = PROJECT_ROOT / "zouwucode.spec"
 APP_NAME = "ZOUWUCODE"
-VERSION = "1.0.0"
+try:
+    from zouwucode import __version__ as _PKG_VERSION
+except Exception:  # build script must not crash if the pkg is absent
+    _PKG_VERSION = "0.0.0"
+VERSION = _PKG_VERSION
 
 
 def clean():

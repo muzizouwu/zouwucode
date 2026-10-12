@@ -29,7 +29,8 @@ from rich.text import Text
 from ..config import ZOUWUCODEConfig
 from ..logging_setup import setup_logging
 from ..engine.loop import EngineLoop, TaskInterrupted
-from ..runtime import create_provider, create_builtin_tools
+from ..runtime import (create_provider, create_builtin_tools,
+                        create_subagents_and_extensions)
 from ..tools.registry import ToolRegistry
 from ..agent.coordinator import AgentCoordinator
 from ..context.memory import MemoryManager
@@ -41,9 +42,7 @@ from ..sandbox.permission import PermissionManager
 from ..session.manager import SessionManager
 from ..project_memory import ProjectMemory
 from ..skills import RuleLoader, SkillsManager
-from ..tools.agent_tools import TaskTool
-from ..agent.subagent import SubAgentManager
-from ..extensions import ExtensionContext, ExtensionHost, LspExtension, McpExtension
+from ..extensions import ExtensionContext
 
 
 # ── ANSI style helpers for RichLog messages ─────────────────────────────────
@@ -190,6 +189,8 @@ class ZOUWUCODETUI(App):
         self._cli_overrides = dict(overrides or {})
         if self._cli_overrides:
             ov = self._cli_overrides
+            if ov.get("provider"):
+                self.config.default_provider = ov["provider"]
             if ov.get("model") and self.config.default_provider in self.config.providers:
                 self.config.providers[self.config.default_provider].model = ov["model"]
             if ov.get("api_key") and self.config.default_provider in self.config.providers:
@@ -321,18 +322,8 @@ class ZOUWUCODETUI(App):
 
     def _setup_agents_and_extensions(self):
         """Wire the sub-agent system and the extension layer (MCP/LSP)."""
-        # Sub-agents: isolated engine per worker, main-engine interrupt cascade
-        self.subagent_manager = SubAgentManager(
-            self.config, self._provider, self.coordinator,
-        )
-        self.subagent_manager.bind_main_engine(self.engine)
-        self.tools.register(TaskTool(self.subagent_manager))
-
-        # Extensions: MCP / LSP — reserved integration space, inactive
-        # unless configured in config.yaml
-        self.extensions = ExtensionHost()
-        self.extensions.register(McpExtension(self.config.extensions.mcp_servers))
-        self.extensions.register(LspExtension(self.config.extensions.lsp_enabled))
+        self.subagent_manager, self.extensions = create_subagents_and_extensions(
+            self.config, self._provider, self.coordinator, self.engine, self.tools)
 
     # ── Compose UI ───────────────────────────────────────────────────────────
 

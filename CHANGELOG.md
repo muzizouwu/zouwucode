@@ -3,33 +3,36 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [1.0.2] — 2026-10-12
 
-自检审计修复（原则：只做有回归测试、且不改变既有 UX 的修复）。
+## [1.0.5] — 2026-10-13
 
-### Fixed — 正确性
-- **python_exec 假成功**：snippet 抛异常时工具曾返回 `success=True`（traceback 只躺在输出里），模型会把失败步骤当成功继续推理。现由 REPL 驱动输出精确错误标记，工具返回 `is_error=True`，traceback 原样保留。
-- **轮数日志失真**：`Task end` 的 `rounds_used<=25` 改为真实值 `rounds_used=N (base cap M, extensions K)`；轮数扩展后轮号显示为 `Round 27 (base cap 25, +1 extension(s))`，不再出现 `Round 26/25`。
-- **沙箱误杀正常命令**：`(mkfs|format|dd|fdisk)`、`(reg\s|regedit)` 改为词界/上下文精确匹配。`Format-Table`、路径含 `codebuddy` 等命令此前会被 `Command blocked by sandbox` 拒绝并白丢模型轮次。
-- **glob 越权枚举**：`glob` 是唯一没做沙箱路径检查的文件工具，现已补齐（与 read/write/edit/ls 一致）。
-- **read 读 UTF-16 乱码**：PowerShell 重定向产物（UTF-16 BOM/无 BOM）不再输出 NUL 乱码。
-- **WebUI `/api/sessions` 恒为空**：路由读的是 `engine.sessions`（不存在），改由 `SessionManager` 注入（新增构造参数 `sessions_manager`，向后兼容）。
-- **会话摘要无信息**：退出时记录的摘要从纯计数器（经常全是 0）改为「轮数 + 缓存命中率 + 最后一轮用户请求」，`SessionManager.current_log()` 新增；"继续上次任务" 从此有据可依。
-- **MCP 客户端健壮性**：请求 id 递增并按 id 匹配应答、跳过通知行、30s 超时；此前硬编码 id 1/2/3 且假设"下一行就是回复"，服务器多发一行就会错乱/挂死。
+「做大而全、不臃肿、经济实惠、三端同步互通」的一轮自检。四路并行审计（三端一致性 / 引擎成本与工具 / 竞品能力 / 臃肿与死代码）后，按证据修复：
 
-### Fixed — 安全与诚实
-- **子 Agent 递归防护**：子代理不再能看到 `task` 工具（schema 过滤 + executor 双保险），无法再派生孙代理形成失控树。
-- **删除"需审批"的不实表述**：agent 与 yolo 在工具执行上本就等价（无审批实现）。系统提示与 USAGE 工具表改为如实描述"沙箱保护"。
-- **TLS 可诊断**：证书校验失败给出可操作提示；`ZOUWUCODE_TLS_INSECURE=1` 可显式关闭校验（默认仍然校验，仅本机/离线场景使用）。
-- **日志加 pid**：多进程共享同一日志文件时来源可归因（此前出现过两个进程行交错、时间倒流）。
+### Fixed — 正确性（会算错 / 会骗人）
+- **版本三处不一致**：App 横幅 `APP_VERSION="1.0.0"`、`build.py VERSION="1.0.0"`、包版本 1.0.4 —— 用户看到的版本是假的。现统一为 `zouwucode.__version__` 单一来源。
+- **配置被命令行悄悄覆盖**：`--mode` 默认 `"agent"`、`--reasoning` 默认 `"medium"` 都是有值真值，导致 `config.yaml` 里的 `sandbox.default_mode` / `reasoning_intensity` **在正常启动时永远不生效**。现默认改为 `None`（未显式传参就不覆盖）。
+- **`--provider` 是死开关**：声明了却从没被读取，`--provider openai` 形同虚设。现已接线（并修 `create_provider`：未配置的 provider key 会按名字推断 api_type，不再一律造 DeepSeek 客户端）。
+- **DeepSeek 在 low 推理下成本恒为 $0**：`stream_options` 被 pop，拿不到 usage → 每轮都记 $0，成本熔断失效。现始终请求 usage。
+- **成本按单一模型硬编码**：无论用哪个模型都按 V4-Flash 计价，`max_cost_usd` 熔断因此算错。现改为**按模型的价格表**（含 deepseek-v4-pro/chat/reasoner、gpt-4o(-mini)，未知模型回落 V4-Flash），并修掉 `cached>prompt` 时的负数成本。
+- **OpenAI 供应商 429/5xx 从不重试**：它抛的是裸 `RuntimeError`，而引擎只重试 `ProviderAPIError`。现抛带 `status_code` 的 `ProviderAPIError`。
+- **Web `/api/status` 谎报上下文预算**：写死 `max_context_tokens: 1048576`，无视配置。现读真实配置。
 
-### Fixed — TUI 可读性（用户实测反馈）
-- **回复里的 `[...]` 不再被吞**：聊天区以 `markup=True` 渲染，模型文本中的 `[interrupted]`/`[dim]` 会被 Rich 当标记吃掉，`[/]` 更会直接抛错把整条回复替换成 Error 行。现改为 `markup=False` + 全部经 `Text` 对象渲染，任何方括号原样显示。
-- **上翻历史不再被拽回底部**：RichLog 默认每次写入都自动滚到底部，流式输出（思考增量/工具行/回复）会把正在阅读的视口扯走。新增 `_StickyRichLog`：只有视口本来就在底部时才自动跟随；发送自己的消息时仍会主动跳到底部。
-- **新增键盘滚动**：PgUp/PgDn 翻页、Ctrl+Home/Ctrl+End 跳顶/底（输入框聚焦时同样有效），`/help` 已列出；鼠标滚轮本就可用。此前输入框占着焦点，没有任何键能滚动聊天区，加上 Windows Terminal 里 TUI 处于备用屏幕、窗口滚动条不可用，"看不到上面的内容"因此无解。
+### Added — 三端同步互通（Web 补齐到 CLI/TUI 水平）
+- Web 新增端点：`GET /api/memory`、`POST /api/goal`、`POST /api/decide`、`GET /api/context`、`GET /api/compress`、`GET /api/agents`。
+- Web 新增斜杠命令：`/plan /agent /yolo`、`/memory`、`/goal [set X]`、`/decide`、`/context`、`/compress`、`/agents`、`/exit`；`/hello-agents` 由硬编码文本改为**真实派发**到模块。
+- CLI 补上 TUI/Web 已有的**工具调用显示**（opencode 风格 `→ Read file …`）。
+- CLI **Ctrl+C 现在打断运行中的任务**（此前直接 `sys.exit(0)` 把任务连进程一起杀掉，键盘打断分支根本不可达），与 TUI/Web 对齐。
 
-### Known — 仍待实现（不假装已修）
-- 交互式审批（agent/yolo 语义区分）、CLI/dev 接入上下文压缩、MCP 的 SSE/Streamable HTTP 传输、`rollback_enabled`/`auto_save_interval`/`cache.enabled` 等配置项仍是"声明存在但未接线"。
+### Changed — 不臃肿（去重与清理）
+- 抽出 `runtime.create_subagents_and_extensions()`，收敛 CLI 与 TUI **逐字节重复**的子代理/扩展装配代码（原来两处已开始漂移）。
+- 删除 5 个无用导入（`dev/pipeline.py`、`extensions/host.py`×3、`tools/agent_tools.py`、`webui/server.py`）。修正确认 `tui/textual_app.py` 的 `Screen` 是误报（有 10 处引用）。
+
+### Tests
+- 新增 `tests/test_v105_parity.py`（+35）。套件 **452 → 487 全绿**。
+
+### Known — 仍未做（诚实交代）
+- 正文流式（目前只有思考流式）；Web 端**会话续接**（resume）尚未接线（CLI/TUI 已有）；`cache.enabled`/`append_only`/`auto_save_interval`/`theme`/`language` 依旧**不加回**（无真实语义，见 [1.0.4]）。
+- 竞品差距清单（repo-map、逐消息 rewind、成本透视图、子代理 worktree 隔离、本地进程外后台代理）见 `G:\261012\docs\` 审计笔记，作为后续路线。
 
 ## [1.0.4] — 2026-10-13
 
@@ -59,6 +62,34 @@
   这个开关**没有可实现的真实语义**，留着只会骗人。
 - `auto_save_interval`：轮次是同步落盘的，间隔旋钮不可能生效。
 - `theme` / `language`：UI 是单主题、zh-first，无第二套实现可切。
+
+## [1.0.2] — 2026-10-12
+
+自检审计修复（原则：只做有回归测试、且不改变既有 UX 的修复）。
+
+### Fixed — 正确性
+- **python_exec 假成功**：snippet 抛异常时工具曾返回 `success=True`（traceback 只躺在输出里），模型会把失败步骤当成功继续推理。现由 REPL 驱动输出精确错误标记，工具返回 `is_error=True`，traceback 原样保留。
+- **轮数日志失真**：`Task end` 的 `rounds_used<=25` 改为真实值 `rounds_used=N (base cap M, extensions K)`；轮数扩展后轮号显示为 `Round 27 (base cap 25, +1 extension(s))`，不再出现 `Round 26/25`。
+- **沙箱误杀正常命令**：`(mkfs|format|dd|fdisk)`、`(reg\s|regedit)` 改为词界/上下文精确匹配。`Format-Table`、路径含 `codebuddy` 等命令此前会被 `Command blocked by sandbox` 拒绝并白丢模型轮次。
+- **glob 越权枚举**：`glob` 是唯一没做沙箱路径检查的文件工具，现已补齐（与 read/write/edit/ls 一致）。
+- **read 读 UTF-16 乱码**：PowerShell 重定向产物（UTF-16 BOM/无 BOM）不再输出 NUL 乱码。
+- **WebUI `/api/sessions` 恒为空**：路由读的是 `engine.sessions`（不存在），改由 `SessionManager` 注入（新增构造参数 `sessions_manager`，向后兼容）。
+- **会话摘要无信息**：退出时记录的摘要从纯计数器（经常全是 0）改为「轮数 + 缓存命中率 + 最后一轮用户请求」，`SessionManager.current_log()` 新增；"继续上次任务" 从此有据可依。
+- **MCP 客户端健壮性**：请求 id 递增并按 id 匹配应答、跳过通知行、30s 超时；此前硬编码 id 1/2/3 且假设"下一行就是回复"，服务器多发一行就会错乱/挂死。
+
+### Fixed — 安全与诚实
+- **子 Agent 递归防护**：子代理不再能看到 `task` 工具（schema 过滤 + executor 双保险），无法再派生孙代理形成失控树。
+- **删除"需审批"的不实表述**：agent 与 yolo 在工具执行上本就等价（无审批实现）。系统提示与 USAGE 工具表改为如实描述"沙箱保护"。
+- **TLS 可诊断**：证书校验失败给出可操作提示；`ZOUWUCODE_TLS_INSECURE=1` 可显式关闭校验（默认仍然校验，仅本机/离线场景使用）。
+- **日志加 pid**：多进程共享同一日志文件时来源可归因（此前出现过两个进程行交错、时间倒流）。
+
+### Fixed — TUI 可读性（用户实测反馈）
+- **回复里的 `[...]` 不再被吞**：聊天区以 `markup=True` 渲染，模型文本中的 `[interrupted]`/`[dim]` 会被 Rich 当标记吃掉，`[/]` 更会直接抛错把整条回复替换成 Error 行。现改为 `markup=False` + 全部经 `Text` 对象渲染，任何方括号原样显示。
+- **上翻历史不再被拽回底部**：RichLog 默认每次写入都自动滚到底部，流式输出（思考增量/工具行/回复）会把正在阅读的视口扯走。新增 `_StickyRichLog`：只有视口本来就在底部时才自动跟随；发送自己的消息时仍会主动跳到底部。
+- **新增键盘滚动**：PgUp/PgDn 翻页、Ctrl+Home/Ctrl+End 跳顶/底（输入框聚焦时同样有效），`/help` 已列出；鼠标滚轮本就可用。此前输入框占着焦点，没有任何键能滚动聊天区，加上 Windows Terminal 里 TUI 处于备用屏幕、窗口滚动条不可用，"看不到上面的内容"因此无解。
+
+### Known — 仍待实现（不假装已修）
+- 交互式审批（agent/yolo 语义区分）、CLI/dev 接入上下文压缩、MCP 的 SSE/Streamable HTTP 传输、`rollback_enabled`/`auto_save_interval`/`cache.enabled` 等配置项仍是"声明存在但未接线"。
 
 ## [Unreleased]
 

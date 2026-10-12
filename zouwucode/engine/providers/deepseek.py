@@ -89,17 +89,17 @@ class DeepSeekProvider(BaseProvider):
         }
         if api_tools:
             payload["tools"] = api_tools
-        if stream_thinking:
-            payload["stream_options"] = {"include_usage": True}
+        # Always request usage so cost accounting works in EVERY reasoning
+        # mode. The old 'low' branch popped stream_options, which silently
+        # made every low-reasoning turn cost $0 (no usage -> no tokens billed).
+        payload["stream_options"] = {"include_usage": True}
 
         # Reasoning effort: low → no reasoning, medium → high, max → max
-        # Maps ZOUWUCODE's three-tier abstraction to DeepSeek V4 API
+        # Maps ZOUWUCODE's three-tier abstraction to DeepSeek V4 API.
+        # Omitting reasoning_effort is all 'low' needs; usage is always kept.
         reasoning_effort = getattr(self, '_reasoning_effort', None)
         if reasoning_effort and reasoning_effort != "low":
             payload["reasoning_effort"] = reasoning_effort
-        elif reasoning_effort == "low":
-            # Low intensity: disable reasoning, use deterministic sampling
-            payload.pop("stream_options", None)
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",

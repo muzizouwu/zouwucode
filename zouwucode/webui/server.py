@@ -8,9 +8,7 @@ Usage:
 import asyncio
 import json
 import time
-import uuid
 import traceback
-from typing import Optional
 
 from ..engine.loop import EngineLoop, TaskInterrupted
 from ..errors import describe_exc
@@ -930,6 +928,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       addMsg('system', '  /skill load <name> - Load a skill');
       addMsg('system', '  /skill unload <name> - Unload a skill');
       addMsg('system', '  /sessions     - List sessions');
+      addMsg('system', '  /plan|/agent|/yolo - Switch mode');
+      addMsg('system', '  /memory       - Show project memory');
+      addMsg('system', '  /goal [set X] - Show/set project goal');
+      addMsg('system', '  /decide <text>- Record an architecture decision');
+      addMsg('system', '  /context      - Context window stats');
+      addMsg('system', '  /compress     - Compression settings');
+      addMsg('system', '  /agents       - Sub-agent status');
       addMsg('system', '  /rollback     - Undo last N turns\' file changes (/rollback [N|list])');
       addMsg('system', '  /mode         - Show current mode');
       addMsg('system', 'hello-my-zouwucode (multi-agent orchestration):');
@@ -962,14 +967,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       return;
     }
     if (cmd === '/hello-agents') {
-      addMsg('system', 'Use /help or run /hello-status in a terminal for the full agent inventory.');
-      fetch('/api/hello-my-zouwucode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'status' }),
-      }).then(r => r.json()).then(d => {
-        if (d.agents) addMsg('system', '🤖 ' + d.agents + ' built-in agents (Sisyphus, Hephaestus, Prometheus, Atlas, Oracle, Librarian, Explore, Multimodal-Looker, Metis, Momus, Sisyphus-Junior)');
-      }).catch(() => {});
+      runModule('agents', '', '🤖 [hello-my-zouwucode] built-in agents');
       return;
     }
     if (cmd === '/hello-categories') {
@@ -1037,6 +1035,68 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     if (cmd === '/mode') {
       const mode = document.getElementById('status-mode').textContent;
       addMsg('system', 'Current mode: ' + mode);
+      return;
+    }
+    if (cmd === '/plan' || cmd === '/agent' || cmd === '/yolo') {
+      const mode = cmd.slice(1);
+      fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }) }).then(r => r.json()).then(d => {
+        if (d.error) { addMsg('system', '✗ ' + d.error); return; }
+        const el = document.getElementById('status-mode'); if (el) el.textContent = mode;
+        addMsg('system', '✓ Mode: ' + mode);
+      }).catch(() => addMsg('system', 'Mode switch failed.'));
+      return;
+    }
+    if (cmd === '/exit') {
+      addMsg('system', 'Close the browser tab to exit the Web UI.');
+      return;
+    }
+    if (cmd === '/memory') {
+      fetch('/api/memory').then(r => r.json()).then(d => {
+        addMsg('system', d.context ? d.context : 'No project memory. Run `z --init`.');
+      }).catch(() => addMsg('system', 'Memory fetch failed.'));
+      return;
+    }
+    if (cmd.startsWith('/goal')) {
+      const arg = cmd.slice(5).trim();
+      if (arg.startsWith('set ')) {
+        const goal = arg.slice(4).trim();
+        fetch('/api/goal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ goal }) }).then(r => r.json()).then(() =>
+          addMsg('system', '✓ Goal set: ' + goal)).catch(() => addMsg('system', 'Goal set failed.'));
+      } else {
+        fetch('/api/memory').then(r => r.json()).then(d => addMsg('system',
+          d.goal ? ('Current goal: ' + d.goal) : 'No active goal. Use /goal set <goal>'));
+      }
+      return;
+    }
+    if (cmd.startsWith('/decide')) {
+      const text = cmd.slice(7).trim();
+      if (!text) { addMsg('system', 'Usage: /decide <decision description>'); return; }
+      fetch('/api/decide', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }) }).then(() => addMsg('system', '✓ Decision recorded.'))
+        .catch(() => addMsg('system', 'Record failed.'));
+      return;
+    }
+    if (cmd === '/context') {
+      fetch('/api/context').then(r => r.json()).then(d => addMsg('system',
+        'Context: ' + (d.prompt_tokens || 0) + ' prompt tokens | budget ' + d.max_context_tokens +
+        ' | compression ' + (d.enabled ? d.level : 'off'))).catch(() => {});
+      return;
+    }
+    if (cmd === '/compress') {
+      fetch('/api/compress').then(r => r.json()).then(d => addMsg('system',
+        'Compression: enabled=' + d.enabled + ' level=' + d.level +
+        ' max_tokens=' + d.max_context_tokens + ' keep_turns=' + d.keep_last_n)).catch(() => {});
+      return;
+    }
+    if (cmd === '/agents') {
+      fetch('/api/agents').then(r => r.json()).then(d => {
+        const list = d.agents || [];
+        addMsg('system', 'Sub-agents: ' + list.length + ' (most recent task)');
+        list.forEach(a => addMsg('system', '  ' + a.id + ' ' + a.role + ' ' + a.status +
+          ' ' + a.duration + 's tools=' + a.tools));
+      }).catch(() => {});
       return;
     }
     addMsg('system', 'Unknown command: ' + cmd + ' (type /help for commands)');
@@ -1419,6 +1479,7 @@ class WebUIServer:
         rule_loader=None,
         modules=None,
         sessions_manager=None,
+        subagent_manager=None,
     ):
         self.engine = engine
         self.tools = tools
@@ -1431,6 +1492,8 @@ class WebUIServer:
         self._rules = rule_loader
         self.modules = modules
         self.sessions_manager = sessions_manager
+        # Sub-agent status (exposed to the browser so /agents reaches parity).
+        self.subagent_manager = subagent_manager
         # opencode-style tool-call presentation ("→ Read file …")
         self._tool_buffer: list[dict] = []
         # The engine owns a single PrefixCache and single-slot streaming
@@ -1819,7 +1882,8 @@ class WebUIServer:
                 "total_requests": self.engine.stats.total_requests,
                 "total_cost": f"${self.engine.stats.total_cost:.4f}",
                 "context_tokens": ctx_tokens,
-                "max_context_tokens": 1048576,
+                "max_context_tokens": getattr(
+                    getattr(self.config, "context", None), "max_context_tokens", 1048576),
                 "rules_loaded": has_rules,
                 "skills_loaded": skills_loaded,
                 "modules": self.modules.loaded() if self.modules else [],
@@ -1888,6 +1952,71 @@ class WebUIServer:
             snaps = manager.list_snapshots() if manager is not None else []
             return self._json_response({"snapshots": snaps})
 
+        elif path == "/api/memory" and method == "GET":
+            pm = getattr(self.coordinator, "project_memory", None)
+            if pm is None:
+                return self._json_response({"context": "", "goal": "", "decisions": []})
+            return self._json_response({
+                "context": pm.get_full_context(),
+                "goal": pm.get_active_goal(),
+                "decisions": pm.get_decisions(limit=10),
+            })
+
+        elif path == "/api/goal" and method == "POST":
+            pm = getattr(self.coordinator, "project_memory", None)
+            if pm is None:
+                return self._json_response({"ok": False, "error": "no project memory"}, 400)
+            try:
+                goal = (json.loads(body or "{}").get("goal") or "").strip()
+            except json.JSONDecodeError:
+                return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+            if goal:
+                pm.set_goal(goal)
+                pm.save_all()
+            return self._json_response({"ok": True, "goal": pm.get_active_goal()})
+
+        elif path == "/api/decide" and method == "POST":
+            pm = getattr(self.coordinator, "project_memory", None)
+            if pm is None:
+                return self._json_response({"ok": False, "error": "no project memory"}, 400)
+            try:
+                text = (json.loads(body or "{}").get("text") or "").strip()
+            except json.JSONDecodeError:
+                return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+            if text:
+                pm.add_decision("Decision", text)
+                pm.save_all()
+            return self._json_response({"ok": True})
+
+        elif path == "/api/context" and method == "GET":
+            ctx = getattr(self.config, "context", None)
+            return self._json_response({
+                "prompt_tokens": getattr(getattr(self.engine, "stats", None),
+                                         "total_prompt_tokens", 0),
+                "max_context_tokens": getattr(ctx, "max_context_tokens", 1048576),
+                "enabled": getattr(ctx, "enabled", False),
+                "level": getattr(ctx, "level", "off"),
+            })
+
+        elif path == "/api/compress" and method == "GET":
+            ctx = getattr(self.config, "context", None)
+            return self._json_response({
+                "enabled": getattr(ctx, "enabled", False),
+                "level": getattr(ctx, "level", "balanced"),
+                "max_context_tokens": getattr(ctx, "max_context_tokens", 1048576),
+                "keep_last_n": getattr(ctx, "keep_last_n", 50),
+            })
+
+        elif path == "/api/agents" and method == "GET":
+            mgr = self.subagent_manager
+            agents = []
+            if mgr is not None and hasattr(mgr, "status"):
+                try:
+                    agents = mgr.status()
+                except Exception:  # noqa: BLE001 — status is best-effort
+                    agents = []
+            return self._json_response({"agents": agents})
+
         elif path == "/api/hello-my-zouwucode" and method == "POST":
             if self.modules is None:
                 return self._json_response(
@@ -1911,6 +2040,8 @@ class WebUIServer:
                     result = await module.handle_command("/hello-plan", task)
                 elif action == "start-work":
                     result = await module.handle_command("/hello-start-work")
+                elif action == "agents":
+                    result = await module.handle_command("/hello-agents")
                 elif action == "status":
                     from hello_my_zouwucode.notepad import Notepad
 

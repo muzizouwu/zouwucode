@@ -6,7 +6,6 @@ combined reports are returned as one tool result so the main agent can
 continue reasoning over them.
 """
 
-import json
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
