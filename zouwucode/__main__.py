@@ -81,6 +81,12 @@ def main():
                         help="Pre-load a skill on startup (can be used multiple times). "
                              "Skills are loaded from .zouwucode/skills/<name>.md")
 
+    # ── Session resume ──────────────────────────────────────────────────────
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume the most recent session for this workspace")
+    parser.add_argument("--session", type=str, metavar="ID",
+                        help="Resume a specific session id (see /sessions)")
+
     # ── Config management ───────────────────────────────────────────────────
     parser.add_argument("--init-config", action="store_true",
                         help="Initialize default config file and exit")
@@ -168,6 +174,12 @@ def main():
         app.compressor_level = args.compress
     app.max_context_tokens = args.max_tokens
     app.keep_turns = args.keep_turns
+
+    # Resume intent — applied when the session is initialised
+    if args.session:
+        app._resume_session = args.session
+    elif args.resume:
+        app._resume_session = "__latest__"
 
     # Set reasoning intensity
     if args.reasoning:

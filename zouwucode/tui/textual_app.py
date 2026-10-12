@@ -413,16 +413,8 @@ class ZOUWUCODETUI(App):
             return
         sessions = getattr(self, "sessions", None)
         turns = sessions.current_log() if sessions is not None else []
-        turn_count = self.engine.stats.total_requests or len(turns)
-        last_user = ""
-        for entry in reversed(turns):
-            if entry.get("role") == "user" and entry.get("content"):
-                last_user = str(entry["content"]).strip().splitlines()[0][:120]
-                break
-        summary = (f"Session with {turn_count} turns, "
-                   f"cache hit rate {self.engine.stats.hit_rate * 100:.1f}%")
-        if last_user:
-            summary += f" | last request: {last_user}"
+        summary, turn_count = self.project_memory.build_session_summary(
+            turns, self.engine.stats.hit_rate)
         self.project_memory.add_summary(
             session_id=self._session_id, summary=summary, turn_count=turn_count)
 
@@ -1029,7 +1021,11 @@ class ZOUWUCODETUI(App):
 
     def _build_system_prompt(self) -> str:
         """Build the frozen system prompt."""
+        # Session date — frozen with the rest of the prompt (see CLI app).
+        from datetime import datetime
         prompt = f"""You are ZOUWUCODE, an AI coding agent running in the terminal.
+
+Current date: {datetime.now().strftime('%Y-%m-%d (%A)')}
 
 Current mode: {self.current_mode}
 - plan: Read-only exploration. No changes.

@@ -191,8 +191,21 @@ class ZOUWUCODEApp:
     # ── Session Lifecycle ────────────────────────────────────────────────────
 
     def initialize_session(self, session_id: Optional[str] = None) -> str:
-        """Initialize a new session with frozen cache prefix and project memory."""
-        self._session_id = self.sessions.start_session(session_id)
+        """Initialize a session, resuming a previous one when asked.
+
+        The resume intent comes from ``session_id`` or from the --resume /
+        --session CLI flags (stored as self._resume_session). A resumed
+        session reloads its turn log and replays it into the engine so the
+        conversation actually continues — the PrefixCache alone only holds
+        the system prompt.
+        """
+        requested = session_id or getattr(self, "_resume_session", None)
+        if requested == "__latest__":
+            latest = self.sessions.latest_session()
+            requested = latest["id"] if latest else None
+        resumed = bool(requested) and self.sessions.load_session(requested) is not None
+        self._session_id = (requested if resumed
+                            else self.sessions.start_session())
 
         # Preload skills specified via --skill CLI argument
         for name in self._preload_skills:
@@ -216,6 +229,16 @@ class ZOUWUCODEApp:
             {"role": "system", "content": system_prompt},
         ])
 
+        # Resume: replay the loaded history into the live engine. Without
+        # this the session file would load fine while the model still saw
+        # an empty conversation — "continue last task" would silently fail.
+        if resumed:
+            self._replayed = self.sessions.replay_history(
+                self.sessions.current_log(), self.engine.cache,
+                self.context_window)
+            print(f"  [Resumed {self._session_id}] "
+                  f"{self._replayed} messages replayed into context")
+
         self.transcripts.start_session(self._session_id)
         return self._session_id
 
@@ -228,23 +251,20 @@ class ZOUWUCODEApp:
         # nothing to go on.)
         if not self._session_id:
             return
-        turns = self.sessions.current_log()
-        turn_count = self.engine.stats.total_requests or len(turns)
-        last_user = ""
-        for entry in reversed(turns):
-            if entry.get("role") == "user" and entry.get("content"):
-                last_user = str(entry["content"]).strip().splitlines()[0][:120]
-                break
-        summary = (f"Session with {turn_count} turns, "
-                   f"cache hit rate {self.engine.stats.hit_rate * 100:.1f}%")
-        if last_user:
-            summary += f" | last request: {last_user}"
+        summary, turn_count = self.project_memory.build_session_summary(
+            self.sessions.current_log(), self.engine.stats.hit_rate)
         self.project_memory.add_summary(
             session_id=self._session_id, summary=summary, turn_count=turn_count)
 
     def _build_system_prompt(self, extra_context: str = "") -> str:
         """Build the frozen system prompt for the session."""
+        # Session date — frozen with the rest of the prompt (constant within
+        # a session, so the prefix cache stays valid). Without it the model
+        # has no time anchor at all.
+        from datetime import datetime
         prompt = f"""You are ZOUWUCODE, an AI coding agent running in the terminal.
+
+Current date: {datetime.now().strftime('%Y-%m-%d (%A)')}
 
 You have access to a set of tools that can:
 - Read, write, and edit files in the workspace

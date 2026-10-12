@@ -118,6 +118,27 @@ class ProjectMemory:
             summaries[:] = summaries[-50:]
         self._dirty = True
 
+    @staticmethod
+    def build_session_summary(turns: list[dict], hit_rate: float) -> tuple[str, int]:
+        """Format the exit summary for one session — real content, not counters.
+
+        turn_count counts USER turns from the turn log. The process-local LLM
+        round counter used to be the source and reset on resume/early exit,
+        which once produced a wall of "Session with 0 turns" rows; the last
+        user request is appended so the next session can tell what this one
+        was about.
+        """
+        user_turns = [t for t in (turns or [])
+                      if t.get("role") == "user" and t.get("content")]
+        turn_count = len(user_turns)
+        summary = (f"Session with {turn_count} turns, "
+                   f"cache hit rate {(hit_rate or 0.0) * 100:.1f}%")
+        if user_turns:
+            lines = str(user_turns[-1]["content"]).strip().splitlines()
+            if lines:
+                summary += f" | last request: {lines[0][:120]}"
+        return summary, turn_count
+
     def get_summaries(self, limit: int = 5) -> list[dict]:
         summaries = self._cache.setdefault("summaries", self._load_json(self._summaries_file))
         return sorted(summaries, key=lambda s: s.get("timestamp", 0), reverse=True)[:limit]

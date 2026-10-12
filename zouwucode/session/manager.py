@@ -51,6 +51,9 @@ class SessionManager:
         path = self._sessions_dir / f"{self._current_session_id}.json"
         data = {
             "session_id": self._current_session_id,
+            # Workspace this session belongs to — lets --resume pick this
+            # project's session when data_dir is shared across projects.
+            "project_root": str(Path.cwd().resolve()),
             "started_at": self._current_log[0]["timestamp"] if self._current_log else time.time(),
             "updated_at": time.time(),
             "turns": self._current_log,
@@ -78,11 +81,48 @@ class SessionManager:
                     "id": data["session_id"],
                     "turns": len(data.get("turns", [])),
                     "updated": data.get("updated_at", 0),
+                    "project_root": data.get("project_root", ""),
                 })
             except Exception:
                 continue
         sessions.sort(key=lambda s: s["updated"], reverse=True)
         return sessions[:self.config.session.max_sessions]
+
+    def latest_session(self, project_root: Optional[str] = None) -> Optional[dict]:
+        """Most recently updated session, preferring this workspace's own.
+
+        Sessions saved before project_root existed (or from other
+        workspaces) act as a fallback, so --resume still finds something.
+        """
+        sessions = self.list_sessions()
+        if not sessions:
+            return None
+        root = project_root or str(Path.cwd().resolve())
+        same = [s for s in sessions if s.get("project_root") == root]
+        return same[0] if same else sessions[0]
+
+    @staticmethod
+    def replay_history(entries: list[dict], cache, context_window) -> int:
+        """Append a loaded session's turns back into the live engine context.
+
+        freeze_session() seeds the PrefixCache with the system prompt only,
+        so a resumed session MUST replay its user/assistant turns or the
+        model would see a blank conversation while the UI looked restored.
+        system markers (interrupt notes) and empty contents are skipped so
+        the replayed prefix matches a normally-built one. Returns the number
+        of messages replayed.
+        """
+        replayed = 0
+        for entry in entries or []:
+            role = entry.get("role")
+            content = entry.get("content")
+            if role not in ("user", "assistant") or not content:
+                continue
+            message = {"role": role, "content": content}
+            cache.append(message)
+            context_window.add_to_warm(message)
+            replayed += 1
+        return replayed
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a session."""
