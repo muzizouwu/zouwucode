@@ -30,6 +30,7 @@ import sys
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+from ._encoding import decode_console, utf8_env
 from ..errors import describe_exc
 
 _MAX_OUTPUT = 30_000
@@ -157,6 +158,10 @@ class PythonExecTool(BaseTool):
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            # Force the child to speak UTF-8 even when the console code page
+            # is GBK — otherwise CJK output arrives as cp936 bytes and the
+            # parent-side decode turns it into U+FFFD mojibake.
+            env=utf8_env(),
         )
         self._procs[session] = proc
         return proc
@@ -217,7 +222,7 @@ class PythonExecTool(BaseTool):
                             success=False, output=out,
                             error="python session ended unexpectedly; "
                                   "a fresh session will start next call")
-                    line = line_b.decode("utf-8", "replace")
+                    line = decode_console(line_b)
                     stripped = line.rstrip("\r\n")
                     if stripped == sentinel:
                         break

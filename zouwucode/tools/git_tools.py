@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+from ._encoding import decode_console
 from ..errors import describe_exc
 
 
@@ -82,8 +83,8 @@ class GitTool(BaseTool):
                     error=f"Git command timed out after {timeout}s",
                 )
 
-            output = stdout.decode("utf-8", errors="replace")
-            error = stderr.decode("utf-8", errors="replace")
+            output = decode_console(stdout)
+            error = decode_console(stderr)
 
             if proc.returncode != 0:
                 return ToolResult(success=False, output=output, error=error)

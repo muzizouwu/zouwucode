@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
+from ._encoding import PS_UTF8_PREFIX, decode_console, utf8_env
 from ..errors import describe_exc
 
 # POSIX-isms that Windows PowerShell 5.x cannot parse ('&&' is a hard
@@ -93,7 +94,10 @@ class ShellTool(BaseTool):
             bash = _find_git_bash()
             if bash and _POSIX_HINT.search(command):
                 return bash, ["-c", command]
-            return "powershell", ["-NoProfile", "-Command", command]
+            # PS_UTF8_PREFIX: Windows PowerShell 5.x writes redirected
+            # stdout in the console code page (GBK on zh-CN) — forced UTF-8.
+            return "powershell", ["-NoProfile", "-Command",
+                                  PS_UTF8_PREFIX + command]
         return "bash", ["-c", command]
 
     async def execute(
@@ -122,6 +126,7 @@ class ShellTool(BaseTool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=utf8_env(),
             )
 
             try:
@@ -136,8 +141,8 @@ class ShellTool(BaseTool):
                     error=f"Command timed out after {timeout}s",
                 )
 
-            output = stdout.decode("utf-8", errors="replace")
-            error = stderr.decode("utf-8", errors="replace")
+            output = decode_console(stdout)
+            error = decode_console(stderr)
 
             if proc.returncode != 0:
                 # PowerShell 5 '&&' syntax error → teach the model the fix

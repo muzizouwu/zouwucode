@@ -24,6 +24,7 @@ import logging
 from typing import Optional
 
 from ..engine.providers.base import ToolCall, ToolResult
+from ..tools._encoding import decode_console, utf8_env
 
 logger = logging.getLogger("zouwucode.hooks")
 
@@ -63,12 +64,13 @@ class HookRunner:
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=utf8_env(),
             )
             out, err = await asyncio.wait_for(
                 proc.communicate(), timeout=_HOOK_TIMEOUT)
             return (proc.returncode or 0,
-                    out.decode("utf-8", "replace"),
-                    err.decode("utf-8", "replace"))
+                    decode_console(out),
+                    decode_console(err))
         except asyncio.TimeoutError:
             try:
                 proc.kill()
