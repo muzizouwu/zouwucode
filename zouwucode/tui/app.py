@@ -249,6 +249,28 @@ class ZOUWUCODEApp:
         self.transcripts.start_session(self._session_id)
         return self._session_id
 
+    def resume_session(self, session_id: str) -> list:
+        """Load a saved session and replay it into the running engine.
+
+        Powers the Web UI's /resume: the CLI/TUI can resume at startup, but
+        the browser had no way to switch to a saved session mid-run. Rebuilds
+        the frozen session (system prompt + tool schemas) and replays history
+        — a loaded file alone leaves the model with an empty conversation.
+        Returns the session's turns, or [] if the id is unknown.
+        """
+        turns = self.sessions.load_session(session_id)
+        if turns is None:
+            return []
+        system_prompt = self._build_system_prompt(
+            self.project_memory.get_full_context())
+        self.engine.freeze_session(system_prompt, self.tools.get_schemas())
+        self.context_window.add_to_hot([{"role": "system", "content": system_prompt}])
+        self.sessions.replay_history(
+            self.sessions.current_log(), self.engine.cache, self.context_window)
+        self._session_id = session_id
+        self._last_project_context = ""
+        return self.sessions.current_log()
+
     async def _cli_approve(self, tool_call, context) -> bool:
         """Ask the human before a tool runs in agent mode (CLI frontend)."""
         name = getattr(tool_call, "name", "tool")
@@ -809,6 +831,7 @@ Rules:
             config=self.config,
             sessions_manager=self.sessions,
             subagent_manager=self.subagent_manager,
+            app=self,
             port=port,
             skills_manager=self.skills,
             rule_loader=self.rule_loader,

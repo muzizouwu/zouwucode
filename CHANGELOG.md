@@ -4,6 +4,25 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.0.7] — 2026-10-13
+
+三端同步互通补到 100%：Web 也流式输出正文，且能**在浏览器里续接历史会话**。
+
+### Added — Web 正文流式
+- Web 之前只有"思考"流式，正文最后一次性蹦出（感知延迟）。现 SSE 增加 `content` 事件，浏览器边收边渲染（`addAssistantStream`），`done` 用 `streamed` 标记避免正文重复渲染。
+
+### Added — Web 会话续接（`/resume <id>`）
+- 此前三端里只有 CLI/TUI 能在启动时 `--resume/--session` 续接；浏览器只能列会话、不能续。现新增：
+  - `ZOUWUCODEApp.resume_session(id)`：加载会话并**重建冻结会话 + 回放历史**到运行中的引擎（仅加载文件会让模型看到空对话）。
+  - 端点 `GET /api/session/current`、`POST /api/session/resume`（`_chat_busy` 时返回 409，避免与进行中的任务打架）。
+  - 浏览器命令 `/resume <id>`：清屏并渲染已续接的历史轮次；`/help` 已列出。
+
+### Tests
+- 新增 `tests/test_v107_webstream.py`（+12，含真实 App 的续接-回放功能测试）。套件 **493 → 505 全绿**。
+
+### Known
+- TUI 正文流式（需处理 RichLog 增量渲染）仍未做。
+
 ## [1.0.6] — 2026-10-13
 
 对标"最强 agent"的第二轮：把引擎的**并发、韧性、流式**这三件最影响"好用"的事做实。

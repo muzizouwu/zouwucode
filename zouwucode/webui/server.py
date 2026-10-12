@@ -840,6 +840,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       const decoder = new TextDecoder();
       let buf = '';
       let thinkingBody = null;
+      let contentBody = null;
       let sseError = false;
       while (true) {
         const { done, value } = await reader.read();
@@ -856,6 +857,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           if (evt.type === 'thinking') {
             if (!thinkingBody) thinkingBody = addThinkingStream();
             thinkingBody.textContent += evt.delta;
+            chat.scrollTop = chat.scrollHeight;
+          } else if (evt.type === 'content') {
+            if (!contentBody) contentBody = addAssistantStream();
+            contentBody.textContent += evt.delta;
             chat.scrollTop = chat.scrollHeight;
           } else if (evt.type === 'approval_request') {
             const ans = window.prompt('⚠ [agent 模式] 允许执行 ' + evt.tool + ' ？\n\n参数: ' + (evt.preview || '') + '\n\ny=允许一次  a=本会话始终允许  n=拒绝', 'y');
@@ -875,7 +880,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
               if (evt.plan) addMsg('system', '📋 Plan: ' + evt.plan + '  |  Tasks: ' + evt.tasks_completed + '/' + evt.tasks_total);
             }
             if (evt.tools) addToolLines(evt.tools);
-            if (evt.content) addMsg('assistant', evt.content);
+            if (evt.content && !contentBody) addMsg('assistant', evt.content);
             if (evt.cache_hit) {
               const last = chat.lastElementChild;
               if (last && last.classList.contains('msg')) {
@@ -928,6 +933,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       addMsg('system', '  /skill load <name> - Load a skill');
       addMsg('system', '  /skill unload <name> - Unload a skill');
       addMsg('system', '  /sessions     - List sessions');
+      addMsg('system', '  /resume <id>  - Resume a saved session');
       addMsg('system', '  /plan|/agent|/yolo - Switch mode');
       addMsg('system', '  /memory       - Show project memory');
       addMsg('system', '  /goal [set X] - Show/set project goal');
@@ -1030,6 +1036,20 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
     if (cmd === '/sessions') {
       pollSessions();
+      return;
+    }
+    if (cmd.startsWith('/resume')) {
+      const sid = cmd.split(/\s+/)[1];
+      if (!sid) { addMsg('system', 'Usage: /resume <session-id>  (see /sessions)'); return; }
+      fetch('/api/session/resume', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sid }),
+      }).then(r => r.json()).then(d => {
+        if (!d.ok) { addMsg('system', '\u2717 Resume failed: ' + (d.error || 'unknown')); return; }
+        clearChat();
+        addMsg('system', '\u21ba Resumed ' + d.session_id + ' (' + (d.turns || []).length + ' turns)');
+        (d.turns || []).forEach(t => addMsg(t.role === 'user' ? 'user' : 'assistant', t.content || ''));
+      }).catch(() => addMsg('system', 'Resume request failed.'));
       return;
     }
     if (cmd === '/mode') {
@@ -1338,6 +1358,22 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     chat.scrollTop = chat.scrollHeight;
     return body;
   }
+  // opencode-style live assistant bubble — returns the body element so the
+  // response can be rendered token-by-token while the model is still writing.
+  function addAssistantStream() {
+    const div = document.createElement('div');
+    div.className = 'msg assistant';
+    const label = document.createElement('div');
+    label.className = 'msg-label';
+    label.textContent = 'ZOUWUCODE';
+    div.appendChild(label);
+    const body = document.createElement('div');
+    body.textContent = '';
+    div.appendChild(body);
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return body;
+  }
   function addToolLines(tools) {
     if (!tools || !tools.length) return;
     const div = document.createElement('div');
@@ -1480,6 +1516,7 @@ class WebUIServer:
         modules=None,
         sessions_manager=None,
         subagent_manager=None,
+        app=None,
     ):
         self.engine = engine
         self.tools = tools
@@ -1494,6 +1531,9 @@ class WebUIServer:
         self.sessions_manager = sessions_manager
         # Sub-agent status (exposed to the browser so /agents reaches parity).
         self.subagent_manager = subagent_manager
+        # The owning application (for /resume etc.); optional so tests can
+        # construct the server without a full app.
+        self.app = app
         # opencode-style tool-call presentation ("→ Read file …")
         self._tool_buffer: list[dict] = []
         # The engine owns a single PrefixCache and single-slot streaming
@@ -1637,7 +1677,18 @@ class WebUIServer:
                 except Exception:
                     pass
 
+        streamed_body = {"any": False}
+
+        def _on_content(delta: str) -> None:
+            """Stream the assistant BODY, not just thinking (opencode-style)."""
+            streamed_body["any"] = True
+            try:
+                queue.put_nowait({"type": "content", "delta": delta})
+            except Exception:
+                pass
+
         self.engine.on_thinking_delta = _on_thinking
+        self.engine.on_content_delta = _on_content
         try:
             pm = getattr(self.coordinator, "project_memory", None)
             project_ctx = pm.get_full_context() if pm else ""
@@ -1669,6 +1720,7 @@ class WebUIServer:
                 "type": "done",
                 "content": response.content,
                 "thinking": response.thinking,
+                "streamed": streamed_body["any"],
                 "tools": list(self._tool_buffer),
                 "cache_hit": response.cache_hit,
                 "stats": f"Cache: {self.engine.stats.hit_rate * 100:.0f}% | Cost: ${self.engine.stats.total_cost:.4f}",
@@ -1686,6 +1738,7 @@ class WebUIServer:
             self._chat_busy = False
             self._approval_queue = None
             self.engine.on_thinking_delta = None
+            self.engine.on_content_delta = None
             writer.close()
 
     async def handle_request(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -1933,6 +1986,37 @@ class WebUIServer:
                         "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(s.get("updated", 0))),
                     })
             return self._json_response({"sessions": sessions_list})
+
+        elif path == "/api/session/current" and method == "GET":
+            mgr = getattr(self, "sessions_manager", None)
+            sid = getattr(mgr, "current_session_id", None) if mgr else None
+            turns = mgr.current_log() if mgr else []
+            return self._json_response({
+                "session_id": sid,
+                "turns": [{"role": t.get("role"), "content": t.get("content", "")}
+                          for t in turns if t.get("role") in ("user", "assistant")],
+            })
+
+        elif path == "/api/session/resume" and method == "POST":
+            app = getattr(self, "app", None)
+            if app is None or not hasattr(app, "resume_session"):
+                return self._json_response({"ok": False, "error": "resume unavailable"}, 400)
+            try:
+                sid = (json.loads(body or "{}").get("id") or "").strip()
+            except json.JSONDecodeError:
+                return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+            if not sid:
+                return self._json_response({"ok": False, "error": "missing id"}, 400)
+            if self._chat_busy:
+                return self._json_response({"ok": False, "error": "another task is running"}, 409)
+            turns = app.resume_session(sid)
+            if not turns:
+                return self._json_response({"ok": False, "error": "session not found"}, 404)
+            return self._json_response({
+                "ok": True, "session_id": sid,
+                "turns": [{"role": t.get("role"), "content": t.get("content", "")}
+                          for t in turns if t.get("role") in ("user", "assistant")],
+            })
 
         elif path == "/api/rollback" and method == "POST":
             manager = getattr(self, "sessions_manager", None)
