@@ -39,6 +39,7 @@
 - **TUI 异常退出后终端被鼠标转义序列刷屏**：Textual 运行时会开启 SGR 鼠标上报（DECSET ?1000/1002/1003/1006），若进程在自身 teardown 前死亡（崩溃/被杀/关窗），这些模式残留，回到 PowerShell 后鼠标移动被终端回显成满屏 `^[[<35;…M` 乱码。`run_tui` 现在 finally 中无条件还原（关鼠标上报、恢复光标、SGR reset、关括号粘贴），并把崩溃 traceback 镜像进日志文件——"TUI 无声消失"从此可诊断
 - **python_exec 并行子 Agent 互相阻塞 + 变量串扰**（我上一轮引入的回归）：所有调用共享同一个 REPL 子进程、同一把锁、同一份 globals——5 个并行 research worker 实际串行排队（日志实测单次执行被拖到 50-69s），且一个 worker 的变量会泄漏进另一个。现在按 ContextVar 会话隔离：`SubAgent.run` 绑定 `session=self.id`，asyncio.gather 的上下文拷贝语义让每个子 Agent 拥有独立 REPL 与 globals，真正并行
 - **python_exec 误杀普通 Python 代码**：旧实现把 shell 危险模式检查（`rm -rf /`、`format`、`reg`、`dd` 等正则）直接扫 Python 源码，含这些子串的合法代码（如 `re.search(r'(reg\s|regedit)')`）被 "Code blocked by sandbox policy" 误杀。现在只保留针对破坏性调用的专用 `_RISKY` 检查，不再复用 shell 正则
+- **正常长任务被 `Exceeded max_tool_rounds=25` 拦腰砍断**：轮数上限此前是硬截断——多步任务（如跨文件修编码问题：edit → bash → python_exec 验证，进展完全正常）一旦超过 25 轮即被 abort，前面的工作全部丢失。现改为**软着陆**：预算耗尽时向模型注入一条"收尾或高效继续"提醒并追加一轮预算（`engine.max_round_extensions`，默认 2 次 = 实际最多 75 轮），扩展用尽才熔断；真死循环仍会被兜住（卡死检测、连续错误熔断、总超时、成本熔断均不受影响），`max_round_extensions=0` 恢复旧行为
 
 ## [1.0.0] - 2026-09-09
 

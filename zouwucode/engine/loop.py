@@ -79,6 +79,20 @@ _STUCK_NUDGE = (
     "summarize what you have achieved so far and what blocks the rest."
 )
 
+# Injected when the tool-round budget is exhausted but the model is still
+# making progress (tools succeeding, no stuck verdict). Instead of killing a
+# legitimate multi-step task mid-flight, we hand it a fresh budget with an
+# instruction to either converge now or work efficiently — a genuine runaway
+# still trips the hard cap once extensions run out (plus stuck / consecutive-
+# error / total-timeout / cost breakers, which are unaffected).
+_ROUND_EXTENSION_NUDGE = (
+    "ℹ️ You have used up the planned tool-round budget for this task. You are "
+    "being given a little more room. If the task is nearly done, wrap up now: "
+    "stop calling tools and give your final answer. If real work remains, "
+    "keep going but be efficient — batch independent steps, avoid redundant "
+    "reads, and don't repeat actions that already succeeded."
+)
+
 
 class EngineLoop:
     """The main append-only, cache-first agent loop.
@@ -379,7 +393,10 @@ class EngineLoop:
         calls — instead of recursing. Three safety limits guard against
         infinite loops and unrecoverable stalls:
 
-        1. max_tool_rounds — hard cap on tool-call rounds
+        1. max_tool_rounds — tool-round budget. When it is exhausted the
+           model gets a "wrap up or continue efficiently" nudge plus
+           max_round_extensions extra budgets (soft landing for legitimate
+           long tasks); only after extensions run out does it abort.
         2. task_timeout_seconds — wall-clock budget for the whole task
         3. max_consecutive_tool_errors — stops the model from repeatedly
            hitting the same failing tool
@@ -396,6 +413,13 @@ class EngineLoop:
         response: Optional[ModelResponse] = None
         assistant_appended = False
         cost_at_start = self.stats.total_cost  # 成本熔断按任务增量计
+        # Round budget with soft landing: when the budget runs out while the
+        # model is still making progress, inject a wrap-up nudge and extend
+        # (up to max_round_extensions times) instead of killing a legitimate
+        # long task mid-flight.
+        round_no = 0
+        budget = engine_cfg.max_tool_rounds
+        extensions_used = 0
         # Stuck detection: sliding window of (tool, args, result) fingerprints.
         # Catches "all tools succeed but the model spins in place" — the case
         # consecutive_tool_errors cannot see. Nudge once, then abort.
@@ -414,7 +438,41 @@ class EngineLoop:
             for msg in messages:
                 self.cache.append(msg)
 
-            for round_no in range(1, engine_cfg.max_tool_rounds + 1):
+            while True:
+                # ── Round budget: soft landing before the hard cap ──
+                # Exhausted budget + extensions left → nudge & extend instead
+                # of killing a task that is still making real progress.
+                if round_no >= budget:
+                    if extensions_used < max(0, engine_cfg.max_round_extensions):
+                        extensions_used += 1
+                        budget += engine_cfg.max_tool_rounds
+                        self.cache.append(
+                            {"role": "user", "content": _ROUND_EXTENSION_NUDGE})
+                        logger.warning(
+                            "Round budget (%d) exhausted at round %d — "
+                            "extension %d/%d: nudged to wrap up and added "
+                            "%d more rounds.",
+                            engine_cfg.max_tool_rounds, round_no,
+                            extensions_used, engine_cfg.max_round_extensions,
+                            engine_cfg.max_tool_rounds,
+                        )
+                    else:
+                        # for-loop exhausted without break → round cap reached
+                        logger.error(
+                            "Task hit max_tool_rounds=%d after %d extension(s) "
+                            "— aborting. This usually means the model kept "
+                            "issuing tool calls without converging (check tool "
+                            "error logs above).",
+                            engine_cfg.max_tool_rounds, extensions_used,
+                        )
+                        raise TurnLimitExceeded(
+                            f"Exceeded max_tool_rounds={engine_cfg.max_tool_rounds}"
+                            + (f" after {extensions_used} extension(s)."
+                               if extensions_used else ".")
+                        )
+
+                round_no += 1
+
                 # ── Safety check: overall task deadline ──
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -610,17 +668,6 @@ class EngineLoop:
 
                 # Tool results were appended to the cache — loop for the
                 # next round (the model sees them via cache.get_prefix()).
-            else:
-                # for-loop exhausted without break → round cap reached
-                logger.error(
-                    "Task hit max_tool_rounds=%d — aborting. This usually "
-                    "means the model kept issuing tool calls without "
-                    "converging (check tool error logs above).",
-                    engine_cfg.max_tool_rounds,
-                )
-                raise TurnLimitExceeded(
-                    f"Exceeded max_tool_rounds={engine_cfg.max_tool_rounds}."
-                )
 
         except TaskInterrupted:
             self._cleanup_interrupted_prefix(assistant_appended, response, context)

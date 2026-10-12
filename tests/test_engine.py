@@ -393,6 +393,7 @@ class TestLoopSafetyLimits:
 
         engine = self._engine(_LoopProvider({"api_key": "sk-test"}),
                               max_tool_rounds=5,
+                              max_round_extensions=0,
                               max_consecutive_tool_errors=99)
         engine.set_tool_executor(self._failing_executor(calls))
 
@@ -400,7 +401,88 @@ class TestLoopSafetyLimits:
             asyncio.run(engine.run(messages=[{"role": "user", "content": "hi"}]))
 
         # 死循环被硬性截断：执行次数 = 轮次上限，而不是无限
+        # （max_round_extensions=0 → 保持旧的硬截断语义）
         assert len(calls) == 5
+
+    def test_round_budget_extends_then_completes(self):
+        """Soft landing: a long-but-legitimate task that needs more rounds than
+        the base budget gets extended (with a wrap-up nudge) and finishes,
+        instead of being killed mid-flight."""
+        calls: list = []
+
+        class _LongThenDone(BaseProvider):
+            """Emits a tool call for the first 8 rounds, then converges."""
+            def __init__(self, cfg):
+                super().__init__(cfg)
+                self.n = 0
+
+            async def chat_stream(self, messages, tools=None, temperature=0.0,
+                                  max_tokens=65536, stream_thinking=True):
+                self.n += 1
+                if self.n <= 8:
+                    yield ModelResponse(content="", tool_calls=[
+                        ToolCall(id=f"c{self.n}", name="read",
+                                 arguments='{"file_path": "a.py"}'),
+                    ])
+                else:
+                    yield ModelResponse(content="done", tool_calls=[], usage={})
+
+            async def chat(self, messages, tools=None, temperature=0.0,
+                           max_tokens=65536):
+                return ModelResponse(content="done")
+
+        async def executor(tool_call, context):
+            calls.append(tool_call.name)
+            return ToolResult(tool_call_id=tool_call.id, content="ok",
+                              is_error=False)
+
+        # base budget of 3, two extensions → room for up to 9 rounds.
+        engine = self._engine(_LongThenDone({"api_key": "sk-test"}),
+                              max_tool_rounds=3,
+                              max_round_extensions=2,
+                              stuck_detection_enabled=False,
+                              max_consecutive_tool_errors=99)
+        engine.set_tool_executor(executor)
+
+        resp = asyncio.run(engine.run(
+            messages=[{"role": "user", "content": "hi"}]))
+
+        assert resp.content == "done"
+        assert len(calls) == 8, "task ran past the base budget and finished"
+        # a wrap-up nudge was injected into the prefix as a user message
+        prefix = engine.cache.get_prefix()
+        nudges = [m for m in prefix if "tool-round budget" in str(m.get("content", ""))]
+        assert len(nudges) >= 1
+
+    def test_round_budget_extensions_exhausted_aborts(self):
+        """A genuine runaway exhausts all extensions, THEN aborts with the
+        extension count in the message (soft landing is bounded, not infinite)."""
+        calls: list = []
+
+        class _LoopProvider(BaseProvider):
+            async def chat_stream(self, messages, tools=None, temperature=0.0,
+                                  max_tokens=65536, stream_thinking=True):
+                yield ModelResponse(content="", tool_calls=[
+                    ToolCall(id="c1", name="read", arguments='{}'),
+                ])
+                yield ModelResponse(content="", tool_calls=[], usage={})
+
+            async def chat(self, messages, tools=None, temperature=0.0,
+                           max_tokens=65536):
+                return ModelResponse(content="")
+
+        engine = self._engine(_LoopProvider({"api_key": "sk-test"}),
+                              max_tool_rounds=2,
+                              max_round_extensions=2,
+                              stuck_detection_enabled=False,
+                              max_consecutive_tool_errors=99)
+        engine.set_tool_executor(self._failing_executor(calls))
+
+        with pytest.raises(TurnLimitExceeded, match="extension"):
+            asyncio.run(engine.run(messages=[{"role": "user", "content": "hi"}]))
+
+        # base 2 + 2 extensions × 2 rounds = 6 total rounds, then hard abort
+        assert len(calls) == 6
 
     def test_consecutive_tool_errors_abort_early(self):
         """同一工具连续失败达到阈值 → 提前终止，不必耗尽轮次上限。"""

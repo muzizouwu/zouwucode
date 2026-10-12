@@ -36,6 +36,10 @@ class EngineConfig(BaseModel):
     """Engine loop safety limits — guards against infinite tool loops."""
 
     max_tool_rounds: int = 25              # 单次任务最多工具轮数（防止模型反复调用工具的死循环）
+    # 轮数预算耗尽时的软着陆：注入"收尾或高效继续"提醒并追加一轮预算，
+    # 最多扩展该次数（0 = 旧行为，直接截断）。正常多步长任务不再被误杀，
+    # 真死循环仍会被熔断（扩展用尽 + 卡死检测 + 连续错误 + 总超时 + 成本）。
+    max_round_extensions: int = 2
     turn_timeout_seconds: float = 300.0    # 单次 LLM 流式请求超时（秒）
     task_timeout_seconds: float = 1800.0   # 单次任务（run）总耗时上限（秒）
     max_consecutive_tool_errors: int = 3   # 工具连续失败次数达到该值即终止任务

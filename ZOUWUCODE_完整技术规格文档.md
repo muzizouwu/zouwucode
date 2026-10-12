@@ -287,6 +287,7 @@
 
 **重要设计决策**：
 - `run()` 采用迭代循环而非递归：每轮一次 LLM 请求 + 其工具调用，多重安全限制（`max_tool_rounds` / `task_timeout_seconds` / `max_consecutive_tool_errors` / 成本熔断 / **卡死检测**）防止死循环与停顿
+- **轮数预算软着陆**：`max_tool_rounds` 不再是硬截断——预算耗尽时（`while` 循环顶部门控）向模型注入一条"收尾或高效继续"提醒（`_ROUND_EXTENSION_NUDGE`，作为 user 消息保持 append-only 前缀合法）并追加一轮预算，最多扩展 `max_round_extensions` 次（默认 2，即实际最多 75 轮），扩展用尽才抛 `TurnLimitExceeded`。解决正常多步长任务被 25 轮误杀、前功尽弃的问题；真死循环仍被兜住（卡死检测/连续错误/总超时/成本熔断独立生效），`max_round_extensions=0` 恢复旧硬截断语义
 - **卡死检测（stuck detection）**：滑动窗口记录每步动作指纹 `(tool, arguments, result)` 的 SHA1；同一指纹在窗口内重复达 `stuck_threshold` → 先注入一条 user 提醒（换思路/重规划/总结止损，措辞为信息而非禁令），再犯则抛 `TurnLimitExceeded`。补齐"工具全部成功但模型原地打转"这一连续错误熔断无法覆盖的死循环形态；提醒注入点在本轮工具结果之后，保持 append-only 前缀 API 合法
 - **连续错误熔断按轮次计数**：一轮内**所有**工具调用都失败才记 1 次连续错误（旧实现按单个调用计数——模型一轮并行发 3 个调用全失败即触顶，还没看到任何反馈就被 abort，表现为"任务卡住不动"）。按轮计数保证模型每轮都收到错误结果、有 `max_consecutive_tool_errors` 轮换思路，真死循环仍会熔断
 - **错误反馈永不空白（结构性保证）**：部分异常 `str()` 为空（httpx ConnectTimeout/ReadTimeout、asyncio.TimeoutError），直接 `str(e)` 回传会让模型收到空白错误（表现为"静默卡住"）。统一经 `errors.describe_exc()` 格式化（类型名+可读原因）；`AgentCoordinator` 再做最终兜底——失败的 ToolResult 若 content 为空则回填 output→error→兜底文案，任何工具/扩展的错误都无法以空白到达模型（tests/test_error_feedback.py 锁定该保证）
@@ -686,7 +687,7 @@
 
 **配置模型**：
 - `ProviderConfig`：LLM 提供商配置（api_key、base_url、model、api_type）
-- `EngineConfig`：引擎安全限制（max_tool_rounds=25、turn_timeout_seconds=300、task_timeout_seconds=1800、max_consecutive_tool_errors=3、max_llm_retries=2、max_cost_usd=0 成本熔断、stuck_detection_enabled/stuck_window/stuck_threshold 卡死检测）
+- `EngineConfig`：引擎安全限制（max_tool_rounds=25、max_round_extensions=2 轮数软着陆、turn_timeout_seconds=300、task_timeout_seconds=1800、max_consecutive_tool_errors=3、max_llm_retries=2、max_cost_usd=0 成本熔断、stuck_detection_enabled/stuck_window/stuck_threshold 卡死检测）
 - `CacheConfig`：缓存配置（enabled、max_prefix_tokens、append_only、stats_window）
 - `SandboxConfig`：沙箱配置（enabled、default_mode、allow_*、allowed_paths）
 - `SessionConfig`：会话配置（save_enabled、auto_save_interval、max_sessions、rollback_enabled）
@@ -991,7 +992,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（342 个测试用例）
+├── tests/                              # 测试套件（344 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1065,6 +1066,7 @@ providers:
 # 引擎安全限制（防止死循环与执行停顿）
 engine:
   max_tool_rounds: 25                      # 单次任务最多工具轮数
+  max_round_extensions: 2                  # 轮数预算软着陆：耗尽时追加预算次数（0=旧硬截断）
   turn_timeout_seconds: 300                # 单次 LLM 流式请求超时（秒）
   task_timeout_seconds: 1800               # 单次任务总耗时上限（秒）
   max_consecutive_tool_errors: 3           # 工具连续失败次数达到该值即终止任务
@@ -1292,6 +1294,7 @@ show_thinking: true                        # true | false，默认 true 实时�
 | TUI 退出后终端被鼠标转义序列刷屏 | Textual 开启 SGR 鼠标上报（?1000/1002/1003/1006），进程在 teardown 前死亡则模式残留 | `run_tui` finally 无条件还原鼠标/光标/SGR/粘贴模式，并把崩溃 traceback 镜像进日志 |
 | python_exec 并行子 Agent 串行排队 + 变量串扰 | 所有调用共享一个 REPL 进程/一把锁/一份 globals | ContextVar 会话隔离：`SubAgent.run` 绑定 session=self.id，gather 上下文拷贝使每子 Agent 独占 REPL |
 | python_exec 误杀普通 Python 代码 | 复用 shell 危险正则（`format`/`reg`/`dd`）扫 Python 源码，子串误命中 | 只保留针对破坏性调用的专用 `_RISKY`，不复用 shell 检查 |
+| 正常长任务被 `Exceeded max_tool_rounds=25` 拦腰砍断 | 轮数上限是硬截断，多步任务超 25 轮即 abort，前功尽弃 | 软着陆：预算耗尽注入"收尾/高效继续"提醒并追加预算（`max_round_extensions`，默认 2 = 最多 75 轮），扩展用尽才熔断；`=0` 恢复旧行为 |
 
 ---
 
@@ -1466,7 +1469,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **342 个测试用例**
+- 共计 **344 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证
