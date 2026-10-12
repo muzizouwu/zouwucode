@@ -1,5 +1,9 @@
 """Shell execution tool with sandbox integration."""
 
+import logging
+
+logger = logging.getLogger("zouwucode.tools.shell")
+
 import asyncio
 import os
 import re
@@ -56,7 +60,21 @@ def _find_git_bash() -> Optional[str]:
 
 
 class ShellTool(BaseTool):
-    """Execute shell commands with sandbox restrictions."""
+    """Execute shell commands with sandbox restrictions.
+
+    When a ``ContainerSandbox`` is supplied and a container runtime is present,
+    commands run inside a throwaway container (only the workspace mounted, no
+    network by default) — real isolation, not just a regex blacklist. If the
+    runtime is unavailable the tool transparently falls back to the host shell.
+    """
+
+    def __init__(self, sandbox=None, container=None):
+        super().__init__(sandbox)
+        self.container = container
+
+    def _use_container(self) -> bool:
+        """True when a container runtime is configured AND available."""
+        return bool(self.container is not None and self.container.available())
 
     def get_spec(self) -> ToolSpec:
         platform = ("Windows PowerShell" if sys.platform == "win32"
@@ -116,6 +134,9 @@ class ShellTool(BaseTool):
                     error=f"Command blocked by sandbox: {command}",
                 )
 
+        if self._use_container():
+            return await self._run_in_container(command, timeout, workdir)
+
         try:
             cwd = Path(workdir).resolve() if workdir else None
             executable, args = self._pick_executable(command)
@@ -161,3 +182,26 @@ class ShellTool(BaseTool):
 
         except Exception as e:
             return ToolResult(success=False, output="", error=describe_exc(e))
+
+    async def _run_in_container(self, command: str, timeout: int,
+                                workdir=None) -> ToolResult:
+        """Execute in the container; fall back to the host on runtime failure."""
+        try:
+            stdout, stderr, code = await self.container.run(
+                command, timeout=timeout, workdir=workdir)
+        except asyncio.TimeoutError:
+            return ToolResult(success=False, output="",
+                              error=f"Command timed out after {timeout}s "
+                                    f"(container: {self.container.image})")
+        except Exception as e:  # runtime/daemon error → degrade, don't fail hard
+            logger.warning("container run failed (%s); falling back to host shell",
+                           describe_exc(e))
+            self.container = None  # avoid re-trying a broken runtime every call
+            return await self.execute(command, timeout=timeout, workdir=workdir)
+
+        output = decode_console(stdout)
+        error = decode_console(stderr)
+        if code != 0:
+            return ToolResult(success=False, output=output,
+                              error=error or f"Exit code: {code}")
+        return ToolResult(success=True, output=output)

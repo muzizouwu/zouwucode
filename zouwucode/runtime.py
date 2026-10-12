@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger("zouwucode.runtime")
+
 """Shared runtime factories — single source of truth for CLI / TUI / Web.
 
 Both UI application classes used to carry identical copies of the provider
@@ -85,6 +89,29 @@ class ProviderRouter:
         return None
 
 
+def _make_container(sandbox, config):
+    """Build a ContainerSandbox when `sandbox.container` is enabled, else None.
+
+    The container's workspace is the sandbox root, so the same directory the
+    file tools are jailed to is the only thing mounted into the container.
+    """
+    if config is None or not getattr(config.sandbox, "container", False):
+        return None
+    try:
+        from .sandbox.container import ContainerSandbox
+        root = getattr(sandbox, "_workspace_root", None) or None
+        return ContainerSandbox(
+            workspace=root,
+            image=getattr(config.sandbox, "container_image", "python:3.12-slim"),
+            runtime=getattr(config.sandbox, "container_runtime", ""),
+            network=getattr(config.sandbox, "container_network", False),
+            mount=getattr(config.sandbox, "container_mount", "/workspace"),
+        )
+    except Exception as exc:  # noqa: BLE001 — never block tool creation
+        logger.warning("container sandbox unavailable: %s", exc)
+        return None
+
+
 def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTool]:
     """The standard builtin toolset shared by every UI.
 
@@ -104,7 +131,7 @@ def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTo
         EditTool(sandbox, allow_write=allow_write),
         LsTool(sandbox),
         GlobTool(sandbox),
-        ShellTool(sandbox),
+        ShellTool(sandbox, container=_make_container(sandbox, config)),
         GitTool(sandbox),
         WebSearchTool(sandbox),
         WebFetchTool(sandbox),

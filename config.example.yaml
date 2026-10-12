@@ -45,6 +45,12 @@ sandbox:
   allow_git: true
   allowed_paths:
     - .
+  # 容器沙箱（可选，默认关）：shell 命令在一次性容器里执行（仅挂载工作区、默认断网）
+  container: false
+  container_runtime: ""          # 留空自动探测 docker/podman；找不到就回退主机 shell
+  container_image: "python:3.12-slim"
+  container_network: false       # 默认断网（防外泄/恶意下载）
+  container_mount: "/workspace"
 
 session:
   save_enabled: true

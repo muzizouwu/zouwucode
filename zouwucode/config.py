@@ -126,6 +126,14 @@ class SandboxConfig(BaseModel):
     allow_network: bool = True
     allow_git: bool = True
     allowed_paths: list[str] = Field(default_factory=lambda: ["."])
+    # Container sandbox (opt-in): run shell commands inside a throwaway
+    # container with only the workspace mounted and no network, instead of on
+    # the host. Falls back to the host shell when no runtime is available.
+    container: bool = False
+    container_runtime: str = ""                  # "" = auto-detect (docker/podman)
+    container_image: str = "python:3.12-slim"
+    container_network: bool = False              # keep the network OFF by default
+    container_mount: str = "/workspace"          # where the workspace is mounted
 
 
 class SessionConfig(BaseModel):

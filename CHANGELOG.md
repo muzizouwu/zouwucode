@@ -4,6 +4,21 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.6.0] — 2026-10-13
+
+容器沙箱（可选）：把"正则防呆"升级为**真隔离**。
+
+### Added — 容器沙箱（`sandbox.container`，默认关）
+- 新增 `zouwucode/sandbox/container.py`：`ContainerSandbox` 用一次性容器执行命令——
+  **仅挂载工作区**（`-v <workspace>:/workspace`）、**默认断网**（`--network none`）、`--rm` 无残留。
+- `ShellTool` 接线：开启且运行时可用时，命令在容器内执行；**运行时缺失/守护进程出错自动回退主机 shell**（并记日志、停用损坏运行时，不再每次重试）。
+- 配置：`sandbox.container` / `container_runtime`（留空自动探测 docker|podman）/
+  `container_image`（默认 `python:3.12-slim`）/ `container_network`（默认 false）/ `container_mount`。
+- 语义：这是**隔离**补充，不替代既有黑名单——两者叠加（黑名单先拦，容器再兜底）。
+
+### Tests
+- 新增 `tests/test_v160_container_sandbox.py`（+13）：运行时探测、argv 隔离参数（挂载/断网/工作目录不泄漏主机路径）、路由到容器、非零退出、超时、运行时失败回退并停用、接线。套件 **578 → 591 全绿**。
+
 ## [1.5.0] — 2026-10-13
 
 可观测性加固：消灭"静默失败"。
