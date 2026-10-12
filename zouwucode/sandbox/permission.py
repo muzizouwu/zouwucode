@@ -18,15 +18,22 @@ from ..config import SandboxConfig
 DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     (r'(rm|del|remove|unlink)\s+(-rf?\s+)?[/\\]', "Root filesystem deletion"),
     (r'(rm|del|remove|unlink)\s+(-rf?\s+)?\*', "Wildcard deletion"),
-    (r'(mkfs|format|dd|fdisk)', "Filesystem formatting"),
-    (r'(sudo|runas|su\s)', "Privilege escalation"),
+    # Token-scoped on purpose: broad substrings here caused false blocks on
+    # benign commands (PowerShell's `Format-Table` matched "format"; a path
+    # containing "codebuddy" matched "dd") and burned model rounds.
+    (r'\bmkfs(\.[a-z0-9]+)?\b', "Filesystem formatting (mkfs)"),
+    (r'(?<![\w-])format\s+[a-z]:', "Filesystem formatting (format <drive>:)"),
+    (r'\bdd\s+(if|of)=', "Disk imaging (dd)"),
+    (r'\bfdisk\b', "Partition editing (fdisk)"),
+    (r'\b(sudo|runas)\b|\bsu\s+-\w', "Privilege escalation"),
     (r'(chmod|chown|attrib)\s+.*777', "Permission abuse"),
     (r'(>|>>)\s+/dev/', "Device overwrite"),
     (r'(wget|curl)\s+.*\|\s*(bash|sh|powershell)', "Pipe-to-shell"),
     (r'(cmd|powershell)\s+.*-EncodedCommand', "Encoded command execution"),
     (r'(Invoke-Expression|iex)\s', "PowerShell IEX"),
     (r'(Start-Process|Invoke-Item)\s', "PowerShell process start"),
-    (r'(reg\s|regedit)', "Registry modification"),
+    (r'\breg(\.exe)?\s+(add|delete|query|import|export|save|load|copy|'
+     r'restore|compare)\b|\bregedit\b', "Registry modification"),
 ]
 
 # ── Zero-width character injection patterns ──────────────────────────────────

@@ -371,13 +371,24 @@ class ZOUWUCODETUI(App):
     def on_unmount(self) -> None:
         """Save state on exit."""
         self.project_memory.save_all()
-        if self._session_id:
-            self.project_memory.add_summary(
-                session_id=self._session_id,
-                summary=f"Session with {self.engine.stats.total_requests} turns, "
-                        f"cache hit rate {self.engine.stats.hit_rate * 100:.1f}%",
-                turn_count=self.engine.stats.total_requests,
-            )
+        # Same as the CLI app: record a summary that is useful next session
+        # (counters alone read as "Session with 0 turns" and helped nobody).
+        if not self._session_id:
+            return
+        sessions = getattr(self, "sessions", None)
+        turns = sessions.current_log() if sessions is not None else []
+        turn_count = self.engine.stats.total_requests or len(turns)
+        last_user = ""
+        for entry in reversed(turns):
+            if entry.get("role") == "user" and entry.get("content"):
+                last_user = str(entry["content"]).strip().splitlines()[0][:120]
+                break
+        summary = (f"Session with {turn_count} turns, "
+                   f"cache hit rate {self.engine.stats.hit_rate * 100:.1f}%")
+        if last_user:
+            summary += f" | last request: {last_user}"
+        self.project_memory.add_summary(
+            session_id=self._session_id, summary=summary, turn_count=turn_count)
 
     # ── Input handling ───────────────────────────────────────────────────────
 
@@ -958,7 +969,8 @@ class ZOUWUCODETUI(App):
 
 Current mode: {self.current_mode}
 - plan: Read-only exploration. No changes.
-- agent: Interactive mode. Tool calls require approval.
+- agent: Interactive mode. Tool calls run automatically, constrained
+  by the sandbox (there is no interactive approval prompt yet).
 - yolo: Auto-approve mode. All tool calls execute automatically.
 
 Rules:

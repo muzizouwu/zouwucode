@@ -492,8 +492,14 @@ class EngineLoop:
                 # ── Round start: one LLM request (bounded + interruptible) ──
                 round_start = time.monotonic()
                 turn_timeout = min(engine_cfg.turn_timeout_seconds, remaining)
-                logger.info("Round %d/%d — requesting LLM…",
-                            round_no, engine_cfg.max_tool_rounds)
+                if extensions_used:
+                    logger.info(
+                        "Round %d (base cap %d, +%d extension(s)) — "
+                        "requesting LLM…", round_no,
+                        engine_cfg.max_tool_rounds, extensions_used)
+                else:
+                    logger.info("Round %d/%d — requesting LLM…",
+                                round_no, engine_cfg.max_tool_rounds)
                 try:
                     response = await self._run_interruptible(
                         self._stream_once(
@@ -697,10 +703,11 @@ class EngineLoop:
             self._interrupt_event.clear()
             self._interrupt_reason = ""
             logger.info(
-                "Task end | duration=%.1fs | rounds_used<=%d | "
-                "tool_results=%d",
+                "Task end | duration=%.1fs | rounds_used=%d (base cap %d, "
+                "extensions %d) | tool_results=%d",
                 time.monotonic() - task_start,
-                engine_cfg.max_tool_rounds, len(context.tool_results),
+                round_no, engine_cfg.max_tool_rounds, extensions_used,
+                len(context.tool_results),
             )
 
         assert response is not None

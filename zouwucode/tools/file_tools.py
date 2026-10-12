@@ -18,6 +18,28 @@ async def _check_path_access(sandbox, path: Path) -> Optional[str]:
     return None
 
 
+def _read_text(path: Path) -> str:
+    """Read a text file, tolerating common Windows encodings.
+
+    PowerShell redirections and some editors emit UTF-16 (with or without
+    a BOM); reading those as UTF-8 used to surface NUL-riddled mojibake.
+    """
+    data = path.read_bytes()
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16", errors="replace")
+    if b"\x00" in data[:4096]:
+        # NUL bytes in "text" strongly suggest UTF-16 without a BOM.
+        for enc in ("utf-16-le", "utf-16-be"):
+            try:
+                text = data.decode(enc)
+            except UnicodeDecodeError:
+                continue
+            printable = sum(ch.isprintable() or ch in "\r\n\t" for ch in text)
+            if text and printable / len(text) > 0.90:
+                return text
+    return data.decode("utf-8", errors="replace")
+
+
 class ReadTool(BaseTool):
     """Read file contents."""
 
@@ -53,7 +75,7 @@ class ReadTool(BaseTool):
             if not path.is_file():
                 return ToolResult(success=False, output="", error=f"Not a file: {file_path}")
 
-            content = path.read_text(encoding="utf-8", errors="replace")
+            content = _read_text(path)
             lines = content.splitlines(keepends=True)
 
             start = (offset - 1) if offset and offset > 0 else 0
@@ -219,6 +241,9 @@ class GlobTool(BaseTool):
     async def execute(self, pattern: str, path: str = ".") -> ToolResult:
         try:
             root = Path(path).resolve()
+            denied = await _check_path_access(self.sandbox, root)
+            if denied:
+                return ToolResult(success=False, output="", error=denied)
             matches = sorted(root.glob(pattern))
             if not matches:
                 return ToolResult(success=True, output=f"No files matching '{pattern}'")

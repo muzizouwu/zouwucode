@@ -41,7 +41,7 @@ def setup_logging(data_dir: str | Path, level: str = "info") -> Path:
         encoding="utf-8",
     )
     handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        "%(asctime)s %(levelname)-7s [pid %(process)d] %(name)s: %(message)s",
     ))
     root.addHandler(handler)
 

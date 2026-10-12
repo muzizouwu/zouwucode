@@ -35,6 +35,12 @@ from ..errors import describe_exc
 _MAX_OUTPUT = 30_000
 _DEFAULT_TIMEOUT = 60.0
 
+# Emitted by the REPL driver on its own line when exec() raised. The tool
+# strips it from the output and reports is_error=True — otherwise a
+# traceback in stdout used to come back as success (the model would then
+# reason on top of a failed step believing it worked).
+_ERR_MARKER = "__ZWC_ERROR__"
+
 # Session isolation: SubAgent workers run inside asyncio tasks created by
 # asyncio.gather, and each task copies the current Context — so setting a
 # session id at the top of SubAgent.run() gives every sub-agent its OWN
@@ -92,6 +98,7 @@ while True:
     except BaseException:
         import traceback
         traceback.print_exc(file=sys.stdout)
+        sys.stdout.write("__ZWC_ERROR__\n")
     sys.stdout.write(sentinel + "\n")
     sys.stdout.flush()
 """
@@ -186,6 +193,7 @@ class PythonExecTool(BaseTool):
                 await proc.stdin.drain()
 
                 collected: list[str] = []
+                raised = False
                 loop = asyncio.get_event_loop()
                 deadline = loop.time() + max(1.0, timeout)
                 while True:
@@ -210,16 +218,26 @@ class PythonExecTool(BaseTool):
                             error="python session ended unexpectedly; "
                                   "a fresh session will start next call")
                     line = line_b.decode("utf-8", "replace")
-                    if line.rstrip("\r\n") == sentinel:
+                    stripped = line.rstrip("\r\n")
+                    if stripped == sentinel:
                         break
+                    if stripped == _ERR_MARKER:
+                        raised = True
+                        continue
                     collected.append(line)
 
                 out = "".join(collected)
                 if len(out) > _MAX_OUTPUT:
                     out = out[:_MAX_OUTPUT] + "\n…[output truncated]"
-                failed = "[SystemExit" in out and "SystemExit None" not in out \
-                    and "SystemExit 0" not in out
-                return ToolResult(success=not failed, output=out)
+                failed = raised or (
+                    "[SystemExit" in out and "SystemExit None" not in out
+                    and "SystemExit 0" not in out)
+                if failed:
+                    return ToolResult(
+                        success=False, output=out,
+                        error="python_exec: the snippet raised "
+                              "(traceback above); treat this step as failed.")
+                return ToolResult(success=True, output=out)
             except Exception as exc:  # noqa: BLE001
                 await self._restart(session)
                 return ToolResult(success=False, output="",

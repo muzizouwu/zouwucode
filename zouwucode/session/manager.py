@@ -26,6 +26,10 @@ class SessionManager:
     def current_session_id(self) -> Optional[str]:
         return self._current_session_id
 
+    def current_log(self) -> list[dict]:
+        """Turns logged so far in the current session (shallow copy)."""
+        return list(self._current_log)
+
     def start_session(self, session_id: Optional[str] = None) -> str:
         """Start a new session."""
         self._current_session_id = session_id or f"session-{uuid.uuid4().hex[:12]}"

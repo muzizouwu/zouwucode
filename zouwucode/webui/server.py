@@ -1380,6 +1380,7 @@ class WebUIServer:
         skills_manager=None,
         rule_loader=None,
         modules=None,
+        sessions_manager=None,
     ):
         self.engine = engine
         self.tools = tools
@@ -1391,6 +1392,7 @@ class WebUIServer:
         self._skills = skills_manager
         self._rules = rule_loader
         self.modules = modules
+        self.sessions_manager = sessions_manager
         # opencode-style tool-call presentation ("→ Read file …")
         self._tool_buffer: list[dict] = []
         # The engine owns a single PrefixCache and single-slot streaming
@@ -1747,8 +1749,11 @@ class WebUIServer:
 
         elif path == "/api/sessions" and method == "GET":
             sessions_list = []
-            if hasattr(self.engine, 'sessions'):
-                for s in self.engine.sessions.list_sessions():
+            manager = getattr(self, "sessions_manager", None)
+            if manager is None:
+                manager = getattr(self.engine, "sessions", None)
+            if manager is not None:
+                for s in manager.list_sessions():
                     sessions_list.append({
                         "id": s.get("id", ""),
                         "turns": s.get("turns", 0),

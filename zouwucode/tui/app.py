@@ -222,14 +222,25 @@ class ZOUWUCODEApp:
     def save_state(self) -> None:
         """Save all persistent state before exit."""
         self.project_memory.save_all()
-        # Log session summary
-        if self._session_id:
-            self.project_memory.add_summary(
-                session_id=self._session_id,
-                summary=f"Session with {self.engine.stats.total_requests} turns, "
-                        f"cache hit rate {self.engine.stats.hit_rate * 100:.1f}%",
-                turn_count=self.engine.stats.total_requests,
-            )
+        # Log a session summary that is actually useful in the next session:
+        # what was asked last, how many turns ran, cache hit rate. (It used to
+        # record counters only — often all zeros — so "continue last task" had
+        # nothing to go on.)
+        if not self._session_id:
+            return
+        turns = self.sessions.current_log()
+        turn_count = self.engine.stats.total_requests or len(turns)
+        last_user = ""
+        for entry in reversed(turns):
+            if entry.get("role") == "user" and entry.get("content"):
+                last_user = str(entry["content"]).strip().splitlines()[0][:120]
+                break
+        summary = (f"Session with {turn_count} turns, "
+                   f"cache hit rate {self.engine.stats.hit_rate * 100:.1f}%")
+        if last_user:
+            summary += f" | last request: {last_user}"
+        self.project_memory.add_summary(
+            session_id=self._session_id, summary=summary, turn_count=turn_count)
 
     def _build_system_prompt(self, extra_context: str = "") -> str:
         """Build the frozen system prompt for the session."""
@@ -244,7 +255,8 @@ You have access to a set of tools that can:
 
 Current mode: {self._current_mode}
 - plan: Read-only exploration. You can examine code but not make changes.
-- agent: Interactive mode. Tool calls require approval.
+- agent: Interactive mode. Tool calls run automatically, constrained
+  by the sandbox (there is no interactive approval prompt yet).
 - yolo: Auto-approve mode. All tool calls execute automatically.
 
 Rules:
@@ -690,6 +702,7 @@ Rules:
             tools=self.tools,
             coordinator=self.coordinator,
             config=self.config,
+            sessions_manager=self.sessions,
             port=port,
             skills_manager=self.skills,
             rule_loader=self.rule_loader,

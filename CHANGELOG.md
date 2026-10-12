@@ -3,6 +3,29 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.2] — 2026-10-12
+
+自检审计修复（原则：只做有回归测试、且不改变既有 UX 的修复）。
+
+### Fixed — 正确性
+- **python_exec 假成功**：snippet 抛异常时工具曾返回 `success=True`（traceback 只躺在输出里），模型会把失败步骤当成功继续推理。现由 REPL 驱动输出精确错误标记，工具返回 `is_error=True`，traceback 原样保留。
+- **轮数日志失真**：`Task end` 的 `rounds_used<=25` 改为真实值 `rounds_used=N (base cap M, extensions K)`；轮数扩展后轮号显示为 `Round 27 (base cap 25, +1 extension(s))`，不再出现 `Round 26/25`。
+- **沙箱误杀正常命令**：`(mkfs|format|dd|fdisk)`、`(reg\s|regedit)` 改为词界/上下文精确匹配。`Format-Table`、路径含 `codebuddy` 等命令此前会被 `Command blocked by sandbox` 拒绝并白丢模型轮次。
+- **glob 越权枚举**：`glob` 是唯一没做沙箱路径检查的文件工具，现已补齐（与 read/write/edit/ls 一致）。
+- **read 读 UTF-16 乱码**：PowerShell 重定向产物（UTF-16 BOM/无 BOM）不再输出 NUL 乱码。
+- **WebUI `/api/sessions` 恒为空**：路由读的是 `engine.sessions`（不存在），改由 `SessionManager` 注入（新增构造参数 `sessions_manager`，向后兼容）。
+- **会话摘要无信息**：退出时记录的摘要从纯计数器（经常全是 0）改为「轮数 + 缓存命中率 + 最后一轮用户请求」，`SessionManager.current_log()` 新增；"继续上次任务" 从此有据可依。
+- **MCP 客户端健壮性**：请求 id 递增并按 id 匹配应答、跳过通知行、30s 超时；此前硬编码 id 1/2/3 且假设"下一行就是回复"，服务器多发一行就会错乱/挂死。
+
+### Fixed — 安全与诚实
+- **子 Agent 递归防护**：子代理不再能看到 `task` 工具（schema 过滤 + executor 双保险），无法再派生孙代理形成失控树。
+- **删除"需审批"的不实表述**：agent 与 yolo 在工具执行上本就等价（无审批实现）。系统提示与 USAGE 工具表改为如实描述"沙箱保护"。
+- **TLS 可诊断**：证书校验失败给出可操作提示；`ZOUWUCODE_TLS_INSECURE=1` 可显式关闭校验（默认仍然校验，仅本机/离线场景使用）。
+- **日志加 pid**：多进程共享同一日志文件时来源可归因（此前出现过两个进程行交错、时间倒流）。
+
+### Known — 仍待实现（不假装已修）
+- 交互式审批（agent/yolo 语义区分）、CLI/dev 接入上下文压缩、MCP 的 SSE/Streamable HTTP 传输、`rollback_enabled`/`auto_save_interval`/`cache.enabled` 等配置项仍是"声明存在但未接线"。
+
 ## [Unreleased]
 
 ### Added

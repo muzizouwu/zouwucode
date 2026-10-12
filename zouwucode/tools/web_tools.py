@@ -1,5 +1,6 @@
 """Web search and fetch tools."""
 
+import os
 from typing import Optional
 
 import httpx
@@ -58,6 +59,26 @@ def _parse_ddg(html: str, count: int) -> list[str]:
 _PARSERS = {"bing": _parse_bing, "duckduckgo": _parse_ddg}
 
 
+def _tls_verify() -> bool:
+    """TLS verification is on unless explicitly opted out.
+
+    Some Windows setups ship without usable CA roots, making every
+    https call fail with CERTIFICATE_VERIFY_FAILED. Setting
+    ZOUWUCODE_TLS_INSECURE=1 retries without verification (documented
+    trade-off for local/offline use only).
+    """
+    return os.environ.get("ZOUWUCODE_TLS_INSECURE") != "1"
+
+
+def _tls_hint(exc: Exception) -> str:
+    text = str(exc)
+    if "CERTIFICATE_VERIFY_FAILED" in text or "certificate verify failed" in text:
+        return ("\n[hint] TLS certificate verification failed. Install/refresh "
+                "the CA bundle (pip install -U certifi) or set "
+                "ZOUWUCODE_TLS_INSECURE=1 to retry without verification.")
+    return ""
+
+
 class WebSearchTool(BaseTool):
     """Search the web for information."""
 
@@ -88,7 +109,8 @@ class WebSearchTool(BaseTool):
         for engine, url in _SEARCH_ENGINES:
             try:
                 async with httpx.AsyncClient(timeout=12.0,
-                                             follow_redirects=True) as client:
+                                             follow_redirects=True,
+                                             verify=_tls_verify()) as client:
                     resp = await client.get(
                         url, params={"q": query},
                         headers={"User-Agent": "Mozilla/5.0 "
@@ -101,7 +123,7 @@ class WebSearchTool(BaseTool):
                                       output="\n\n".join(results))
                 errors.append(f"{engine}: 无可解析结果")
             except Exception as exc:  # noqa: BLE001 — try next engine
-                errors.append(f"{engine}: {_describe_exc(exc)}")
+                errors.append(f"{engine}: {_describe_exc(exc)}{_tls_hint(exc)}")
 
         return ToolResult(
             success=False, output="",
@@ -135,7 +157,8 @@ class WebFetchTool(BaseTool):
             if denied:
                 return ToolResult(success=False, output="", error=denied)
 
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True,
+                                         verify=_tls_verify()) as client:
                 resp = await client.get(
                     url,
                     headers={"User-Agent": "ZOUWUCODE/1.0"},
@@ -157,4 +180,5 @@ class WebFetchTool(BaseTool):
                 return ToolResult(success=True, output=text)
 
         except Exception as e:
-            return ToolResult(success=False, output="", error=_describe_exc(e))
+            return ToolResult(success=False, output="",
+                              error=_describe_exc(e) + _tls_hint(e))

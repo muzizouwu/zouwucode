@@ -84,7 +84,10 @@ class SubAgent:
         registry = getattr(self._manager.coordinator, "tools", None)
         if registry is None:
             return None
-        schemas = registry.get_schemas()
+        # Recursion guard: sub-agents never see the `task` tool, so they
+        # cannot spawn further sub-agents (bounded fan-out, no runaway tree).
+        schemas = [s for s in registry.get_schemas()
+                   if s.get("function", {}).get("name") != "task"]
         if self.tool_whitelist is None:
             return schemas
         return [
@@ -96,6 +99,13 @@ class SubAgent:
         base = coordinator.execute_tool
 
         async def executor(tool_call, context: TurnContext) -> ToolResult:
+            if tool_call.name == "task":
+                return ToolResult(
+                    tool_call_id=tool_call.id,
+                    content=("Sub-agents cannot spawn further sub-agents: the "
+                             "'task' tool is not available inside a sub-agent."),
+                    is_error=True,
+                )
             if self.tool_whitelist is not None and tool_call.name not in self.tool_whitelist:
                 return ToolResult(
                     tool_call_id=tool_call.id,
