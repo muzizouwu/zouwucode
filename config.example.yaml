@@ -63,6 +63,7 @@ hello_my_zouwucode:
 subagent:
   max_agents: 8                 # 并行子 Agent 数量上限
   default_timeout: 600          # 单个子 Agent 默认超时（秒）
+  worktree_isolation: false     # 开：每个子 Agent 独立 git worktree（dev/sub-<id>），并行改文件不打架
 
 # 模型路由（默认关）：让便宜模型干活、更强模型复核。
 # 主会话保持单 provider（append-only 前缀缓存不受影响），仅为两个角色另择 provider：

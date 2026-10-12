@@ -4,6 +4,22 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.4.0] — 2026-10-13
+
+子代理 worktree 隔离：并行 worker 各改各的，互不打架。
+
+### Added — 子代理 worktree 隔离（`subagent.worktree_isolation`，默认关）
+- 开启后，每个子 Agent 在自己的 **git worktree**（`dev/sub-<id>` 分支）里运行，
+  工具（read/write/edit/bash/git…）rooted 在该 worktree；并行 worker 改文件不再互相覆盖。
+- `SubAgentManager._maybe_isolate()`：为 worker 建 worktree + 隔离沙箱/注册表/协调器；
+  隔离注册表**天然不含 `task`**（无法再生成子代理）。
+- **尽力而为**：非 git 工作区 / 缺 git 时自动回退到共享工作区，绝不阻断 worker。
+- 结果可见：`agent.summary()` 与 `task` 工具输出都会带上 `↳ worktree: <path> (branch dev/sub-<id>)`，
+  改动留在该 worktree 里供检查（不自动合并）。
+
+### Tests
+- 新增 `tests/test_v140_worktree_isolation.py`（+6，含真实 git worktree；无 git 自动跳过）。套件 **568 → 574 全绿**。
+
 ## [1.3.0] — 2026-10-13
 
 会话共享 + 跨会话消息：从"单机单人"走向"能分享、能互相协作"。

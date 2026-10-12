@@ -156,6 +156,10 @@ class SubAgentConfig(BaseModel):
 
     max_agents: int = 8                  # 并行子 Agent 数量上限
     default_timeout: float = 600.0       # 单个子 Agent 任务默认超时（秒）
+    # Worktree isolation (opt-in): each sub-agent runs in its OWN git worktree
+    # on a `dev/sub-<id>` branch, so parallel workers editing files never
+    # collide. Falls back to the shared workspace when it is not a git repo.
+    worktree_isolation: bool = False
 
 
 class McpServerConfig(BaseModel):

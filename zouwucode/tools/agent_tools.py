@@ -85,8 +85,10 @@ class TaskTool(BaseTool):
 
         lines = []
         for agent in agents:
+            wt = getattr(agent, "worktree", None)
+            tag = f"  ↳ worktree: {wt.path} (branch {wt.branch})" if wt else ""
             lines.append(f"── [{agent.role}] {agent.id} — {agent.status.value} "
-                         f"({agent.duration:.1f}s)")
+                         f"({agent.duration:.1f}s){tag}")
             if agent.status.value == "completed" and agent.result is not None:
                 content = (agent.result.content or "").strip()
                 lines.append(content if content else "(no output)")

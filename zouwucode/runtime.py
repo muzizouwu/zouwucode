@@ -115,7 +115,8 @@ def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTo
     return tools
 
 
-def create_subagents_and_extensions(config, provider, coordinator, engine, tools):
+def create_subagents_and_extensions(config, provider, coordinator, engine, tools,
+                                    workspace_root=None):
     """Wire the sub-agent system + extension host (shared by CLI and TUI).
 
     Both UI apps carried byte-identical copies of this wiring (which had
@@ -130,7 +131,8 @@ def create_subagents_and_extensions(config, provider, coordinator, engine, tools
     # Model routing: sub-agents may run on a cheaper "worker" provider, and an
     # optional read-only "oracle" provider is exposed to the model as a tool.
     router = ProviderRouter(config)
-    manager = SubAgentManager(config, router.worker_provider(provider), coordinator)
+    manager = SubAgentManager(config, router.worker_provider(provider), coordinator,
+                              workspace_root=workspace_root)
     manager.bind_main_engine(engine)
     tools.register(TaskTool(manager))
 
@@ -175,7 +177,8 @@ def build_agent_engine(config: ZOUWUCODEConfig, sandbox_root, *,
         from .tools.oracle_tool import OracleTool
 
         router = ProviderRouter(config)
-        manager = SubAgentManager(config, router.worker_provider(provider), coordinator)
+        manager = SubAgentManager(config, router.worker_provider(provider), coordinator,
+                                  workspace_root=sandbox_root)
         manager.bind_main_engine(engine)
         tools.register(TaskTool(manager))
         oracle = router.oracle_provider(provider)

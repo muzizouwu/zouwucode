@@ -19,9 +19,11 @@ The SubAgentManager is the main agent's entry point:
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from enum import Enum
+from pathlib import Path
 from typing import Optional
 
 from ..engine.loop import EngineLoop, TaskInterrupted, TurnContext
@@ -60,6 +62,9 @@ class SubAgent:
         self.status = AgentStatus.PENDING
         self.result: Optional[ModelResponse] = None
         self.error: Optional[str] = None
+        # Worktree isolation (set by the manager when enabled + available).
+        self.worktree = None
+        self.isolated_coordinator = None
         self.created_at = time.monotonic()
         self.duration: float = 0.0
 
@@ -86,7 +91,8 @@ class SubAgent:
         passing the (filtered) schemas here is what makes the whitelist
         meaningful end-to-end.
         """
-        registry = getattr(self._manager.coordinator, "tools", None)
+        coord = getattr(self, "isolated_coordinator", None) or self._manager.coordinator
+        registry = getattr(coord, "tools", None)
         if registry is None:
             return None
         # Recursion guard: sub-agents never see the `task` tool, so they
@@ -130,6 +136,13 @@ class SubAgent:
         """Execute one task in this sub-agent's isolated context."""
         self.status = AgentStatus.RUNNING
         start = time.monotonic()
+        # Worktree isolation: give this worker its own checkout + tools before
+        # it runs (no-op returning the shared coordinator when disabled).
+        try:
+            coord = await self._manager._maybe_isolate(self)
+            self.engine.set_tool_executor(self._make_executor(coord))
+        except Exception as exc:  # isolation must never block a worker
+            logger.warning("Sub-agent %s isolation skipped: %s", self.id, exc)
         logger.info("Sub-agent %s (%s) started | task=%s", self.id, self.role, task[:80])
         # Give this worker its OWN python_exec REPL session: asyncio.gather
         # copies the Context per task, so the ContextVar set here is visible
@@ -178,6 +191,8 @@ class SubAgent:
             "duration": round(self.duration, 1),
             "error": self.error,
             "tools": self.tool_whitelist or "all",
+            "worktree": str(self.worktree.path) if self.worktree else None,
+            "branch": self.worktree.branch if self.worktree else None,
         }
 
 
@@ -189,11 +204,14 @@ class SubAgentManager:
         config: ZOUWUCODEConfig,
         provider: BaseProvider,
         coordinator: AgentCoordinator,
+        workspace_root=None,
     ):
         self.config = config
         self.provider = provider
         self.coordinator = coordinator
+        self.workspace_root = Path(workspace_root) if workspace_root else Path.cwd()
         self._agents: dict[str, SubAgent] = {}
+        self._worktrees: dict = {}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -218,6 +236,47 @@ class SubAgentManager:
         )
         self._agents[agent.id] = agent
         return agent
+
+    async def _maybe_isolate(self, agent: SubAgent):
+        """Give a sub-agent its own git worktree + isolated tools, if enabled.
+
+        Returns the coordinator the agent should execute through: either the
+        shared one (isolation off / unavailable) or a fresh coordinator whose
+        sandbox is rooted at the worker's OWN worktree. Best-effort: any git
+        problem falls back to the shared workspace rather than failing the run.
+        """
+        if not getattr(self.config.subagent, "worktree_isolation", False):
+            return self.coordinator
+        if agent.isolated_coordinator is not None:
+            return agent.isolated_coordinator
+        try:
+            from ..dev.workspace import WorktreeManager
+            prefix = getattr(self.config.dev, "branch_prefix", "dev")
+            wtm = WorktreeManager(self.workspace_root,
+                                  worktree_dir=".zouwucode_worktrees",
+                                  branch_prefix=prefix)
+            ws = await wtm.create(f"sub-{agent.id}", f"{prefix}/sub-{agent.id}")
+
+            from ..sandbox.permission import PermissionManager
+            from ..tools.registry import ToolRegistry
+            from ..agent.coordinator import AgentCoordinator
+            from ..runtime import create_builtin_tools
+
+            sandbox = PermissionManager(self.config.sandbox)
+            sandbox.set_workspace(ws.path)
+            tools = ToolRegistry()
+            tools.register_all(create_builtin_tools(sandbox, self.config))
+            coord = AgentCoordinator(self.config, agent.engine, tools)
+            agent.worktree = ws
+            agent.isolated_coordinator = coord
+            self._worktrees[agent.id] = ws
+            logger.info("Sub-agent %s isolated in worktree %s (branch %s)",
+                        agent.id, ws.path, ws.branch)
+            return coord
+        except Exception as exc:  # noqa: BLE001 — never block a worker
+            logger.warning("Sub-agent %s worktree isolation unavailable: %s",
+                           agent.id, exc)
+            return self.coordinator
 
     def bind_main_engine(self, engine: EngineLoop) -> None:
         """Cascade interrupts: interrupting the main engine stops all

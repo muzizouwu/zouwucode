@@ -929,6 +929,7 @@ engine:
 subagent:
   max_agents: 8                 # 并行子 Agent 数量上限
   default_timeout: 600          # 单个子 Agent 默认超时（秒）
+  worktree_isolation: false     # 开：每个子 Agent 独立 git worktree，并行改文件不冲突
 
 # 模型路由（默认关）：让便宜模型干活、更强模型复核。
 # 主会话保持单 provider（append-only 前缀缓存不受影响），仅为两个角色另择 provider：
@@ -1404,4 +1405,4 @@ hello_my_zouwucode/       # 多智能体编排模块（复刻自 oh-my-opencode�
 
 ---
 
-*文档版本: v1.3.0 · 最后更新: 2026-10-13*
+*文档版本: v1.4.0 · 最后更新: 2026-10-13*
