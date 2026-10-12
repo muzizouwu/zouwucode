@@ -3,6 +3,10 @@
 After each edit, the LSP client is called to check for diagnostics
 and feed them into the LLM context for self-healing.
 """
+import logging
+
+logger = logging.getLogger("zouwucode.lsp.client")
+
 
 import asyncio
 import json
@@ -180,6 +184,6 @@ class LSPClient:
                 )
                 return json.loads(content.decode())
 
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
         return None

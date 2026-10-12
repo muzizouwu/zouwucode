@@ -4,6 +4,18 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.5.0] — 2026-10-13
+
+可观测性加固：消灭"静默失败"。
+
+### Fixed — 23 处静默吞异常（`except Exception: pass`）
+- 项目自审把"失败却像成功 / 吞掉异常"列为一类最危险的缺陷。全仓 **23 处** `except Exception: pass` 全部改为**记录后放行**（`logger.debug("swallowed ...")`），并为缺 logger 的 8 个模块补上模块级 logger。
+- 涉及引擎主循环回调（`engine/loop.py` ×3）、压缩器、MCP/LSP 客户端、REPL 关闭、TUI/Web 回调等。
+- 语义不变（仍是尽力而为、不抛出），差别只在**可观测**：出问题时日志能看到，而非凭空消失。
+
+### Tests
+- 新增 `tests/test_v150_observability.py`（+4）：静态守卫"**禁止** `except Exception: pass`"、"禁止裸 `except:`"、"每个吞异常点必须 `logger.debug`"，外加一条行为测试（注入失败确实进了日志）。套件 **574 → 578 全绿**。
+
 ## [1.4.0] — 2026-10-13
 
 子代理 worktree 隔离：并行 worker 各改各的，互不打架。

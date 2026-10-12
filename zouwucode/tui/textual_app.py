@@ -9,9 +9,12 @@ A full-featured terminal UI with:
 - Thinking indicator during processing
 """
 
+
 import asyncio
 import json
 import logging
+
+logger = logging.getLogger("zouwucode.tui.textual_app")
 import sys
 import time
 from pathlib import Path
@@ -421,8 +424,8 @@ class ZOUWUCODETUI(App):
                 sandbox=self.sandbox,
                 tool_registry=self.tools,
             ))
-        except Exception:  # noqa: BLE001 — extensions must not kill startup
-            pass
+        except Exception as _exc:  # noqa: BLE001 — extensions must not kill startup
+            logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
         # Preload skills specified via --skill CLI argument
         for name in self._preload_skills:
@@ -1269,8 +1272,8 @@ class ZOUWUCODETUI(App):
             self.query_one("#footer-progress", Static).update(
                 f"{bar} {pct * 100:.0f}%"
             )
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
     async def _approve_tool(self, tool_call, context) -> bool:
         """Ask the human (modal y/n/a) before a tool runs in agent mode."""
@@ -1333,8 +1336,8 @@ Rules:
                 rm = build_repo_map(".", max_tokens=repo_map_max_tokens(self.config))
                 if rm:
                     prompt += f"\n\n{rm}"
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
         return prompt
 
@@ -1358,8 +1361,8 @@ def _restore_terminal() -> None:
             "\x1b[?2004l"                                    # bracketed paste off
         )
         sys.stdout.flush()
-    except Exception:  # noqa: BLE001 — restore must never itself raise
-        pass
+    except Exception as _exc:  # noqa: BLE001 — restore must never itself raise
+        logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
 
 class ApprovalScreen(ModalScreen):

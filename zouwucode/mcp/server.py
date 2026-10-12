@@ -12,6 +12,10 @@ uses, so the two stay in lockstep.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger("zouwucode.mcp.server")
+
 import asyncio
 import json
 import sys
@@ -146,8 +150,8 @@ def main(argv=None) -> int:
     for stream in (sys.stdin, sys.stdout):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
     if argv and ("--help" in argv or "-h" in argv):
         print(__doc__)
         return 0

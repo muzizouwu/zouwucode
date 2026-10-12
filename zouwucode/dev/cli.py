@@ -47,8 +47,8 @@ def _owner_repo_from_remote() -> Optional[tuple[str, str]]:
         m = re.search(r"github\.com[:/]([^/]+)/([^/.]+)", out)
         if m:
             return m.group(1), m.group(2)
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
     return None
 
 

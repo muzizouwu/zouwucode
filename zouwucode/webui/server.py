@@ -4,6 +4,10 @@ Usage:
     zouwucode --web              # Start with web UI on port 8080
     zouwucode --web --port 3000  # Custom port
 """
+import logging
+
+logger = logging.getLogger("zouwucode.webui.server")
+
 
 import asyncio
 import json
@@ -1646,8 +1650,8 @@ class WebUIServer:
             if isinstance(args, dict):
                 args = json.dumps(args, ensure_ascii=False)
             self._tool_buffer.append({"name": name, "arguments": str(args)[:200]})
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
     async def _web_approve(self, tool_call, context) -> bool:
         """Ask the browser (y/n/a) before a tool runs in agent mode.
@@ -1697,8 +1701,8 @@ class WebUIServer:
             payload = json.dumps(obj, ensure_ascii=False)
             writer.write(f"data: {payload}\n\n".encode("utf-8"))
             await writer.drain()
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
     async def _handle_chat_stream(self, writer, body: str) -> None:
         """SSE streaming chat handler — streams thinking deltas live.
@@ -1763,8 +1767,8 @@ class WebUIServer:
             if show_thinking:
                 try:
                     queue.put_nowait(delta)
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
         streamed_body = {"any": False}
 
@@ -1773,8 +1777,8 @@ class WebUIServer:
             streamed_body["any"] = True
             try:
                 queue.put_nowait({"type": "content", "delta": delta})
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
         self.engine.on_thinking_delta = _on_thinking
         self.engine.on_content_delta = _on_content

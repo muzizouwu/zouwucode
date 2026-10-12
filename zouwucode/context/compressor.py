@@ -7,6 +7,10 @@ The compression algorithm:
 4. Classifies messages into: keep-full, keep-summary, or discard
 5. Runs automatically when context approaches token limits
 """
+import logging
+
+logger = logging.getLogger("zouwucode.context.compressor")
+
 
 import re
 
@@ -247,8 +251,8 @@ class DialogueCompressor:
                     return f"[Tool] Success: {data.get('output', '')[:100]}"
                 else:
                     return f"[Tool] Error: {data.get('error', '')[:100]}"
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
         # File content lines — keep head + tail so the model still sees the
         # shape of the file (a bare "N lines (compressed)" loses everything).
         lines = content.splitlines()

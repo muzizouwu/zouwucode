@@ -74,8 +74,8 @@ class HookRunner:
         except asyncio.TimeoutError:
             try:
                 proc.kill()
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
             return -1, "", f"hook timed out after {_HOOK_TIMEOUT:.0f}s"
         except Exception as exc:  # noqa: BLE001 — hook infra errors are reasons
             return -1, "", f"hook error: {exc}"

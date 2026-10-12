@@ -21,6 +21,10 @@ Design:
   local-first posture (OpenHands gets container isolation from Docker
   workspaces; this portable tool intentionally requires none).
 """
+import logging
+
+logger = logging.getLogger("zouwucode.tools.code_exec_tool")
+
 
 import asyncio
 import base64
@@ -255,8 +259,8 @@ class PythonExecTool(BaseTool):
             try:
                 proc.kill()
                 await asyncio.wait_for(proc.wait(), timeout=5)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
     async def close(self) -> None:
         for session in list(self._procs):

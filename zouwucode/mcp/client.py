@@ -9,6 +9,10 @@ Two transports are wired:
 
 External servers merge their tools into one registry under a prefix.
 """
+import logging
+
+logger = logging.getLogger("zouwucode.mcp.client")
+
 
 import asyncio
 import json
@@ -203,8 +207,8 @@ class MCPClient:
             try:
                 await self._http_notify(name, {
                     "jsonrpc": "2.0", "method": "notifications/initialized"})
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
             tools_response = await self._http_request(name, {
                 "jsonrpc": "2.0", "id": self._next_id(),
                 "method": "tools/list", "params": {},
@@ -284,8 +288,8 @@ class MCPClient:
                 headers.update(info.get("headers") or {})
                 async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
                     await client.delete(info["url"], headers=headers)
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
         stale = [t for t, i in self._tools.items() if i["server"] == name]
         for tname in stale:
             self._tools.pop(tname, None)

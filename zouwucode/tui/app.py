@@ -7,6 +7,10 @@ Integrates:
 - CLI, TUI, and Web UI interfaces
 - Quick launch support
 """
+import logging
+
+logger = logging.getLogger("zouwucode.tui.app")
+
 
 import asyncio
 import os
@@ -419,8 +423,8 @@ Rules:
                 rm = build_repo_map(".", max_tokens=repo_map_max_tokens(self.config))
                 if rm:
                     prompt += f"\n\n{rm}"
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
         if extra_context:
             prompt += f"\n\n{extra_context}"
@@ -1014,8 +1018,8 @@ Rules:
             # Always clean up — even on CancelledError/other exceptions.
             try:
                 await server.stop()
-            except Exception:  # noqa: BLE001 — stop() may already have run
-                pass
+            except Exception as _exc:  # noqa: BLE001 — stop() may already have run
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
             await self.extensions.stop()
             self.save_state()
 

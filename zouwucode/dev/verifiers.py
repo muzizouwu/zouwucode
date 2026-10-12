@@ -167,8 +167,8 @@ def detect_test_command(cwd: Path, configured: str = "") -> Optional[str]:
             pkg = json.loads((cwd / "package.json").read_text(encoding="utf-8"))
             if "test" in (pkg.get("scripts") or {}):
                 return "npm test"
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
     return None
 
 

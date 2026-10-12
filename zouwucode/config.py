@@ -1,4 +1,8 @@
 """Configuration management for ZOUWUCODE."""
+import logging
+
+logger = logging.getLogger("zouwucode.config")
+
 
 import json
 import yaml
@@ -302,8 +306,8 @@ class ZOUWUCODEConfig(BaseModel):
                 install_candidate = pkg_root / "config.yaml"
                 if install_candidate.exists():
                     install_path = install_candidate
-            except Exception:
-                pass
+            except Exception as _exc:
+                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
             if cwd_path.exists():
                 path = cwd_path

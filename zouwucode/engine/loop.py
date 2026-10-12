@@ -339,16 +339,16 @@ class EngineLoop:
                         if self.on_content_delta is not None:
                             try:
                                 self.on_content_delta(chunk.content)
-                            except Exception:
-                                pass
+                            except Exception as _exc:
+                                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
                     if chunk.thinking:
                         streamed_any = True
                         thinking_parts.append(chunk.thinking)
                         if self.on_thinking_delta is not None:
                             try:
                                 self.on_thinking_delta(chunk.thinking)
-                            except Exception:
-                                pass
+                            except Exception as _exc:
+                                logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
                     if chunk.tool_calls:
                         streamed_any = True
                         tool_calls = chunk.tool_calls
@@ -736,8 +736,8 @@ class EngineLoop:
                     if self.on_tool_event is not None:
                         try:
                             self.on_tool_event(tool_call)
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
                 def _record(tool_call, result):
                     """Append one tool result to the live prefix + bookkeeping.
