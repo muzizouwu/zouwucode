@@ -149,11 +149,18 @@ class SubAgentConfig(BaseModel):
 
 
 class McpServerConfig(BaseModel):
-    """One MCP server connection (reserved — inactive until configured)."""
+    """One MCP server connection (inactive until configured).
+
+    Transport follows the fields set: ``url`` → Streamable HTTP
+    (2025-03-26; JSON or SSE responses, session id echoed); otherwise
+    ``command`` → stdio subprocess.
+    """
 
     name: str                            # 服务器名（工具将注册为 name__tool）
-    command: str                         # stdio 启动命令
+    command: str = ""                    # stdio 启动命令（url 为空时使用）
     args: list[str] = Field(default_factory=list)
+    url: str = ""                        # Streamable HTTP 端点（优先于 command）
+    headers: dict[str, str] = Field(default_factory=dict)  # 附加请求头（如鉴权）
 
 
 class HookConfig(BaseModel):

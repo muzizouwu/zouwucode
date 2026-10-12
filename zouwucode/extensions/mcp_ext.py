@@ -2,7 +2,8 @@
 
 Inactive until ``extensions.mcp_servers`` is configured. When servers are
 listed, ``start()`` connects each one through the existing
-:class:`~zouwucode.mcp.client.MCPClient` (stdio transport) and wraps every
+:class:`~zouwucode.mcp.client.MCPClient` — stdio (``command``) or
+Streamable HTTP (``url``, preferred when both are set) — and wraps every
 server tool as a :class:`MCPTool` BaseTool so it merges transparently into
 the normal tool registry and sandbox/coordinator flow.
 """
@@ -76,8 +77,15 @@ class McpExtension(Extension):
         self._client = MCPClient()
         for server in self._configs:
             try:
-                await self._client.connect_stdio(server.name, server.command, list(server.args))
-                logger.info("MCP server connected: %s", server.name)
+                if getattr(server, "url", ""):
+                    await self._client.connect_http(
+                        server.name, server.url,
+                        headers=dict(getattr(server, "headers", {}) or {}))
+                    logger.info("MCP server connected (http): %s", server.name)
+                else:
+                    await self._client.connect_stdio(
+                        server.name, server.command, list(server.args))
+                    logger.info("MCP server connected: %s", server.name)
             except Exception as exc:  # noqa: BLE001
                 logger.error("MCP server '%s' failed to connect: %s", server.name, exc)
 

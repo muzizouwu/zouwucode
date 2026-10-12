@@ -64,10 +64,14 @@ subagent:
 
 # 扩展层（MCP/LSP — 默认不激活，配置后自动启用）
 extensions:
-  mcp_servers: []               # 示例：
+  mcp_servers: []               # 示例（stdio）：
   #  - name: filesystem
   #    command: npx
   #    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+  # 或 Streamable HTTP（url 优先于 command；headers 可选，如鉴权）：
+  #  - name: remote
+  #    url: "http://127.0.0.1:3000/mcp"
+  #    headers: {Authorization: "Bearer <token>"}
   lsp_enabled: false            # 启用后注册 check_diagnostics 诊断工具
   hooks: []                     # 生命周期钩子示例：
   #  - event: post_tool        # pre_tool（可拦截）| post_tool（观察/自动化）
