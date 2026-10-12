@@ -22,23 +22,32 @@ from .tools.code_exec_tool import PythonExecTool
 from .tools.repo_map_tool import RepoMapTool
 
 
-def create_provider_for(config: ZOUWUCODEConfig, provider_key: str) -> BaseProvider:
-    """Build the provider named ``provider_key`` (defaults injected if absent).
+def ensure_provider_config(config: ZOUWUCODEConfig, provider_key: str) -> ProviderConfig:
+    """Guarantee ``provider_key`` exists in ``config.providers`` and return it.
 
-    Generalises ``create_provider`` so routing roles (oracle / worker) can name
-    ANY key in ``providers:``, not only the default one.
+    When no config.yaml is present (fresh install, CI), ``providers`` is an
+    empty dict — CLI/TUI overrides for --model/--api-key must still land
+    somewhere instead of being silently dropped (the v1.7.0 CI-red bug).
+    Inference mirrors create_provider_for: openai-ish keys get the OpenAI
+    defaults, everything else DeepSeek.
     """
     if provider_key not in config.providers:
-        # Infer the API type from the provider key, so `--provider openai`
-        # (or any unconfigured key) builds the matching client instead of
-        # silently falling back to a DeepSeek client pointed at the wrong URL.
         name = (provider_key or "").lower()
         api_type = "openai" if ("openai" in name or "gpt" in name) else "deepseek"
         model = "gpt-4o" if api_type == "openai" else "deepseek-v4-flash"
         config.providers[provider_key] = ProviderConfig(
             api_key="", model=model, api_type=api_type,
         )
-    provider_config = config.providers[provider_key]
+    return config.providers[provider_key]
+
+
+def create_provider_for(config: ZOUWUCODEConfig, provider_key: str) -> BaseProvider:
+    """Build the provider named ``provider_key`` (defaults injected if absent).
+
+    Generalises ``create_provider`` so routing roles (oracle / worker) can name
+    ANY key in ``providers:``, not only the default one.
+    """
+    provider_config = ensure_provider_config(config, provider_key)
     api_type = getattr(provider_config, "api_type", "deepseek")
     if api_type == "deepseek":
         return DeepSeekProvider(provider_config.model_dump())

@@ -118,6 +118,7 @@
 | WebSearch | 网络 | 联网搜索 |
 | WebFetch | 网络 | 获取网页内容 |
 | RepoMap | 代码 | 生成按被引用排序的代码地图（Aider 式签名地图） |
+| oracle | 复核 | 只读第二意见（独立 provider 会话，不触碰工作区，不影响主缓存） |
 | task | 委派 | 将子任务并行委派给隔离子 Agent（见 5.3） |
 
 ### 3.4 高级特性
@@ -128,16 +129,20 @@
 | 对话压缩 | 三级压缩（lossless / balanced / aggressive） | `context/compressor.py` |
 | 滑动窗口 | Hot / Warm / Cold / Archive 四层上下文管理 | `context/sliding_window.py` |
 | 权限沙箱 | 危险命令检测、零宽字符防护、路径白名单 | `sandbox/permission.py` |
+| 容器隔离（可选） | `sandbox.container`：一次性容器执行 shell 命令（仅挂载工作区、默认断网），运行时缺失自动回退主机 | `sandbox/container.py` |
 | 会话管理 | 自动保存、恢复、回滚 | `session/manager.py` |
-| 子 Agent 系统 | 主 Agent + 隔离子 Agent 并行执行（task 工具委派） | `agent/subagent.py`, `tools/agent_tools.py` |
+| 消息回退（rewind） | 按消息回退文件改动 / 对话 / 两者 | `session/snapshot.py` |
+| 子 Agent 系统 | 主 Agent + 隔离子 Agent 并行执行（task 工具委派）；可选 worktree 隔离（每子 Agent 独立 `dev/sub-<id>` 分支工作区） | `agent/subagent.py`, `tools/agent_tools.py` |
+| 模型路由 / oracle | worker 用便宜模型干活、oracle 只读复核（`/oracle` 命令 + `oracle` 工具），主会话前缀缓存不受影响 | `runtime.py`（ProviderRouter）, `tools/oracle_tool.py` |
+| 跨会话消息 / 共享 | `/share` 导出自包含 Markdown；`/msg`·`/inbox`·`/peers` 本机会话互通（SQLite，无守护进程） | `share.py`, `messaging.py` |
 | 扩展层 | ExtensionHost 统一宿主，MCP / LSP 扩展默认不激活 | `extensions/` |
 | Devin 式 dev 模式 | `zouwucode dev`：规划→实现→多层验证→独立审查→Draft PR→CI 联动；SQLite 队列 + 并行 worker + watch 标签轮询 | `dev/` |
 | 评测 harness | `zouwucode eval`：真实 agent 栈 + 确定性行为断言，通过率/成本度量 | `eval/` |
 | 生命周期钩子 | pre_tool（可拦截）/ post_tool（自动化）shell 钩子，配置驱动 | `agent/hooks.py` |
 | Rules & Skills | `.zouwucode/rules.md` 项目规则 + `.zouwucode/skills/*.md` 技能包 | `skills/manager.py` |
 | 模块系统 | 可加载扩展模块，内置 hello-my-zouwucode 多智能体编排 | `modules/manager.py`, `hello_my_zouwucode/` |
-| MCP 协议 | 支持 Model Context Protocol 扩展（客户端 + 服务端） | `mcp/client.py` · `mcp/server.py` |
-| LSP 集成 | 编辑后自动诊断 | `lsp/client.py` |
+| MCP 协议 | 支持 Model Context Protocol 扩展（客户端 stdio + Streamable HTTP；服务端 `zouwucode mcp-server`） | `mcp/client.py` · `mcp/server.py` |
+| LSP 集成 | 编辑后自动诊断 + hover 类型签名 + go-to-definition（3 工具，按需启用） | `lsp/client.py`, `extensions/lsp_ext.py` |
 | 便捷启动 | `z` 命令一键启动，PowerShell 安装脚本 | `z.bat`, `install.ps1` |
 | 流式思考 | 思考过程实时逐字显示，`show_thinking` 默认开启，`/thinking` 三端统一开关 | `loop.py` + CLI/TUI/Web |
 
@@ -994,7 +999,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（344 个测试用例）
+├── tests/                              # 测试套件（605 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1291,6 +1296,7 @@ show_thinking: true                        # true | false，默认 true 实时�
 | python_exec 并行子 Agent 串行排队 + 变量串扰 | 所有调用共享一个 REPL 进程/一把锁/一份 globals | ContextVar 会话隔离：`SubAgent.run` 绑定 session=self.id，gather 上下文拷贝使每子 Agent 独占 REPL |
 | python_exec 误杀普通 Python 代码 | 复用 shell 危险正则（`format`/`reg`/`dd`）扫 Python 源码，子串误命中 | 只保留针对破坏性调用的专用 `_RISKY`，不复用 shell 检查 |
 | 正常长任务被 `Exceeded max_tool_rounds=25` 拦腰砍断 | 轮数上限是硬截断，多步任务超 25 轮即 abort，前功尽弃 | 软着陆：预算耗尽注入"收尾/高效继续"提醒并追加预算（`max_round_extensions`，默认 2 = 最多 75 轮），扩展用尽才熔断；`=0` 恢复旧行为 |
+| CI 自 v1.0.4 起全矩阵红灯（13 个提交） | `--model`/`--api-key` override 守卫要求 provider 已存在，全新安装（无 config.yaml，CI 即此状态）providers 为空 → override 静默丢弃、断言失败；测试还依赖仓库外的本地 config.yaml | `runtime.ensure_provider_config()` 统一引导 provider 条目，TUI/CLI override 先引导再写入；新增无配置文件回归用例 |
 
 ---
 
@@ -1465,7 +1471,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **344 个测试用例**
+- 共计 **605 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证

@@ -197,10 +197,17 @@ class ZOUWUCODETUI(App):
             ov = self._cli_overrides
             if ov.get("provider"):
                 self.config.default_provider = ov["provider"]
-            if ov.get("model") and self.config.default_provider in self.config.providers:
-                self.config.providers[self.config.default_provider].model = ov["model"]
-            if ov.get("api_key") and self.config.default_provider in self.config.providers:
-                self.config.providers[self.config.default_provider].api_key = ov["api_key"]
+            if ov.get("model") or ov.get("api_key"):
+                # Bootstrap the provider entry when absent (no config.yaml →
+                # empty providers): previously --model/--api-key were
+                # silently dropped in that case (the CI-red bug).
+                from ..runtime import ensure_provider_config
+                prov = ensure_provider_config(
+                    self.config, self.config.default_provider)
+                if ov.get("model"):
+                    prov.model = ov["model"]
+                if ov.get("api_key"):
+                    prov.api_key = ov["api_key"]
             if ov.get("reasoning"):
                 self.config.reasoning_intensity = ov["reasoning"]
             if ov.get("mode"):

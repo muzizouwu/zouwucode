@@ -4,6 +4,22 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.7.1] — 2026-10-13
+
+体检修复：CI 红灯根治 + 文档/徽章同步。
+
+### Fixed
+- **`--model` / `--api-key` 在无 config.yaml 时被静默丢弃**（v1.0.4 起 CI 全矩阵红灯的根因）：TUI/CLI 的 override 守卫要求 provider 已存在于 `providers:` 字典，而全新安装（含 CI）该字典为空——override 不生效、测试断言失败。新增 `runtime.ensure_provider_config()` 统一引导（推断 api_type/model，与 `create_provider_for` 同源），TUI/CLI 两处 override 改为先引导再写入。这同时修复了真实用户场景：`zouwucode --tui --model xxx` 在未配置机器上此前无效
+- 测试不再依赖仓库外的本地 `config.yaml`：新增无配置文件场景的回归用例（`test_overrides_land_without_config_file`）
+
+### Docs
+- README 测试徽章修正（文本与 URL 数字不一致且过时 → 605 passed）
+- README 特性表补齐 v1.1–v1.7：容器沙箱、LSP hover/go-to-definition、MCP Streamable HTTP + `mcp-server` 模式、repo-map、模型路由/oracle、worktree 隔离、/share 与跨会话消息
+- 技术规格文档同步：特性表新增上述条目、工具表补 oracle、测试计数 344 → 605、Bug 表补 CI 红灯条目
+
+### Tests
+- 新增 2 用例（605 全绿）：无 config.yaml 时 override 落地、`ensure_provider_config` openai/deepseek 推断
+
 ## [1.7.0] — 2026-10-13
 
 LSP 加深：从"只有诊断"到"能看定义、能查类型"。

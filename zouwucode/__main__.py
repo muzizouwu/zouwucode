@@ -174,12 +174,15 @@ def main():
     # Apply CLI overrides
     if args.mode:
         app.set_mode(args.mode)
-    if args.model:
-        if app.config.default_provider in app.config.providers:
-            app.config.providers[app.config.default_provider].model = args.model
-    if args.api_key:
-        if app.config.default_provider in app.config.providers:
-            app.config.providers[app.config.default_provider].api_key = args.api_key
+    if args.model or args.api_key:
+        # Bootstrap the provider entry when no config.yaml defined one —
+        # otherwise --model/--api-key were silently dropped (same bug as TUI).
+        from .runtime import ensure_provider_config
+        prov = ensure_provider_config(app.config, app.config.default_provider)
+        if args.model:
+            prov.model = args.model
+        if args.api_key:
+            prov.api_key = args.api_key
 
     # Context compression — wired into config.context so the ENGINE actually
     # honors it (previously these flags only changed /compress display text).

@@ -26,6 +26,33 @@ class TestTuiOverrides:
         assert prov.model == "test-model-x"
         assert prov.api_key == "sk-test-y"
 
+    def test_overrides_land_without_config_file(self, tmp_path, monkeypatch):
+        """Regression (v1.7.0 CI-red): with NO config.yaml the providers dict
+        is empty, and --model/--api-key used to be silently dropped. They must
+        bootstrap a provider entry instead."""
+        import zouwucode.tui.textual_app as ta
+        from zouwucode.config import ZOUWUCODEConfig
+
+        blank = ZOUWUCODEConfig()
+        blank.data_dir = str(tmp_path)
+        assert not blank.providers, "precondition: fresh config has no providers"
+        monkeypatch.setattr(ta.ZOUWUCODEConfig, "load",
+                            classmethod(lambda cls, path=None: blank))
+
+        app = self._tui({"model": "test-model-x", "api_key": "sk-test-y"})
+        prov = app.config.providers[app.config.default_provider]
+        assert prov.model == "test-model-x"
+        assert prov.api_key == "sk-test-y"
+
+    def test_ensure_provider_config_infers_openai(self):
+        from zouwucode.config import ZOUWUCODEConfig
+        from zouwucode.runtime import ensure_provider_config
+        cfg = ZOUWUCODEConfig()
+        prov = ensure_provider_config(cfg, "openai")
+        assert prov.api_type == "openai" and prov.model == "gpt-4o"
+        prov2 = ensure_provider_config(cfg, "deepseek")
+        assert prov2.api_type == "deepseek"
+
     def test_compression_flags_reach_engine_config(self):
         app = self._tui({"compress": "balanced", "max_tokens": 12345,
                          "keep_turns": 7})

@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 544 passed](https://img.shields.io/badge/tests-344%20passed-green)](tests/)
+[![Tests: 605 passed](https://img.shields.io/badge/tests-605%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -32,11 +32,12 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **推理强度** | 三档可调：low（快速确定）、medium（均衡思考）、max（深度推理） |
 | **对话压缩** | 三级压缩策略（lossless / balanced / aggressive） |
 | **上下文窗口** | 三层管理（Hot / Warm / Cold），自动滑动归档 |
-| **安全沙箱** | 危险命令检测、零宽字符防护、路径白名单 |
+| **安全沙箱** | 危险命令检测、零宽字符防护、路径白名单；可选**容器隔离**（`sandbox.container`，一次性容器执行、默认断网、运行时缺失自动回退） |
 | **任务打断** | 三端统一：TUI/WebUI 按 `Esc`（带确认弹窗）、CLI 按 `Ctrl+C`，打断后可「继续」恢复或放弃 |
 | **子 Agent 系统** | 主 Agent 通过 `task` 工具分解任务并并行委派：每个子 Agent 独立引擎/缓存，支持工具白名单、独立超时、级联打断 |
 | **Devin 式 dev 模式** | `zouwucode dev <issue>` 自主完成 issue→隔离 worktree→实现→验证→Draft PR 全流程；支持队列并行、watch 自动认领、成本熔断 |
-| **扩展层（MCP/LSP 预留）** | 统一 Extension 接口：MCP 服务器工具桥接、LSP 诊断工具，配置即启用，零配置零开销 |
+| **扩展层（MCP/LSP）** | MCP 服务器工具桥接（stdio + Streamable HTTP），并可 `zouwucode mcp-server` 反向暴露为 MCP 服务器；LSP 三工具：诊断、hover 类型签名、go-to-definition，配置即启用，零配置零开销 |
+| **仓库地图（repo-map）** | 符号级代码库摘要注入上下文，大项目下模型"看得见全貌"而不烧 token |
 | **引擎安全限制** | 工具轮数上限、单请求/单任务超时、连续工具错误熔断 — 杜绝死循环与执行停顿 |
 | **会话管理** | 自动保存、恢复、回滚 |
 | **hello-my-zouwucode 多智能体编排模块** | 复刻自 OpenCode 生态的 oh-my-opencode：11 专职 Agent + IntentGate 意图门控 + ultrawork 全自主管线 |
