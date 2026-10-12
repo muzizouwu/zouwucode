@@ -738,7 +738,7 @@ ZOUWUCODE 支持在任务执行过程中随时打断：
 通过 `extensions:` 配置段预留 MCP 与 LSP 集成（默认不激活）：
 
 - `mcp_servers`：配置 MCP 服务器（stdio）后自动连接，服务器工具以 `名称__工具名` 形式进入可用工具列表
-- `lsp_enabled: true`：启用 `check_diagnostics` 诊断工具（需对应语言服务器在 PATH 中）
+- `lsp_enabled: true`：启用 LSP 工具——`check_diagnostics`（诊断）、`lsp_hover`（查类型/文档）、`lsp_definition`（跳到声明）（需对应语言服务器在 PATH 中）
 - 反向：`zouwucode mcp-serve` 以 stdio 暴露**全部内置工具**，供 Claude Code / Goose / Cursor 等 MCP 客户端消费（含 initialize/tools/list/tools/call/ping）
 
 详见 [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md)。

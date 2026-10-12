@@ -411,7 +411,9 @@ class TestExtensionHost:
         host.register(LspExtension(enabled=True))
         asyncio.run(host.start(ExtensionContext(config=ZOUWUCODEConfig())))
         tools = host.get_tools()
-        assert len(tools) == 1
+        # LSP contributes diagnostics + hover + definition (v1.7.0).
+        assert {t.get_name() for t in tools} == {
+            "check_diagnostics", "lsp_hover", "lsp_definition"}
         assert tools[0].get_name() == "check_diagnostics"
 
     def test_register_after_start_rejected(self):

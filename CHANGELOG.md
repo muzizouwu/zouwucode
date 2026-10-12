@@ -4,6 +4,21 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.7.0] — 2026-10-13
+
+LSP 加深：从"只有诊断"到"能看定义、能查类型"。
+
+### Added — LSP hover + go-to-definition
+- `lsp/client.py`：新增 `hover()`（某位置符号的类型/签名/文档）与 `definition()`（符号在哪里声明），
+  带正确的 `Content-Length` 分帧、按 id 匹配响应、5s 超时、`file://` URI → 本地路径转换。
+- 扩展层（`extensions.lsp_enabled: true`）新增两个工具：
+  - `lsp_hover(file_path, line, column)` — 1-based 行/列；理解陌生代码再动手。
+  - `lsp_definition(file_path, line, column)` — 定位符号声明处，找代码最快的方式。
+- 原来只有 `check_diagnostics`；现共 3 个 LSP 工具（仍按需启用、缺服务器时优雅返回空）。
+
+### Tests
+- 新增 `tests/test_v170_lsp_hover_def.py`（+12）：hover 结果归一化、URI→路径、1-based↔0-based 转换、工具错误语义、扩展注册 3 工具。套件 **591 → 603 全绿**。
+
 ## [1.6.0] — 2026-10-13
 
 容器沙箱（可选）：把"正则防呆"升级为**真隔离**。
