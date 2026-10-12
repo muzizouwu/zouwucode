@@ -934,6 +934,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       addMsg('system', '  /skill unload <name> - Unload a skill');
       addMsg('system', '  /sessions     - List sessions');
       addMsg('system', '  /resume <id>  - Resume a saved session');
+      addMsg('system', '  /rewind <n|list> [files|chat|both] - Rewind to a message index');
       addMsg('system', '  /plan|/agent|/yolo - Switch mode');
       addMsg('system', '  /memory       - Show project memory');
       addMsg('system', '  /goal [set X] - Show/set project goal');
@@ -1050,6 +1051,30 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         addMsg('system', '\u21ba Resumed ' + d.session_id + ' (' + (d.turns || []).length + ' turns)');
         (d.turns || []).forEach(t => addMsg(t.role === 'user' ? 'user' : 'assistant', t.content || ''));
       }).catch(() => addMsg('system', 'Resume request failed.'));
+      return;
+    }
+    if (cmd.startsWith('/rewind')) {
+      const parts = cmd.split(/\s+/);
+      if (parts[1] === 'list' || parts[1] === 'ls') {
+        fetch('/api/checkpoints').then(r => r.json()).then(d => {
+          addMsg('system', 'Checkpoints (current log: ' + d.messages + ' messages):');
+          (d.checkpoints || []).forEach(c => addMsg('system', '  #' + c.index + '  ' + c.rev.slice(0, 8)));
+        }).catch(() => {});
+        return;
+      }
+      const index = parseInt(parts[1]);
+      if (isNaN(index)) { addMsg('system', 'Usage: /rewind <index> [files|chat|both] | list'); return; }
+      const scope = parts[2] || 'both';
+      fetch('/api/rewind', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index, scope }),
+      }).then(r => r.json()).then(d => {
+        if (!d.ok) { addMsg('system', '\u2717 Rewind failed: ' + (d.error || 'unknown')); return; }
+        clearChat();
+        addMsg('system', '\u21b6 Rewound to #' + d.message_index +
+          ' (files=' + d.files + ', chat=' + d.conversation + ')');
+        (d.turns || []).forEach(t => addMsg(t.role === 'user' ? 'user' : 'assistant', t.content || ''));
+      }).catch(() => addMsg('system', 'Rewind request failed.'));
       return;
     }
     if (cmd === '/mode') {
@@ -2017,6 +2042,32 @@ class WebUIServer:
                 "turns": [{"role": t.get("role"), "content": t.get("content", "")}
                           for t in turns if t.get("role") in ("user", "assistant")],
             })
+
+        elif path == "/api/checkpoints" and method == "GET":
+            mgr = getattr(self, "sessions_manager", None)
+            cps = mgr.list_checkpoints() if mgr and hasattr(mgr, "list_checkpoints") else []
+            log = mgr.current_log() if mgr else []
+            return self._json_response({"checkpoints": cps, "messages": len(log)})
+
+        elif path == "/api/rewind" and method == "POST":
+            app = getattr(self, "app", None)
+            if app is None or not hasattr(app, "rewind_to"):
+                return self._json_response({"ok": False, "error": "rewind unavailable"}, 400)
+            if self._chat_busy:
+                return self._json_response({"ok": False, "error": "another task is running"}, 409)
+            try:
+                data = json.loads(body or "{}")
+                index = int(data.get("index", 0))
+                scope = str(data.get("scope", "both"))
+            except (json.JSONDecodeError, ValueError, TypeError):
+                return self._json_response({"ok": False, "error": "invalid request"}, 400)
+            res = app.rewind_to(index, scope)
+            if res.get("ok"):
+                mgr = getattr(self, "sessions_manager", None)
+                turns = mgr.current_log() if mgr else []
+                res["turns"] = [{"role": t.get("role"), "content": t.get("content", "")}
+                                for t in turns if t.get("role") in ("user", "assistant")]
+            return self._json_response(res)
 
         elif path == "/api/rollback" and method == "POST":
             manager = getattr(self, "sessions_manager", None)

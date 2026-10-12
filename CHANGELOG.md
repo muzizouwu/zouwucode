@@ -4,6 +4,32 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.0.8] — 2026-10-13
+
+**逐消息 rewind**（对标 Claude Code `/rewind`、Cline checkpoints）：能回退到会话中的**任意消息点**，
+并可选恢复**代码 / 对话 / 两者**——"犯错成本趋零"才敢放手让 agent 跑。
+
+### Added
+- **`SessionManager` 检查点**：每轮快照绑定一个消息下标（`index -> rev`），随会话持久化；
+  新增 `record_checkpoint()` / `list_checkpoints()` / `rewind(index, files, conversation)`。
+- **`WorkspaceSnapshotter.reset_to(rev)`**：把工作区还原到**任意**历史快照（不是"N 步前"）；
+  历史**向前**追加（checkout + 删除新增 + 新提交），因此旧检查点始终可达、仅回滚代码不会孤立对话检查点。
+  空基线（rewind 到 0）也能正确处理。
+- **`ZOUWUCODEApp.rewind_to(index, scope)`**：`scope ∈ {files, chat, both}`；
+  回滚对话时**重建冻结会话并回放**，保证引擎上下文与日志一致（否则模型还看得见被回退掉的轮次）。
+  顺带抽出 `_rebuild_context_from_log()`，`resume_session` 复用之（去重）。
+- **三端命令**：CLI/TUI `/rewind [N] [files|chat|both] | list`；Web `/rewind` + 端点
+  `POST /api/rewind`、`GET /api/checkpoints`（忙时 409）；浏览器回滚后重渲染历史。
+
+### Changed
+- 空白工作区也能拍**基线快照**（首次提交允许空树），`/rewind 0` 因此可回到会话起点。
+
+### Tests
+- 新增 `tests/test_v108_rewind.py`（+10：代码-only / 对话-only / 两者、回到 0、越界拒绝、检查点截断与持久化、引擎上下文重建）。套件 **505 → 515 全绿**。
+
+### Known
+- TUI 正文流式仍未做。
+
 ## [1.0.7] — 2026-10-13
 
 三端同步互通补到 100%：Web 也流式输出正文，且能**在浏览器里续接历史会话**。

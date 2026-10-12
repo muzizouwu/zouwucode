@@ -397,9 +397,11 @@ class ZOUWUCODETUI(App):
         resumed = bool(requested) and self.sessions.load_session(requested) is not None
         self._session_id = (requested if resumed
                             else self.sessions.start_session())
-        # Baseline snapshot for workspace rollback (/rollback).
+        # Baseline snapshot for workspace rollback (/rollback, /rewind).
         if getattr(self.sessions, "snapshotter", None) is not None:
             self.sessions.snapshot_workspace("session start")
+            if not resumed:
+                self.sessions.record_checkpoint(0)
         system_prompt = self._build_system_prompt()
         self.engine.freeze_session(system_prompt, self.tools.get_schemas())
         self.context_window.add_to_hot([
@@ -649,6 +651,21 @@ class ZOUWUCODETUI(App):
         for d in details:
             chat.write(f"    {d}")
 
+    def rewind_to(self, message_index, scope: str = "both") -> dict:
+        """Per-message rewind (files / conversation / both) + rebuild context."""
+        scope = (scope or "both").lower()
+        files = scope in ("both", "files", "code", "workspace")
+        conversation = scope in ("both", "chat", "conversation", "messages")
+        res = self.sessions.rewind(message_index, files=files,
+                                   conversation=conversation)
+        if res.get("ok") and conversation:
+            prompt = self._build_system_prompt()
+            self.engine.freeze_session(prompt, self.tools.get_schemas())
+            self.context_window.add_to_hot([{"role": "system", "content": prompt}])
+            res["replayed"] = self.sessions.replay_history(
+                self.sessions.current_log(), self.engine.cache, self.context_window)
+        return res
+
     def _on_tool_event(self, tool_call) -> None:
         """Render an opencode-style tool invocation line ("→ Read file …")."""
         try:
@@ -697,6 +714,7 @@ class ZOUWUCODETUI(App):
             chat.write("    /cache         - Show cache statistics")
             chat.write("    /sessions      - List saved sessions")
             chat.write("    /rollback      - Undo the last N turns' file changes (/rollback [N|list])")
+            chat.write("    /rewind        - Rewind to a message index (/rewind [N] [files|chat|both] | list)")
             chat.write("    /mode          - Show current mode")
             chat.write("    /memory        - Show project memory context")
             chat.write("    /goal          - Show current goal")
@@ -867,6 +885,30 @@ class ZOUWUCODETUI(App):
                         f"{len(res.get('removed') or [])} removed.", "green"))
                 else:
                     chat.write(_style(f"  ✗ Rollback failed: {res.get('error')}", "red"))
+
+        elif command == "/rewind":
+            pa = arg.strip().split()
+            if not pa or pa[0] in ("list", "ls"):
+                cps = self.sessions.list_checkpoints()
+                if not cps:
+                    chat.write("  No checkpoints (rollback disabled, or no turns yet).")
+                else:
+                    chat.write(_style(f"  Checkpoints (current log: {len(self.sessions.current_log())} messages):", "bold cyan"))
+                    for c in cps:
+                        chat.write(Text(f"    #{c['index']}  {c['rev'][:8]}"))
+            else:
+                idx = int(pa[0]) if pa[0].isdigit() else 0
+                scope = pa[1] if len(pa) > 1 else "both"
+                res = self.rewind_to(idx, scope)
+                if res.get("ok"):
+                    extra = (f", {res['replayed']} messages replayed"
+                             if res.get("replayed") is not None else "")
+                    chat.write(_style(
+                        f"  ✓ Rewound to message #{res['message_index']} "
+                        f"(files={'yes' if res['files'] else 'no'}, "
+                        f"chat={'yes' if res['conversation'] else 'no'}{extra})", "green"))
+                else:
+                    chat.write(_style(f"  ✗ Rewind failed: {res.get('error')}", "red"))
 
         elif command == "/clear":
             self.query_one("#chat-view", RichLog).clear()

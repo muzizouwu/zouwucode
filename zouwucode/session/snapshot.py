@@ -113,9 +113,16 @@ class WorkspaceSnapshotter:
         try:
             self._ensure_repo()
             self._git("add", "-A")
-            if self._git("diff", "--cached", "--quiet").returncode == 0:
-                return None  # nothing changed
-            r = self._git("commit", "--quiet", "-m", (label or "snapshot")[:200])
+            no_changes = self._git("diff", "--cached", "--quiet").returncode == 0
+            # Skip no-op snapshots EXCEPT the very first one: the baseline may
+            # legitimately be an empty tree, and rewind-to-0 needs a commit to
+            # target. (A later empty change is still skipped.)
+            if no_changes and self.count() > 0:
+                return None
+            args = ["commit", "--quiet", "-m", (label or "snapshot")[:200]]
+            if no_changes:
+                args.append("--allow-empty")
+            r = self._git(*args)
             if r.returncode != 0:
                 return None
             return self._git("rev-parse", "HEAD").stdout.strip() or None
@@ -149,6 +156,58 @@ class WorkspaceSnapshotter:
             return out
         except Exception:
             return []
+
+    def head(self) -> "str | None":
+        """Current snapshot commit id (None when unavailable / no snapshots)."""
+        if not self.available:
+            return None
+        try:
+            self._ensure_repo()
+            r = self._git("rev-parse", "HEAD")
+            return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+        except Exception:
+            return None
+
+    def reset_to(self, rev: str) -> dict:
+        """Restore the workspace to an ARBITRARY snapshot commit (per-message rewind).
+
+        Unlike rollback() this targets a specific commit, not "N from HEAD",
+        and it moves history FORWARD (checkout + delete-added + new commit),
+        so older checkpoints stay reachable and a files-only rewind does not
+        orphan the conversation's checkpoints.
+        """
+        if not self.available:
+            return {"ok": False, "error": "rollback is disabled or git is unavailable"}
+        if not rev:
+            return {"ok": False, "error": "no target revision"}
+        try:
+            self._ensure_repo()
+            head = self._git("rev-parse", "HEAD").stdout.strip()
+            added = [x for x in
+                     self._git("diff", "--name-only", "--diff-filter=A",
+                               rev, head).stdout.split() if x]
+            # An empty baseline tree (rewind-to-0) has no paths to check out;
+            # checkout would error on "pathspec '.' did not match". Deleting
+            # the added files below already produces the empty state.
+            tree_files = self._git("ls-tree", "-r", "--name-only", rev).stdout.strip()
+            if tree_files:
+                co = self._git("checkout", rev, "--", ".")
+                if co.returncode != 0:
+                    return {"ok": False,
+                            "error": (co.stderr or "checkout failed").strip()[:300]}
+            removed = []
+            for rel in added:
+                fp = (self.workspace / rel)
+                try:
+                    if fp.is_file() or fp.is_symlink():
+                        fp.unlink()
+                        removed.append(rel)
+                except OSError:
+                    pass
+            self.snapshot("rewind -> %s" % rev[:8])
+            return {"ok": True, "target": rev[:8], "removed": removed}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
 
     def rollback(self, steps: int = 1) -> dict:
         """Restore the workspace to ``HEAD~steps`` (undo the last n turns).

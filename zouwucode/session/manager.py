@@ -26,6 +26,8 @@ class SessionManager:
         # under <data_dir>/snapshots/<hash-of-workspace>.git, isolated from
         # the project's own .git.
         self._snapshotter: Optional[WorkspaceSnapshotter] = None
+        # Per-message rewind: (message_index -> snapshot rev) checkpoints.
+        self._checkpoints: list[dict] = []
         try:
             enabled = bool(getattr(config.session, "rollback_enabled", True))
             root = Path.cwd().resolve()
@@ -60,6 +62,71 @@ class SessionManager:
             return []
         return self._snapshotter.list_snapshots(limit)
 
+    # ── Per-message rewind (Claude Code /rewind, Cline checkpoints) ──────────
+
+    def record_checkpoint(self, index: Optional[int] = None) -> None:
+        """Bind the current snapshot HEAD to a message index (default: log end)."""
+        if self._snapshotter is None or not self._snapshotter.enabled:
+            return
+        rev = self._snapshotter.head()
+        if not rev:
+            return
+        if index is None:
+            index = len(self._current_log)
+        self._checkpoints = [c for c in self._checkpoints if c["index"] != index]
+        self._checkpoints.append({"index": index, "rev": rev})
+        self._checkpoints.sort(key=lambda c: c["index"])
+
+    def list_checkpoints(self) -> list[dict]:
+        """Message-index checkpoints, oldest first."""
+        return list(self._checkpoints)
+
+    def _checkpoint_rev_for(self, message_index: int) -> Optional[str]:
+        """Snapshot rev at (or before) a message index; earliest as fallback."""
+        cands = [c for c in self._checkpoints if c["index"] <= message_index]
+        if cands:
+            return cands[-1]["rev"]
+        return self._checkpoints[0]["rev"] if self._checkpoints else None
+
+    def rewind(self, message_index, files: bool = True,
+               conversation: bool = True) -> dict:
+        """Rewind to a MESSAGE index: restore files and/or the conversation.
+
+        Cline's insight — "the cost of a mistake drops to nearly zero" — made
+        operational: pick any point in the session, then restore the workspace
+        (code), the turn log (chat), or both (default). ``files`` checks the
+        workspace out of the checkpoint snapshot at/before the index;
+        ``conversation`` truncates the turn log to the first ``message_index``
+        messages.
+        """
+        log = self._current_log
+        try:
+            mi = int(message_index)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "message_index must be an integer"}
+        if mi < 0 or mi > len(log):
+            return {"ok": False,
+                    "error": "message_index out of range (0..%d)" % len(log)}
+        result = {"ok": True, "message_index": mi, "files": False,
+                  "conversation": False, "files_total": len(log), "rev": None}
+        if files and self._snapshotter is not None and self._snapshotter.enabled:
+            rev = self._checkpoint_rev_for(mi)
+            if rev:
+                r = self._snapshotter.reset_to(rev)
+                result["files"] = bool(r.get("ok"))
+                result["rev"] = r.get("target")
+                if not r.get("ok"):
+                    result["file_error"] = r.get("error")
+            else:
+                result["file_error"] = "no checkpoint at or before this index"
+        if conversation:
+            self._current_log = log[:mi]
+            self._checkpoints = [c for c in self._checkpoints if c["index"] <= mi]
+            if self.config.session.save_enabled:
+                self._save_session()
+            result["conversation"] = True
+        return result
+
     @property
     def current_session_id(self) -> Optional[str]:
         return self._current_session_id
@@ -72,6 +139,7 @@ class SessionManager:
         """Start a new session."""
         self._current_session_id = session_id or f"session-{uuid.uuid4().hex[:12]}"
         self._current_log = []
+        self._checkpoints = []
         self._sessions_dir.mkdir(parents=True, exist_ok=True)
         return self._current_session_id
 
@@ -80,12 +148,14 @@ class SessionManager:
         entry["timestamp"] = time.time()
         self._current_log.append(entry)
         if self.config.session.save_enabled:
-            self._save_session()
-            # Snapshot AFTER the turn, so HEAD == "state after last turn"
-            # and /rollback n undoes the last n turns.
+            # Snapshot AFTER the turn, so HEAD == "state after last turn":
+            # /rollback n undoes the last n turns, and the checkpoint binds
+            # this snapshot to the current message index for /rewind.
             if self._snapshotter is not None:
                 role = entry.get("role", "turn")
                 self._snapshotter.snapshot("turn: %s" % role)
+                self.record_checkpoint(len(self._current_log))
+            self._save_session()
 
     def _save_session(self) -> None:
         """Persist the current session to disk."""
@@ -100,6 +170,7 @@ class SessionManager:
             "started_at": self._current_log[0]["timestamp"] if self._current_log else time.time(),
             "updated_at": time.time(),
             "turns": self._current_log,
+            "checkpoints": self._checkpoints,
         }
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -110,6 +181,7 @@ class SessionManager:
             data = json.loads(path.read_text(encoding="utf-8"))
             self._current_session_id = session_id
             self._current_log = data.get("turns", [])
+            self._checkpoints = data.get("checkpoints", [])
             return self._current_log
         return None
 

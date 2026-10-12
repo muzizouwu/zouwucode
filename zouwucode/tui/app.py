@@ -245,6 +245,10 @@ class ZOUWUCODEApp:
         # rollback is disabled or git is unavailable.
         if getattr(self.sessions, "snapshotter", None) is not None:
             self.sessions.snapshot_workspace("session start")
+            # Bind the baseline to message index 0 (new sessions only — a
+            # resumed session restores its own checkpoints from disk).
+            if not resumed:
+                self.sessions.record_checkpoint(0)
 
         self.transcripts.start_session(self._session_id)
         return self._session_id
@@ -261,15 +265,35 @@ class ZOUWUCODEApp:
         turns = self.sessions.load_session(session_id)
         if turns is None:
             return []
+        self._session_id = session_id
+        self._rebuild_context_from_log()
+        return self.sessions.current_log()
+
+    def _rebuild_context_from_log(self) -> int:
+        """Rebuild the frozen session and replay the current turn log into it.
+
+        Shared by resume (switch to a saved session) and rewind (drop later
+        turns): the live engine's prefix cache must mirror the log, or the
+        model keeps seeing turns that were just rewound away.
+        """
         system_prompt = self._build_system_prompt(
             self.project_memory.get_full_context())
         self.engine.freeze_session(system_prompt, self.tools.get_schemas())
         self.context_window.add_to_hot([{"role": "system", "content": system_prompt}])
-        self.sessions.replay_history(
-            self.sessions.current_log(), self.engine.cache, self.context_window)
-        self._session_id = session_id
         self._last_project_context = ""
-        return self.sessions.current_log()
+        return self.sessions.replay_history(
+            self.sessions.current_log(), self.engine.cache, self.context_window)
+
+    def rewind_to(self, message_index, scope: str = "both") -> dict:
+        """Per-message rewind (files / conversation / both) + rebuild context."""
+        scope = (scope or "both").lower()
+        files = scope in ("both", "files", "code", "workspace")
+        conversation = scope in ("both", "chat", "conversation", "messages")
+        res = self.sessions.rewind(message_index, files=files,
+                                   conversation=conversation)
+        if res.get("ok") and conversation:
+            res["replayed"] = self._rebuild_context_from_log()
+        return res
 
     async def _cli_approve(self, tool_call, context) -> bool:
         """Ask the human before a tool runs in agent mode (CLI frontend)."""
@@ -541,6 +565,7 @@ Rules:
         print("  /cache      - Show cache statistics")
         print("  /sessions   - List saved sessions")
         print("  /rollback   - Undo the last N turns' file changes (/rollback [N|list])")
+        print("  /rewind     - Rewind to a message index (/rewind [N] [files|chat|both] | list)")
         print("  /mode       - Show current mode")
         print("  /memory     - Show project memory context")
         print("  /goal       - Show current goal")
@@ -718,6 +743,28 @@ Rules:
                           f"{len(res.get('removed') or [])} removed.")
                 else:
                     print(f"  ✗ Rollback failed: {res.get('error')}")
+        elif command == "/rewind":
+            pa = arg.strip().split()
+            if not pa or pa[0] in ("list", "ls"):
+                cps = self.sessions.list_checkpoints()
+                if not cps:
+                    print("  No checkpoints (rollback disabled, or no turns yet).")
+                else:
+                    print(f"  Checkpoints (current log: {len(self.sessions.current_log())} messages):")
+                    for c in cps:
+                        print(f"    #{c['index']}  {c['rev'][:8]}")
+            else:
+                idx = int(pa[0]) if pa[0].isdigit() else 0
+                scope = pa[1] if len(pa) > 1 else "both"
+                res = self.rewind_to(idx, scope)
+                if res.get("ok"):
+                    extra = (f", {res['replayed']} messages replayed"
+                             if res.get("replayed") is not None else "")
+                    print(f"  ✓ Rewound to message #{res['message_index']} "
+                          f"(files={'yes' if res['files'] else 'no'}, "
+                          f"chat={'yes' if res['conversation'] else 'no'}{extra})")
+                else:
+                    print(f"  ✗ Rewind failed: {res.get('error')}")
         elif command == "/rules":
             if arg == "edit":
                 # Open rules.md in editor
