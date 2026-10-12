@@ -24,6 +24,7 @@ Design:
 
 import asyncio
 import base64
+import contextvars
 import re
 import sys
 from typing import Optional
@@ -33,6 +34,24 @@ from ..errors import describe_exc
 
 _MAX_OUTPUT = 30_000
 _DEFAULT_TIMEOUT = 60.0
+
+# Session isolation: SubAgent workers run inside asyncio tasks created by
+# asyncio.gather, and each task copies the current Context — so setting a
+# session id at the top of SubAgent.run() gives every sub-agent its OWN
+# persistent REPL, while the main agent shares the default one. Without
+# this, parallel sub-agents serialize on one lock AND cross-pollute each
+# other's globals (variables/imports leaking between unrelated workers).
+_current_session: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "python_exec_session", default="main")
+
+
+def set_exec_session(name: str) -> contextvars.Token:
+    """Bind the current asyncio task to a named REPL session."""
+    return _current_session.set(name)
+
+
+def reset_exec_session(token: contextvars.Token) -> None:
+    _current_session.reset(token)
 
 # Cheap pre-screen for obviously hostile snippets — reuses the spirit of
 # the shell deny-patterns without duplicating the whole list.
@@ -83,9 +102,20 @@ class PythonExecTool(BaseTool):
 
     def __init__(self, sandbox=None):
         super().__init__(sandbox)
-        self._proc: Optional[asyncio.subprocess.Process] = None
-        self._lock = asyncio.Lock()
-        self._seq = 0
+        # Per-session REPL state so parallel sub-agents don't serialize on
+        # one lock or share one globals dict. Keyed by _current_session.
+        self._procs: dict[str, Optional[asyncio.subprocess.Process]] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._seqs: dict[str, int] = {}
+
+    def _session(self) -> str:
+        return _current_session.get()
+
+    def _lock_for(self, session: str) -> asyncio.Lock:
+        lock = self._locks.get(session)
+        if lock is None:
+            lock = self._locks[session] = asyncio.Lock()
+        return lock
 
     def get_spec(self) -> ToolSpec:
         return ToolSpec(
@@ -111,43 +141,46 @@ class PythonExecTool(BaseTool):
             required=["code"],
         )
 
-    async def _ensure_proc(self) -> asyncio.subprocess.Process:
-        if self._proc is not None and self._proc.returncode is None:
-            return self._proc
-        self._proc = await asyncio.create_subprocess_exec(
+    async def _ensure_proc(self, session: str) -> asyncio.subprocess.Process:
+        proc = self._procs.get(session)
+        if proc is not None and proc.returncode is None:
+            return proc
+        proc = await asyncio.create_subprocess_exec(
             sys.executable, "-u", "-c", _DRIVER,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        return self._proc
+        self._procs[session] = proc
+        return proc
 
     async def execute(self, code: str,
                       timeout: float = _DEFAULT_TIMEOUT) -> ToolResult:
         if not code or not code.strip():
             return ToolResult(success=False, output="", error="empty code")
 
-        if self.sandbox:
-            allowed = await self.sandbox.check_command(code)
-            if not allowed:
-                return ToolResult(
-                    success=False, output="",
-                    error="Code blocked by sandbox policy")
+        # Python-source danger screen (NOT the shell check_command — its
+        # regexes target shell syntax and false-positive on ordinary Python,
+        # e.g. a variable named "format" or a "reg" substring tripping the
+        # registry/filesystem patterns). _RISKY catches genuinely destructive
+        # calls; sandbox still governs via the shared allow_shell posture.
         if _RISKY.search(code):
             return ToolResult(
                 success=False, output="",
                 error="python_exec: snippet matches a destructive pattern; "
                       "use targeted file tools (edit/write) instead.")
 
-        self._seq += 1
-        sentinel = f"__ZWC_EOF_{self._seq}__"
+        session = self._session()
+        self._seqs[session] = self._seqs.get(session, 0) + 1
+        seq = self._seqs[session]
+        sentinel = f"__ZWC_EOF_{session}_{seq}__"
         b64 = base64.b64encode(code.encode("utf-8")).decode("ascii")
         frame = f"{sentinel} {b64}"
         request = f"{len(frame)}\n{frame}\n".encode("ascii")
 
-        async with self._lock:
+        async with self._lock_for(session):
             try:
-                proc = await self._ensure_proc()
+                proc = await self._ensure_proc(session)
                 assert proc.stdin is not None and proc.stdout is not None
                 proc.stdin.write(request)
                 await proc.stdin.drain()
@@ -158,7 +191,7 @@ class PythonExecTool(BaseTool):
                 while True:
                     remaining = deadline - loop.time()
                     if remaining <= 0:
-                        await self._restart()
+                        await self._restart(session)
                         return ToolResult(
                             success=False,
                             output="".join(collected)[:_MAX_OUTPUT],
@@ -170,7 +203,7 @@ class PythonExecTool(BaseTool):
                     except asyncio.TimeoutError:
                         continue
                     if not line_b:  # interpreter died
-                        await self._restart()
+                        await self._restart(session)
                         out = "".join(collected)[:_MAX_OUTPUT]
                         return ToolResult(
                             success=False, output=out,
@@ -188,19 +221,22 @@ class PythonExecTool(BaseTool):
                     and "SystemExit 0" not in out
                 return ToolResult(success=not failed, output=out)
             except Exception as exc:  # noqa: BLE001
-                await self._restart()
+                await self._restart(session)
                 return ToolResult(success=False, output="",
                                   error=describe_exc(exc))
 
-    async def _restart(self) -> None:
-        """Kill and forget the session; next execute() spawns a fresh one."""
-        if self._proc is not None:
+    async def _restart(self, session: str) -> None:
+        """Kill and forget one session's REPL; next call spawns a fresh one."""
+        proc = self._procs.pop(session, None)
+        if proc is not None:
             try:
-                self._proc.kill()
-                await asyncio.wait_for(self._proc.wait(), timeout=5)
+                proc.kill()
+                await asyncio.wait_for(proc.wait(), timeout=5)
             except Exception:
                 pass
-            self._proc = None
 
     async def close(self) -> None:
-        await self._restart()
+        for session in list(self._procs):
+            await self._restart(session)
+        self._locks.clear()
+        self._seqs.clear()

@@ -11,6 +11,8 @@ A full-featured terminal UI with:
 
 import asyncio
 import json
+import logging
+import sys
 import time
 from pathlib import Path
 from typing import Optional, ClassVar
@@ -979,7 +981,41 @@ Rules:
         return prompt
 
 
+def _restore_terminal() -> None:
+    """Best-effort terminal restore on TUI exit.
+
+    Textual enables SGR mouse reporting (DECSET ?1000/?1002/?1003/?1006)
+    and leaves the cursor hidden while running. If the process dies before
+    its own teardown (crash, OS kill, closed window), those modes stay ON
+    and the shell then echoes raw mouse-move sequences (looks like a wall
+    of `^[[<35;199;4M` garbage). Emitting the disable sequences + a reset
+    in a finally-block guarantees the console is usable no matter how the
+    TUI exits.
+    """
+    try:
+        sys.stdout.write(
+            "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l"  # mouse off
+            "\x1b[?25h"                                      # cursor on
+            "\x1b[0m"                                        # SGR reset
+            "\x1b[?2004l"                                    # bracketed paste off
+        )
+        sys.stdout.flush()
+    except Exception:  # noqa: BLE001 — restore must never itself raise
+        pass
+
+
 def run_tui(config_path: Optional[Path] = None, skill_names: list[str] | None = None) -> None:
     """Run the Textual TUI application."""
     app = ZOUWUCODETUI(config_path, skill_names=skill_names)
-    app.run()
+    try:
+        app.run()
+    except BaseException as exc:  # noqa: BLE001 — record then re-raise
+        # Textual writes tracebacks to stderr, which is invisible once the
+        # console is restored — mirror the crash to the rotating log file so
+        # "the TUI vanished mid-task" is actually diagnosable.
+        import traceback
+        logging.getLogger("zouwucode.tui").error(
+            "TUI crashed:\n%s", traceback.format_exc())
+        raise
+    finally:
+        _restore_terminal()

@@ -3,8 +3,38 @@
 import pytest
 from pathlib import Path
 
-from zouwucode.tui.textual_app import ZOUWUCODETUI, _style, run_tui
+from zouwucode.tui.textual_app import (
+    ZOUWUCODETUI, _style, run_tui, _restore_terminal)
 from zouwucode.tui.app import ZOUWUCODEApp
+
+
+class TestRestoreTerminal:
+    """The TUI enables SGR mouse reporting; if it dies before Textual's own
+    teardown the shell echoes raw mouse-move sequences (the wall of
+    `^[[<35;...M` garbage). _restore_terminal must always emit the disable
+    sequences so the console is usable regardless of exit path."""
+
+    def test_emits_mouse_and_cursor_restore(self, capsys):
+        _restore_terminal()
+        out = capsys.readouterr().out
+        assert "\x1b[?1000l" in out   # mouse click off
+        assert "\x1b[?1003l" in out   # mouse move off
+        assert "\x1b[?1006l" in out   # SGR ext off
+        assert "\x1b[?25h" in out     # cursor visible again
+        assert "\x1b[0m" in out       # SGR reset
+
+    def test_never_raises(self, monkeypatch):
+        # A closed/broken stdout must not propagate out of the finally-block.
+        import zouwucode.tui.textual_app as ta
+
+        class _Boom:
+            def write(self, *a):
+                raise OSError("closed")
+            def flush(self):
+                raise OSError("closed")
+
+        monkeypatch.setattr(ta.sys, "stdout", _Boom())
+        _restore_terminal()   # must not raise
 
 
 class TestStyleHelper:

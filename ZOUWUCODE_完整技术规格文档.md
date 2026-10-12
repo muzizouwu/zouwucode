@@ -392,8 +392,9 @@
 **关键设计**：
 - 每工具实例一个长驻 `python -u` 子进程，跑自驱动 REPL 驱动脚本（readline 循环，不等 EOF——普通 `python -u` 读管道 stdin 会挂起）
 - 线协议：行1=帧长，行2=`<sentinel> <base64(code)>`（纯 ASCII，免疫编码/换行问题）；驱动执行后打印 sentinel 行，父端按行收集到 sentinel 为止，stdout 切分精确
-- 命名空间跨调用持久（变量/导入保留）——这是 REPL 的意义
-- 安全：复用 PermissionManager 命令筛查 + 破坏性模式正则（`rm -rf /`、`shutil.rmtree('/')`、`os.system("rm …")` 等）；单调用硬超时 → kill 并重启会话；输出截断 30k
+- **会话隔离（ContextVar）**：REPL 进程/锁/序号按 `python_exec_session` 分键。`SubAgent.run` 在任务开头 `set_exec_session(self.id)`，而 `asyncio.gather` 为每个子任务拷贝当前 Context——因此每个并行子 Agent 拥有**独立** REPL 与 globals，既真正并行（不再共享一把锁串行排队）又互不串扰（一个 worker 的变量不会泄漏进另一个）；主 Agent 用默认 `main` 会话
+- 命名空间跨调用持久（同一会话内变量/导入保留）——这是 REPL 的意义
+- 安全：只针对破坏性调用的专用 `_RISKY` 正则（`rm -rf /`、`shutil.rmtree('/')`、`os.system("rm …")` 等）；**不复用 shell 危险模式**（其 `format`/`reg`/`dd` 等正则会误杀含这些子串的合法 Python 代码）；单调用硬超时 → kill 并重启该会话；输出截断 30k
 - 进程级防护而非容器隔离——与项目本地优先姿态一致的文档化取舍（OpenHands 靠 Docker workspace 拿容器隔离）
 
 #### `tools/git_tools.py` — GitTool
@@ -642,6 +643,8 @@
 - 斜杠命令：与 CLI 一致（含 `/agents`、`/rules`、`/skill` 与 hello-my-zouwucode 模块命令）
 
 **CSS 样式**：`styles.tcss`
+
+**退出安全**：`run_tui` 在 finally 中调用 `_restore_terminal()`——Textual 运行期开启 SGR 鼠标上报（DECSET ?1000/1002/1003/1006）并隐藏光标，若进程在自身 teardown 前死亡（崩溃/被杀/关窗），残留模式会让 shell 把鼠标移动回显成满屏 `^[[<…M` 乱码；finally 无条件关闭鼠标上报、恢复光标、SGR reset、关括号粘贴。`app.run()` 的未捕获异常 traceback 会镜像写入日志文件（stderr 在还原后不可见），使"TUI 无声消失"可诊断。
 
 ### 5.12 `webui/server.py` — Web UI 服务器
 
@@ -988,7 +991,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（339 个测试用例）
+├── tests/                              # 测试套件（342 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1286,6 +1289,9 @@ show_thinking: true                        # true | false，默认 true 实时�
 | 任务"卡住不动了"（Abort after 3 consecutive tool errors in round 1） | 连续错误熔断按**单个调用**计数；模型一轮并行 3 个调用全失败即触顶，模型没看到任何反馈就被终止 | 改为按**轮次**计数（一轮全失败记 1 次），保证模型每轮收到错误结果并有 N 轮换思路 |
 | Windows 上 bash 工具全报错（`&&` not a valid statement separator） | PowerShell 5.x 不支持 POSIX 语法，模型按 Linux 习惯写命令 | 自动探测 Git Bash 并在检出 POSIX 语法时改用它；无 bash 时错误附带语法提示；工具描述声明宿主 shell |
 | web_search 失败但 error 为空白 | `httpx.ConnectTimeout` 的 `str()` 为空串；且 DDG html 端点国内不可达 | `_describe_exc` 补可读原因；Bing 优先 + DDG 兜底；全失败建议改用 web_fetch |
+| TUI 退出后终端被鼠标转义序列刷屏 | Textual 开启 SGR 鼠标上报（?1000/1002/1003/1006），进程在 teardown 前死亡则模式残留 | `run_tui` finally 无条件还原鼠标/光标/SGR/粘贴模式，并把崩溃 traceback 镜像进日志 |
+| python_exec 并行子 Agent 串行排队 + 变量串扰 | 所有调用共享一个 REPL 进程/一把锁/一份 globals | ContextVar 会话隔离：`SubAgent.run` 绑定 session=self.id，gather 上下文拷贝使每子 Agent 独占 REPL |
+| python_exec 误杀普通 Python 代码 | 复用 shell 危险正则（`format`/`reg`/`dd`）扫 Python 源码，子串误命中 | 只保留针对破坏性调用的专用 `_RISKY`，不复用 shell 检查 |
 
 ---
 
@@ -1460,7 +1466,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **339 个测试用例**
+- 共计 **342 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证
@@ -1469,7 +1475,7 @@ beautifulsoup4>=4.12.0
 
 | 测试文件 | 测试内容 | 测试用例数 |
 |----------|----------|------------|
-| test_code_exec.py | python_exec 持久 REPL（命名空间/异常捕获/CJK/破坏性拦截/超时重启/沙箱） | 9 |
+| test_code_exec.py | python_exec 持久 REPL（命名空间/异常捕获/CJK/破坏性拦截/超时重启/会话隔离/shell 误杀豁免） | 11 |
 | test_compressor.py | 对话压缩算法 | 10 |
 | test_config.py | 配置加载/保存/验证 | 5 |
 | test_context.py | 上下文管理 | 10 |
@@ -1488,7 +1494,7 @@ beautifulsoup4>=4.12.0
 | test_stuck.py | 卡死检测（指纹滑窗提醒→熔断、提醒后恢复、禁用回落、变化动作豁免） | 4 |
 | test_subagent.py | 子 Agent 系统（隔离引擎、工具白名单、并行、级联打断） | 22 |
 | test_tools.py | 工具系统（含 web 错误文本、shell 跨平台语法检测） | 14 |
-| test_tui.py | TUI/CLI 界面、思考开关与行缓冲 | 30 |
+| test_tui.py | TUI/CLI 界面、思考开关与行缓冲、终端退出还原 | 32 |
 | test_webui.py | Web 界面、SSE 流式协议、/api/thinking | 16 |
 
 ### 11.3 运行测试

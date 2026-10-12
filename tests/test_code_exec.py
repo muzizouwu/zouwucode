@@ -75,16 +75,36 @@ class TestPythonExec:
         r = run_with_tool(lambda tool: tool.execute("   "))
         assert not r.success
 
-    def test_sandbox_blocks(self):
-        class _Deny:
-            async def check_command(self, cmd):
-                return False
+    def test_shell_like_python_not_blocked(self):
+        """Regression: python_exec must NOT run shell deny-patterns against
+        Python source (they false-positive on `format`, `reg`, `dd`... which
+        appear in ordinary code). Only the destructive _RISKY screen applies."""
+        code = "import re\nm = re.search(r'(reg\\s|regedit)', 'reg add HKLM')\nprint(bool(m))"
+        r = run_with_tool(lambda tool: tool.execute(code))
+        assert r.success, r.error
+        assert "True" in r.output
 
-        async def scenario():
-            t = PythonExecTool(_Deny())
-            try:
-                return await t.execute("print(1)")
-            finally:
-                await t.close()
-        r = asyncio.run(scenario())
-        assert not r.success and "sandbox" in r.error.lower()
+    def test_parallel_sessions_isolated(self):
+        """Different ContextVar sessions get independent REPLs: globals do
+        not leak between concurrent workers (mirrors parallel sub-agents)."""
+        from zouwucode.tools.code_exec_tool import (
+            set_exec_session, reset_exec_session)
+
+        async def scenario(tool):
+            async def worker(name):
+                # asyncio.gather copies the current Context per child task,
+                # so each worker's set_exec_session is private to itself —
+                # exactly how SubAgent.run binds a session.
+                tok = set_exec_session(name)
+                try:
+                    await tool.execute(f"v = '{name}'")
+                    await asyncio.sleep(0)   # force interleaving
+                    r = await tool.execute("print(v)")
+                    return r.output.strip()
+                finally:
+                    reset_exec_session(tok)
+
+            return await asyncio.gather(worker("A"), worker("B"))
+
+        a, b = run_with_tool(scenario)
+        assert a == "A" and b == "B"   # no cross-pollution of `v`

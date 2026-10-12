@@ -36,6 +36,9 @@
   - dev 验证层：命令非零退出且无任何输出时标注 `(no output; exit code N)`，不再给模型空 FAIL
   - `/rules edit` 打开编辑器改为跨平台（Windows `os.startfile` / macOS `open` / Linux `xdg-open`），不再硬编码 notepad
   - 新增 `tests/test_error_feedback.py`（8 用例）锁定三条结构保证
+- **TUI 异常退出后终端被鼠标转义序列刷屏**：Textual 运行时会开启 SGR 鼠标上报（DECSET ?1000/1002/1003/1006），若进程在自身 teardown 前死亡（崩溃/被杀/关窗），这些模式残留，回到 PowerShell 后鼠标移动被终端回显成满屏 `^[[<35;…M` 乱码。`run_tui` 现在 finally 中无条件还原（关鼠标上报、恢复光标、SGR reset、关括号粘贴），并把崩溃 traceback 镜像进日志文件——"TUI 无声消失"从此可诊断
+- **python_exec 并行子 Agent 互相阻塞 + 变量串扰**（我上一轮引入的回归）：所有调用共享同一个 REPL 子进程、同一把锁、同一份 globals——5 个并行 research worker 实际串行排队（日志实测单次执行被拖到 50-69s），且一个 worker 的变量会泄漏进另一个。现在按 ContextVar 会话隔离：`SubAgent.run` 绑定 `session=self.id`，asyncio.gather 的上下文拷贝语义让每个子 Agent 拥有独立 REPL 与 globals，真正并行
+- **python_exec 误杀普通 Python 代码**：旧实现把 shell 危险模式检查（`rm -rf /`、`format`、`reg`、`dd` 等正则）直接扫 Python 源码，含这些子串的合法代码（如 `re.search(r'(reg\s|regedit)')`）被 "Code blocked by sandbox policy" 误杀。现在只保留针对破坏性调用的专用 `_RISKY` 检查，不再复用 shell 正则
 
 ## [1.0.0] - 2026-09-09
 

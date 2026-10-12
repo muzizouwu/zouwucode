@@ -116,6 +116,12 @@ class SubAgent:
         self.status = AgentStatus.RUNNING
         start = time.monotonic()
         logger.info("Sub-agent %s (%s) started | task=%s", self.id, self.role, task[:80])
+        # Give this worker its OWN python_exec REPL session: asyncio.gather
+        # copies the Context per task, so the ContextVar set here is visible
+        # to every tool call this sub-agent makes and no other's. Without it
+        # parallel sub-agents serialize on one REPL and leak globals.
+        from ..tools.code_exec_tool import set_exec_session, reset_exec_session
+        token = set_exec_session(self.id)
         messages = [
             {"role": "system", "content": self.instructions},
             {"role": "user", "content": task},
@@ -143,6 +149,7 @@ class SubAgent:
             logger.error("Sub-agent %s failed: %s", self.id, exc)
             raise
         finally:
+            reset_exec_session(token)
             self.duration = time.monotonic() - start
 
     def interrupt(self) -> bool:
