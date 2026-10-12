@@ -22,6 +22,7 @@ from ..logging_setup import setup_logging
 from ..engine.loop import EngineLoop, TaskInterrupted
 from ..runtime import (create_provider, create_builtin_tools,
                        create_subagents_and_extensions)
+from ..tools.oracle_tool import ORACLE_SYSTEM
 from ..tools.registry import ToolRegistry
 from ..agent.coordinator import AgentCoordinator
 from ..extensions import ExtensionContext
@@ -162,7 +163,7 @@ class ZOUWUCODEApp:
 
     def _setup_agents_and_extensions(self):
         """Wire the sub-agent system and the extension layer (MCP/LSP)."""
-        self.subagent_manager, self.extensions = create_subagents_and_extensions(
+        self.subagent_manager, self.extensions, self.router = create_subagents_and_extensions(
             self.config, self._provider, self.coordinator, self.engine, self.tools)
 
     # ── Mode Management ──────────────────────────────────────────────────────
@@ -578,6 +579,7 @@ Rules:
         print("  /exit       - Exit ZOUWUCODE")
         print("  /cache      - Show cache statistics")
         print("  /usage      - Show token usage + cost (cache savings)")
+        print("  /oracle     - Second opinion from the oracle model (/oracle <q>)")
         print("  /sessions   - List saved sessions")
         print("  /rollback   - Undo the last N turns' file changes (/rollback [N|list])")
         print("  /rewind     - Rewind to a message index (/rewind [N] [files|chat|both] | list)")
@@ -690,6 +692,26 @@ Rules:
             print(f"    spent:            ${u['spent_usd']}")
             print(f"    cache saved:      ${u['cache_saved_usd']} ({u['saved_percent']} of full price)")
             print(f"    without cache:    ${u['would_have_cost_usd']}")
+        elif command == "/oracle":
+            arg = cmd[len("/oracle"):].strip()
+            if not arg:
+                print("  Usage: /oracle <question>  (ask the configured oracle model)")
+            else:
+                provider = self.router.oracle_provider(self._provider)
+                if provider is None:
+                    print("  Oracle not configured — set router.enabled + router.oracle_provider.")
+                else:
+                    print(f"  [oracle:{getattr(provider, 'model', '?')}] thinking…")
+                    try:
+                        resp = await provider.chat(
+                            [{"role": "system", "content": ORACLE_SYSTEM},
+                             {"role": "user", "content": arg}],
+                            max_tokens=self.config.router.oracle_max_tokens,
+                            temperature=self.config.router.oracle_temperature,
+                        )
+                        print(resp.content or "  (empty response)")
+                    except Exception as e:
+                        print(f"  Oracle error: {e}")
         elif command == "/cache":
             summary = self.engine.get_cache_summary()
             print("  Cache Performance:")

@@ -4,6 +4,23 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.2.0] — 2026-10-13
+
+模型路由 + oracle 复核："便宜模型干活、更强模型复核"。
+
+### Added — 模型路由
+- 新增 `config.RouterConfig`（`router:` 段，默认关）。主会话仍是**单** provider（不改动 append-only 前缀缓存），但为两个角色另选 provider：
+  - `worker_provider`：子 Agent（`task` 工具）用的模型 → 扇出工作跑在便宜模型上；
+  - `oracle_provider`：只读"第二意见"模型。
+- `runtime.create_provider_for(config, key)` 泛化 provider 工厂（可按**任意** provider 键构建）；新增 `runtime.ProviderRouter`（惰性构建 + 缓存，`worker_provider()` / `oracle_provider()`）。
+- 新增 `oracle` 工具（`tools/oracle_tool.py`）：把问题（+可选上下文/diff）交给 oracle 模型求**只读**复核——无工具、不碰工作区；仅在 `router.enabled` 且有 oracle 时注册（默认工具集不变）。
+
+### Added — `/oracle` 三端命令
+- CLI/TUI `/oracle <问题>` 直接问 oracle；Web `POST /api/oracle` + `/oracle <问题>`。
+
+### Tests
+- 新增 `tests/test_v120_router_oracle.py`（+13：路由选择/缓存/回退、oracle 工具只读与错误语义、接线与三端命令）。套件 **544 → 557 全绿**。
+
 ## [1.1.0] — 2026-10-13
 
 "一步到位"特性轮：把 ZOUWUCODE 从"自身很强"推到"能被别人用、也更省钱"。

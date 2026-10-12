@@ -941,6 +941,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       addMsg('system', '  /decide <text>- Record an architecture decision');
       addMsg('system', '  /context      - Context window stats');
       addMsg('system', '  /usage        - Token usage + cost (cache savings)');
+      addMsg('system', '  /oracle <q>   - Second opinion from the oracle model');
       addMsg('system', '  /compress     - Compression settings');
       addMsg('system', '  /agents       - Sub-agent status');
       addMsg('system', '  /rollback     - Undo last N turns\' file changes (/rollback [N|list])');
@@ -1122,6 +1123,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       fetch('/api/decide', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }) }).then(() => addMsg('system', '✓ Decision recorded.'))
         .catch(() => addMsg('system', 'Record failed.'));
+      return;
+    }
+    if (cmd.startsWith('/oracle')) {
+      const q = cmd.slice(7).trim();
+      if (!q) { addMsg('system', 'Usage: /oracle <question>'); return; }
+      addMsg('system', '[oracle] thinking…');
+      fetch('/api/oracle', {method:'POST', headers:{'Content-Type':'application/json'},
+                           body: JSON.stringify({question: q})})
+        .then(r => r.json())
+        .then(d => addMsg('system', d.ok ? ('[oracle:' + (d.model||'?') + '] ' + d.answer)
+                                         : ('Oracle error: ' + (d.error || ''))))
+        .catch(() => addMsg('system', 'Oracle request failed.'));
       return;
     }
     if (cmd === '/usage') {
@@ -2132,6 +2145,33 @@ class WebUIServer:
                 pm.add_decision("Decision", text)
                 pm.save_all()
             return self._json_response({"ok": True})
+
+        elif path == "/api/oracle" and method == "POST":
+            try:
+                q = (json.loads(body or "{}").get("question") or "").strip()
+            except json.JSONDecodeError:
+                return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+            if not q:
+                return self._json_response({"ok": False, "error": "question required"}, 400)
+            from ..runtime import ProviderRouter
+            from ..tools.oracle_tool import ORACLE_SYSTEM
+            provider = ProviderRouter(self.config).oracle_provider(
+                getattr(self.engine, "provider", None))
+            if provider is None:
+                return self._json_response(
+                    {"ok": False, "error": "oracle not configured "
+                     "(router.enabled + router.oracle_provider)"}, 400)
+            try:
+                resp = await provider.chat(
+                    [{"role": "system", "content": ORACLE_SYSTEM},
+                     {"role": "user", "content": q}],
+                    max_tokens=self.config.router.oracle_max_tokens,
+                    temperature=self.config.router.oracle_temperature)
+            except Exception as e:  # noqa: BLE001
+                return self._json_response({"ok": False, "error": str(e)}, 500)
+            return self._json_response({"ok": True,
+                                        "model": getattr(provider, "model", ""),
+                                        "answer": resp.content or ""})
 
         elif path == "/api/usage" and method == "GET":
             engine = self.engine

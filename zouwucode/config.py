@@ -199,6 +199,29 @@ class ExtensionsConfig(BaseModel):
     hooks: list[HookConfig] = Field(default_factory=list)  # 生命周期钩子（默认空）
 
 
+class RouterConfig(BaseModel):
+    """Multi-model routing: a cheap model works, a smarter model reviews.
+
+    The main conversation stays on a single provider on purpose — switching
+    models mid-session would invalidate the append-only prefix cache the
+    engine is built around. Routing instead picks a different provider for two
+    well-defined roles:
+
+    - ``worker`` : handed to sub-agents (the ``task`` tool), so fan-out work
+      runs on a cheap model while the main session keeps its cache.
+    - ``oracle`` : a read-only second opinion consulted on demand (Amp-style).
+
+    Values are provider KEYS from ``providers:``; empty means "use the main
+    provider". Disabled by default (zero behaviour change when off).
+    """
+
+    enabled: bool = False
+    worker_provider: str = ""
+    oracle_provider: str = ""
+    oracle_max_tokens: int = 1024
+    oracle_temperature: float = 0.0
+
+
 class ContextConfig(BaseModel):
     """Engine-side context compression (opt-in; OFF by default).
 
@@ -232,6 +255,7 @@ class ZOUWUCODEConfig(BaseModel):
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     subagent: SubAgentConfig = Field(default_factory=SubAgentConfig)
+    router: RouterConfig = Field(default_factory=RouterConfig)
     extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig)
     github: GithubConfig = Field(default_factory=GithubConfig)
     dev: DevConfig = Field(default_factory=DevConfig)

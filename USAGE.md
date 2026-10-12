@@ -303,6 +303,7 @@ zouwucode --mode yolo
 |------|------|
 | `/cache` | 显示缓存性能统计 |
 | `/usage` | Token 用量与成本（含缓存省下的钱） |
+| `/oracle <q>` | 向配置的 oracle 模型求只读第二意见（需 router 配置） |
 | `/sessions` | 列出已保存的会话 |
 | `/memory` | 显示项目记忆上下文 |
 | `/goal` | 显示当前目标 |
@@ -925,6 +926,23 @@ subagent:
   max_agents: 8                 # 并行子 Agent 数量上限
   default_timeout: 600          # 单个子 Agent 默认超时（秒）
 
+# 模型路由（默认关）：让便宜模型干活、更强模型复核。
+# 主会话保持单 provider（append-only 前缀缓存不受影响），仅为两个角色另择 provider：
+router:
+  enabled: false
+  worker_provider: ""           # 子 Agent（task 工具）用的 provider 键（空=主 provider）
+  oracle_provider: ""           # 只读"第二意见"oracle 用的 provider 键（空=不用）
+  oracle_max_tokens: 1024
+  oracle_temperature: 0.0
+# 用法：在 providers: 下再定义一个更强的模型，例如
+#   oracle:
+#     api_key: "sk-..."
+#     model: "deepseek-reasoner"
+#     base_url: "https://api.deepseek.com"
+#     api_type: deepseek
+# 然后 router.enabled: true、router.oracle_provider: oracle。
+# 之后模型可调用 oracle 工具，你也可以 /oracle <问题> 直接求第二意见。
+
 # 扩展层（MCP/LSP — 默认不激活，配置后自动启用）
 extensions:
   mcp_servers: []               # MCP 服务器列表（stdio），配置后自动连接
@@ -1375,4 +1393,4 @@ hello_my_zouwucode/       # 多智能体编排模块（复刻自 oh-my-opencode�
 
 ---
 
-*文档版本: v1.1.0 · 最后更新: 2026-10-13*
+*文档版本: v1.2.0 · 最后更新: 2026-10-13*

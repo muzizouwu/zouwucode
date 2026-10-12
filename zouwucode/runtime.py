@@ -18,23 +18,71 @@ from .tools.code_exec_tool import PythonExecTool
 from .tools.repo_map_tool import RepoMapTool
 
 
-def create_provider(config: ZOUWUCODEConfig) -> BaseProvider:
-    """Build the configured LLM provider (defaults injected if missing)."""
-    if config.default_provider not in config.providers:
+def create_provider_for(config: ZOUWUCODEConfig, provider_key: str) -> BaseProvider:
+    """Build the provider named ``provider_key`` (defaults injected if absent).
+
+    Generalises ``create_provider`` so routing roles (oracle / worker) can name
+    ANY key in ``providers:``, not only the default one.
+    """
+    if provider_key not in config.providers:
         # Infer the API type from the provider key, so `--provider openai`
         # (or any unconfigured key) builds the matching client instead of
         # silently falling back to a DeepSeek client pointed at the wrong URL.
-        name = config.default_provider.lower()
+        name = (provider_key or "").lower()
         api_type = "openai" if ("openai" in name or "gpt" in name) else "deepseek"
         model = "gpt-4o" if api_type == "openai" else "deepseek-v4-flash"
-        config.providers[config.default_provider] = ProviderConfig(
+        config.providers[provider_key] = ProviderConfig(
             api_key="", model=model, api_type=api_type,
         )
-    provider_config = config.providers[config.default_provider]
+    provider_config = config.providers[provider_key]
     api_type = getattr(provider_config, "api_type", "deepseek")
     if api_type == "deepseek":
         return DeepSeekProvider(provider_config.model_dump())
     return OpenAIProvider(provider_config.model_dump())
+
+
+def create_provider(config: ZOUWUCODEConfig) -> BaseProvider:
+    """Build the configured DEFAULT LLM provider (defaults injected if missing)."""
+    return create_provider_for(config, config.default_provider)
+
+
+class ProviderRouter:
+    """Lazily builds and caches providers for routing roles.
+
+    The main engine stays single-provider by design: switching models mid
+    conversation would invalidate the append-only prefix cache. Routing only
+    selects a DIFFERENT provider for well-defined roles:
+
+    - ``worker`` : the provider handed to sub-agents (the ``task`` tool).
+    - ``oracle`` : a read-only second opinion that never touches the workspace.
+
+    Role keys come from ``router.worker_provider`` / ``router.oracle_provider``
+    (values are keys in ``providers:``); empty means "use the main provider".
+    """
+
+    def __init__(self, config: ZOUWUCODEConfig):
+        self.config = config
+        self._cache: dict = {}
+
+    def get(self, provider_key: str):
+        """Return (and cache) the provider for ``provider_key``; None if empty."""
+        if not provider_key:
+            return None
+        if provider_key not in self._cache:
+            self._cache[provider_key] = create_provider_for(self.config, provider_key)
+        return self._cache[provider_key]
+
+    def worker_provider(self, primary: BaseProvider) -> BaseProvider:
+        r = getattr(self.config, "router", None)
+        if r and getattr(r, "enabled", False) and r.worker_provider:
+            return self.get(r.worker_provider) or primary
+        return primary
+
+    def oracle_provider(self, primary: BaseProvider = None):
+        r = getattr(self.config, "router", None)
+        if r and getattr(r, "enabled", False) and r.oracle_provider:
+            return self.get(r.oracle_provider)
+        return None
 
 
 def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTool]:
@@ -72,20 +120,30 @@ def create_subagents_and_extensions(config, provider, coordinator, engine, tools
 
     Both UI apps carried byte-identical copies of this wiring (which had
     started to drift); it lives here so the three frontends stay in sync.
-    Returns (subagent_manager, extension_host).
+    Returns (subagent_manager, extension_host, router).
     """
     from .agent.subagent import SubAgentManager
     from .tools.agent_tools import TaskTool
     from .extensions import ExtensionHost, LspExtension, McpExtension
+    from .tools.oracle_tool import OracleTool
 
-    manager = SubAgentManager(config, provider, coordinator)
+    # Model routing: sub-agents may run on a cheaper "worker" provider, and an
+    # optional read-only "oracle" provider is exposed to the model as a tool.
+    router = ProviderRouter(config)
+    manager = SubAgentManager(config, router.worker_provider(provider), coordinator)
     manager.bind_main_engine(engine)
     tools.register(TaskTool(manager))
+
+    oracle = router.oracle_provider(provider)
+    if oracle is not None:
+        r = config.router
+        tools.register(OracleTool(oracle, max_tokens=r.oracle_max_tokens,
+                                  temperature=r.oracle_temperature))
 
     host = ExtensionHost()
     host.register(McpExtension(config.extensions.mcp_servers))
     host.register(LspExtension(config.extensions.lsp_enabled))
-    return manager, host
+    return manager, host, router
 
 
 def build_agent_engine(config: ZOUWUCODEConfig, sandbox_root, *,
@@ -113,8 +171,16 @@ def build_agent_engine(config: ZOUWUCODEConfig, sandbox_root, *,
     coordinator = AgentCoordinator(config, engine, tools)
     engine.set_tool_executor(coordinator.execute_tool)
     if with_subagents:
-        manager = SubAgentManager(config, provider, coordinator)
-        manager.bind_main_engine(engine)
         from .tools.agent_tools import TaskTool
+        from .tools.oracle_tool import OracleTool
+
+        router = ProviderRouter(config)
+        manager = SubAgentManager(config, router.worker_provider(provider), coordinator)
+        manager.bind_main_engine(engine)
         tools.register(TaskTool(manager))
+        oracle = router.oracle_provider(provider)
+        if oracle is not None:
+            r = config.router
+            tools.register(OracleTool(oracle, max_tokens=r.oracle_max_tokens,
+                                      temperature=r.oracle_temperature))
     return engine, tools

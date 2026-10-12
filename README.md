@@ -23,6 +23,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **三种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面） |
 | **三种模式** | Plan（只读）、Agent（交互审批）、YOLO（自动执行） |
 | **完整工具集** | 文件读写、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 12 个内置工具 |
+| **模型路由 / oracle** | 便宜模型干活、更强模型只读复核（`/oracle`、`oracle` 工具）；主会话缓存不受影响 |
 | **项目记忆** | 跨会话持久化，保存目标、决策、状态、摘要 |
 | **项目规则** | `.zouwucode/rules.md` 定义项目专属规则，自动注入系统提示词 |
 | **技能系统** | `.zouwucode/skills/` 可插拔知识包，`/skill` 命令动态加载/卸载 |

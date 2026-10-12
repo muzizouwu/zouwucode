@@ -31,6 +31,7 @@ from ..logging_setup import setup_logging
 from ..engine.loop import EngineLoop, TaskInterrupted
 from ..runtime import (create_provider, create_builtin_tools,
                         create_subagents_and_extensions)
+from ..tools.oracle_tool import ORACLE_SYSTEM
 from ..tools.registry import ToolRegistry
 from ..agent.coordinator import AgentCoordinator
 from ..context.memory import MemoryManager
@@ -324,7 +325,7 @@ class ZOUWUCODETUI(App):
 
     def _setup_agents_and_extensions(self):
         """Wire the sub-agent system and the extension layer (MCP/LSP)."""
-        self.subagent_manager, self.extensions = create_subagents_and_extensions(
+        self.subagent_manager, self.extensions, self.router = create_subagents_and_extensions(
             self.config, self._provider, self.coordinator, self.engine, self.tools)
 
     # ── Compose UI ───────────────────────────────────────────────────────────
@@ -746,6 +747,7 @@ class ZOUWUCODETUI(App):
             chat.write("    /exit          - Exit ZOUWUCODE")
             chat.write("    /cache         - Show cache statistics")
             chat.write("    /usage         - Token usage + cost (cache savings)")
+            chat.write("    /oracle        - Second opinion from the oracle model (/oracle <q>)")
             chat.write("    /sessions      - List saved sessions")
             chat.write("    /rollback      - Undo the last N turns' file changes (/rollback [N|list])")
             chat.write("    /rewind        - Rewind to a message index (/rewind [N] [files|chat|both] | list)")
@@ -838,6 +840,26 @@ class ZOUWUCODETUI(App):
             chat.write(f"    model {u['model']} | requests {u['requests']} | cache hit {u['cache_hit_rate']}")
             chat.write(f"    prompt {u['prompt_tokens']:,} (cached {u['cached_prompt_tokens']:,}) | output {u['output_tokens']:,}")
             chat.write(_style(f"    spent ${u['spent_usd']} | cache saved ${u['cache_saved_usd']} ({u['saved_percent']})", "green"))
+        elif command == "/oracle":
+            arg = cmd[len("/oracle"):].strip()
+            if not arg:
+                chat.write(_style("  Usage: /oracle <question>", "yellow"))
+            else:
+                provider = self.router.oracle_provider(self._provider)
+                if provider is None:
+                    chat.write(_style("  Oracle not configured — set router.enabled + router.oracle_provider.", "yellow"))
+                else:
+                    chat.write(_style(f"  [oracle:{getattr(provider, 'model', '?')}] thinking…", "dim"))
+                    try:
+                        resp = await provider.chat(
+                            [{"role": "system", "content": ORACLE_SYSTEM},
+                             {"role": "user", "content": arg}],
+                            max_tokens=self.config.router.oracle_max_tokens,
+                            temperature=self.config.router.oracle_temperature,
+                        )
+                        chat.write(resp.content or "  (empty response)")
+                    except Exception as e:
+                        chat.write(_style(f"  Oracle error: {e}", "red"))
         elif command == "/cache":
             summary = self.engine.get_cache_summary()
             chat.write(_style("  Cache Performance:", "bold cyan"))
