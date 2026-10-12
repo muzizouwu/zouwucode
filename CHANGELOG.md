@@ -312,7 +312,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 ### Known — 仍待实现（不假装已修）
 - 交互式审批（agent/yolo 语义区分）、CLI/dev 接入上下文压缩、MCP 的 SSE/Streamable HTTP 传输、`rollback_enabled`/`auto_save_interval`/`cache.enabled` 等配置项仍是"声明存在但未接线"。
 
-## [Unreleased]
+## [1.0.1] — 2026-10-12
 
 ### Added
 - **Devin 式 dev 模式**（`zouwucode dev`）：自主 issue → Draft PR 全流程——GitHub API 拉取 issue、git worktree 隔离工作区、自主编码会话、测试验证（失败自动迭代修复）、commit/push/Draft PR；支持 `--queue` 异步队列、`--workers N` 并行、`--watch` 自动认领 `zouwucode:do` 标签 issue
@@ -378,5 +378,5 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
-[Unreleased]: https://github.com/muzizouwu/zouwucode/compare/v1.0.0...HEAD
+[1.0.1]: https://github.com/muzizouwu/zouwucode/compare/v1.0.0...v1.0.2
 [1.0.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.0
