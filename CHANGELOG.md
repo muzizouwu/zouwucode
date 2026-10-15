@@ -22,6 +22,9 @@
 ### Changed
 - GitHub 仓库设置 11 个 topics（ai-agent / coding-agent / deepseek / mcp / tui 等），提升可发现性
 
+### Tests
+- 强化 `tests/test_v150_observability.py`（+1 用例：模块派发失败必须落日志；静态检查改为正则匹配 pass/continue 含注释形式并排除三引号字符串体），锁定上述 9 处静默点不再复发。套件 **605 → 606 全绿**
+
 ## [1.7.1] — 2026-10-13
 
 体检修复：CI 红灯根治 + 文档/徽章同步。
@@ -396,5 +399,21 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.7.2]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.7.2
+[1.7.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.7.1
+[1.7.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.7.0
+[1.6.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.6.0
+[1.5.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.5.0
+[1.4.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.4.0
+[1.3.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.3.0
+[1.2.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.2.0
+[1.1.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.1.0
+[1.0.9]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.9
+[1.0.8]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.8
+[1.0.7]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.7
+[1.0.6]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.6
+[1.0.5]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.5
+[1.0.4]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.4
+[1.0.2]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.2
 [1.0.1]: https://github.com/muzizouwu/zouwucode/compare/v1.0.0...v1.0.2
 [1.0.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.0.0
