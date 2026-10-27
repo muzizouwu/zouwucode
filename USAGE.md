@@ -1345,6 +1345,64 @@ timeout: 300
 
 ---
 
+## 21. DeepSeek Harness（dsh）接入
+
+DeepSeek 官方开源的 Harness（`dsh`）基于 Cordis 插件内核，模型/工具/技能/会话/沙箱/存储/循环/UI 全部是插件。ZOUWUCODE 通过官方 Python SDK 接入它，**可选依赖、默认不启用**，不影响自有引擎。
+
+### 21.1 安装与检查
+
+```bash
+python -m pip install deepseek-harness-sdk   # 同时装对应平台的 dsh 运行时，无需系统 Node.js
+zouwucode harness --doctor                    # 前置检查（缺依赖退出码 2）
+```
+
+### 21.2 运行
+
+```bash
+zouwucode harness "把 tests/ 下的失败用例修好"
+zouwucode harness --session demo-1 "继续上次的重构"     # 会话续接
+echo "跑一遍测试" | zouwucode harness                   # 从 stdin 读任务
+zouwucode harness --json --model deepseek-v4-flash "解释仓库结构"
+zouwucode harness --profile sdk-minimal "最小工具集下完成改动"
+zouwucode harness --patch ./my.patch.yml "叠加自定义插件层"
+```
+
+退出码：`0` 成功；`1` 运行时失败；`2` 前置条件不满足（缺 SDK / 缺 prompt / provider 无法映射）。
+
+### 21.3 配置
+
+```yaml
+harness:
+  enabled: false
+  profile: sdk            # sdk | sdk-minimal
+  dsh_home: ""            # 空 = <data_dir>/dsh_home（dsh 不会自动发现 ~/.dsh）
+  provider: ""            # 空 = 按 api_type 映射（DeepSeek → deepseek-official）
+  model: ""               # 空 = provider.model → deepseek-v4-flash
+  reasoning_effort: ""    # 空 = reasoning_intensity
+  max_tokens: 49152
+  initialize_timeout_seconds: 30
+  request_timeout_seconds: 0   # 0 = 单轮不设限
+  patches: []
+```
+
+### 21.4 反向接入：把 zouwucode 的工具挂进 dsh
+
+```bash
+zouwucode mcp-serve     # stdio MCP 服务端：initialize / tools/list / tools/call / ping
+```
+
+在 dsh 的 profile 配置或 patch 层中把它注册为 MCP 服务器，即可让 dsh 的 Agent 使用 zouwucode 的工具实现与沙箱策略。dsh 仍在 developer preview，其 MCP 插件配置键随版本演进，以[官方文档](https://deepseek-harness.github.io/deepseek-harness/en/guide/quickstart)为准。
+
+### 21.5 边界
+
+- `harness.enabled` 是**声明式开关**；真正入口是显式子命令，不会悄悄替换主引擎。
+- dsh 自己管理其工具、沙箱与凭据；zouwucode 的沙箱策略不作用于 dsh 会话。
+- 成本：`/usage` 与 `engine.max_cost_usd` 只统计自有引擎；dsh 会话由 DeepSeek 平台侧计费。
+
+完整参数表、对标映射与故障排查见 [DeepSeek Harness 接入](docs/deepseek-harness接入.md)。
+
+---
+
 ## 附录：项目结构
 
 ```
@@ -1397,6 +1455,11 @@ zouwucode/
 │   ├── runner.py        # 真实 agent 栈跑任务，确定性判分
 │   ├── checks.py        # 行为断言（file/python_eval/command_pass）
 │   └── tasks/           # 内置示例评测任务（*.yaml）
+│
+├── harness/             # DeepSeek Harness（dsh）接入层（可选依赖）
+│   ├── __init__.py
+│   ├── deepseek.py      # 配置解析 + 官方 SDK 包装 + 友好降级
+│   └── cli.py           # harness 子命令（--doctor/--json/--verbose）
 │
 ├── extensions/          # 扩展层 MCP/LSP 预留接口
 │   ├── __init__.py

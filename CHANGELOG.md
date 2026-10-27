@@ -4,6 +4,25 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.10.0] — 2026-10-28
+
+接入 DeepSeek 官方 Harness（dsh）：让任务可以交给官方 Cordis 插件式运行时执行，同时保留 zouwucode 自有引擎。
+
+### Added
+- **`zouwucode harness` 子命令（官方 Python SDK 接入）**：DeepSeek Harness（`dsh`）是官方开源的 Agent Harness，基于 Cordis 插件内核（模型/工具/技能/会话/沙箱/存储/循环/UI 全是可插拔插件）。新增 `zouwucode/harness/` 适配层，通过 `deepseek-harness-sdk`（stdio 上的 NDJSON JSON-RPC）驱动它完成一个任务：
+  - 前置检查 `--doctor`：SDK 是否安装、DSH_HOME、workspace、profile、provider、model、推理强度、超时一次看全（缺依赖退出码 2）
+  - 配置映射：`api_type=deepseek` → dsh 路由 `deepseek-official`；model 取 provider 配置；推理强度空则沿用 `reasoning_intensity`；DSH_HOME 默认 `<data_dir>/dsh_home`（dsh 不会自动发现 `~/.dsh`）；支持 `--patch` 叠加 Cordis patch 层、`--profile sdk|sdk-minimal`、`--session` 续接、`--max-tokens`、`--timeout`
+  - 输出：默认打印 `final_response`；`--json` 给出 `session_id/finish_reason/events/notifications/text`；`--verbose` 把子 Agent/事件通知实时写 stderr
+- **反向接入**：`zouwucode mcp-serve` 本就是 MCP stdio 服务端，可把全部内置工具挂进 dsh 的 MCP 插件，复用 zouwucode 的工具实现与沙箱策略（接入指南已写明）。
+- **配置项 `harness:`**（`HarnessConfig`）：`enabled/profile/dsh_home/provider/model/reasoning_effort/max_tokens/initialize_timeout_seconds/request_timeout_seconds/patches`，默认全关——不装 SDK、不用子命令时零影响、零新依赖。
+
+### Docs
+- 新增 [DeepSeek Harness 接入指南](docs/deepseek-harness接入.md)：安装、前置检查、参数表、退出码、patch 层用法、反向接入、**两套运行时的对标映射表**、故障排查与边界说明
+- README 特性表/目录树/近期更新、USAGE 新增 §21、技术规格文档新增 §5.21 与目录树同步
+
+### Tests
+- 新增 `tests/test_v1100_harness.py`（18 用例）：配置默认关闭、provider 路由映射、DSH_HOME 默认与覆盖、OpenAI provider 需显式路由、SDK 缺失时的可操作提示、结果与通知映射、`finish_reason=error` 视为失败、空 prompt 拒绝、CLI 的 doctor/文本/JSON/verbose/退出码分支（用假 SDK 注入，不依赖网络与真实运行时）
+
 ## [1.9.1] — 2026-10-28
 
 修掉 v1.9.0 发布后 CI 暴露的 TUI 滚动竞态（Windows / Python 3.12 上间歇性失败）。
@@ -456,6 +475,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.10.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.0
 [1.9.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.9.1
 [1.9.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.9.0
 [1.8.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.8.0

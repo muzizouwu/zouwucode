@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 659 passed](https://img.shields.io/badge/tests-659%20passed-green)](tests/)
+[![Tests: 677 passed](https://img.shields.io/badge/tests-677%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -37,7 +37,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **子 Agent 系统** | 主 Agent 通过 `task` 工具分解任务并并行委派：每个子 Agent 独立引擎/缓存，支持工具白名单、独立超时、级联打断 |
 | **Devin 式 dev 模式** | `zouwucode dev <issue>` 自主完成 issue→隔离 worktree→实现→验证→Draft PR 全流程；支持队列并行、watch 自动认领、成本熔断 |
 | **扩展层（MCP/LSP）** | MCP 服务器工具桥接（stdio + Streamable HTTP），并可 `zouwucode mcp-serve` 反向暴露为 MCP 服务器；LSP 三工具：诊断、hover 类型签名、go-to-definition，配置即启用，零配置零开销 |
-| **仓库地图（repo-map）** | 符号级代码库摘要注入上下文，大项目下模型"看得见全貌"而不烧 token |
+| **DeepSeek Harness 接入** | `zouwucode harness "<任务>"` 把任务交给官方 harness（dsh）执行：SDK 可选依赖、DSH_HOME/模型/推理强度/patch 层可配、`--json` 供脚本消费；反向亦可用 `zouwucode mcp-serve` 把内置工具挂进 dsh |
 | **引擎安全限制** | 工具轮数上限、单请求/单任务超时、连续工具错误熔断 — 杜绝死循环与执行停顿；工具输出统一限额（read 2000 行 / bash 30k 字符 / 子 Agent 报告 12k 字符，超限明确告知），避免单次工具调用撑爆上下文 |
 | **会话管理** | 自动保存、恢复、回滚 |
 | **hello-my-zouwucode 多智能体编排模块** | 复刻自 OpenCode 生态的 oh-my-opencode：11 专职 Agent + IntentGate 意图门控 + ultrawork 全自主管线 |
@@ -389,6 +389,10 @@ zouwucode/                       # 核心包
 │   ├── cli.py                   # eval 子命令路由
 │   └── tasks/                   # 内置示例评测任务（*.yaml）
 │
+├── harness/                     # DeepSeek Harness（dsh）接入层（可选依赖）
+│   ├── deepseek.py              # 配置解析 + 官方 SDK 包装 + 友好降级
+│   └── cli.py                   # harness 子命令（--doctor/--json/--verbose）
+│
 ├── extensions/                  # 扩展层（MCP/LSP 预留接口）
 │   ├── host.py                  # ExtensionHost + Extension 基类
 │   ├── mcp_ext.py               # MCP 服务器工具桥接
@@ -455,6 +459,7 @@ hello_my_zouwucode/              # 多智能体编排模块（复刻自 oh-my-op
 
 ## 近期更新
 
+- **v1.10.0 — 接入 DeepSeek 官方 Harness（dsh）**：新增 `zouwucode harness "<任务>"`——把任务交给 DeepSeek 开源的 Cordis 插件式 harness 执行，支持 `--doctor` 前置检查、DSH_HOME/profile/provider/model/推理强度/patch 层配置、会话续接、`--json` 与 `--verbose` 通知流；SDK 为可选依赖，缺失时给出安装指引而非 traceback。同时提供反向接入：`zouwucode mcp-serve` 可把全部内置工具挂进 dsh 的 MCP 插件。详见 [接入指南](docs/deepseek-harness接入.md)。
 - **v1.9.0 — 检索能力与上下文预算**：新增 `grep` 内容检索工具（ripgrep 优先、纯 Python 兜底，跳过二进制/构建产物，结果上限明确提示），补齐成熟编码 Agent 最常用的"按内容找代码"能力；`read`/`bash`/`glob`/子 Agent 报告统一加输出限额（超限如实告知而非静默截断）；修复 Windows 上的文件保真问题——GBK/UTF-16 编码不再被改写、CRLF 与 LF 不再被互相转换（编辑一行不再产生全文件 diff）。
 - **子 Agent 系统与扩展层**：新增子 Agent 系统——主 Agent 通过 `task` 工具分解任务并行委派，每个子 Agent 拥有独立引擎/缓存（隔离 PrefixCache），支持工具白名单、独立超时、主引擎级联打断；新增统一 Extension 扩展层预留 MCP/LSP 集成空间（配置即启用，默认零开销）。详见 [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md)。
 - **任务打断功能（三端统一）**：TUI/WebUI 按 `Esc`（确认弹窗防误触）、CLI 按 `Ctrl+C`，可在任意安全点（流式 chunk / 工具轮次 / 工具执行前）即时打断任务，中断后可输入「继续」从断点恢复或 `/clear` 放弃。详见 [打断功能使用说明](docs/打断功能使用说明.md)。
@@ -489,6 +494,7 @@ hello_my_zouwucode/              # 多智能体编排模块（复刻自 oh-my-op
 - [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md) — 任务分解与并行委派、MCP/LSP 预留接口
 - [dev模式使用说明](docs/dev模式使用说明.md) — Devin 式自主 issue → Draft PR 工作流
 - [dev模式快速上手](docs/dev模式快速上手.md) — 5 分钟跑通第一个自主任务
+- [DeepSeek Harness 接入](docs/deepseek-harness接入.md) — `zouwucode harness` 用法、配置、对标映射与故障排查
 
 hello-my-zouwucode 多智能体编排模块相关文档：
 

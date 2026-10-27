@@ -26,6 +26,11 @@ def main():
         from .mcp.server import main as mcp_main
         sys.exit(mcp_main(sys.argv[2:]))
 
+    # ── harness subcommand: run a task on DeepSeek's official harness (dsh) ──
+    if len(sys.argv) > 1 and sys.argv[1] == "harness":
+        from .harness.cli import harness_main
+        sys.exit(harness_main(sys.argv[2:]))
+
     parser = argparse.ArgumentParser(
         prog="zouwucode",
         description="ZOUWUCODE - DeepSeek-native AI coding agent for your terminal",
@@ -38,6 +43,7 @@ def main():
                "  zouwucode dev --workers 3    # Drain dev task queue\n"
                "  zouwucode dev --watch o/r    # Auto-claim labeled issues\n"
                "  zouwucode eval               # Run task-level eval suite\n"
+               "  zouwucode harness \"<task>\"  # Run on DeepSeek's official harness (dsh)\n"
                "  z                            # Quick launch (after install)\n"
                "  z --tui                      # Quick launch TUI\n"
                "  z --init                     # Init project memory\n"

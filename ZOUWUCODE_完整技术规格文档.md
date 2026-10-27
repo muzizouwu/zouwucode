@@ -888,6 +888,18 @@ zouwucode eval --list / --task X / --tasks dir/
 - `tasks/*.yaml`：内置示例（修 off-by-one / 处理空输入边界 / 补边界测试），随包分发（pyproject package-data）
 - 用法：调 prompt/验证层/引擎前后各跑一次对比通过率与成本；线上踩过的边界 bug 固化为新任务
 
+### 5.21 `harness/` — DeepSeek Harness（dsh）接入层
+
+**职责**：把任务交给 DeepSeek 官方开源的 harness（`dsh`，Cordis 插件内核）执行。**可选依赖、默认关闭**，不影响自有引擎。
+
+- `deepseek.py`：
+  - `resolve_settings(config, **overrides)` → `HarnessSettings`：解析 DSH_HOME（默认 `<data_dir>/dsh_home`）、profile、provider 路由（`api_type=deepseek` → `deepseek-official`）、model、推理强度（空则取 `reasoning_intensity`）、`max_tokens`、初始化/单轮超时、patch 层；**无法映射的组合在这一步就报错**（例如 OpenAI provider 而 dsh 组合无对应路由），而不是让 SDK 启动时抛难懂的错误。
+  - `HarnessRunner`：懒加载 `deepseek_harness.DeepSeekHarness`，`sdk_kwargs()` 只发送有值的可选项；`run()` 映射 `final_response / finish_reason / events / notifications`，`finish_reason == "error"` 视为失败；`close()` 释放运行时子进程。
+  - 失败分类：`HarnessUnavailable`（未安装 SDK、版本参数不兼容）→ 退出码 2；`HarnessError`（启动或执行失败）→ 退出码 1。两者都带可操作提示。
+- `cli.py`：`zouwucode harness` 子命令——位置参数 prompt（省略则读 stdin）、`--doctor/--json/--verbose/--session/--patch/--timeout` 等；`--verbose` 把 SDK 通知实时打到 stderr。
+- 反向接入：`zouwucode mcp-serve`（既有 MCP stdio 服务端）可把全部内置工具挂进 dsh 的 MCP 插件，复用 zouwucode 的工具实现与沙箱策略。
+- 边界：dsh 处于 developer preview，接口会演进；本层只承诺"配置映射 + 结果映射 + 友好失败"，不锁定 dsh 内部结构；dsh 会话的工具/沙箱/计费由 dsh 侧负责。
+
 ---
 
 ## 6. 文件结构
@@ -982,6 +994,11 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   │   ├── checks.py                   # 确定性判分（file/python_eval/command_pass）
 │   │   └── tasks/                      # 内置示例评测任务（*.yaml，随包分发）
 │   │
+│   ├── harness/                        # DeepSeek Harness（dsh）接入层（可选依赖）
+│   │   ├── __init__.py
+│   │   ├── deepseek.py                 # 配置解析 + SDK 包装 + 友好降级
+│   │   └── cli.py                      # harness 子命令（--doctor/--json/--verbose）
+│   │
 │   ├── lsp/                            # LSP 诊断集成
 │   │   ├── __init__.py
 │   │   └── client.py                   # LSPClient
@@ -1008,7 +1025,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（659 个测试用例）
+├── tests/                              # 测试套件（677 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1480,7 +1497,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **659 个测试用例**
+- 共计 **677 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证

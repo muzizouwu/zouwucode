@@ -272,6 +272,39 @@ class ContextConfig(BaseModel):
     repo_map_max_tokens: int = 1024
 
 
+class HarnessConfig(BaseModel):
+    """DeepSeek Harness (dsh) integration — opt-in, OFF by default.
+
+    ``zouwucode harness`` hands a task to DeepSeek's official harness instead
+    of zouwucode's own engine. Requires the optional ``deepseek-harness-sdk``
+    package; nothing here affects normal runs while ``enabled`` is false or the
+    subcommand is never used.
+
+    - ``profile``      : dsh profile ("sdk" default; "sdk-minimal" for the
+                         two-tool benchmark profile).
+    - ``dsh_home``     : DSH_HOME directory. Empty = ``<data_dir>/dsh_home``
+                         (dsh never discovers ~/.dsh on its own).
+    - ``provider``     : a route registered by the dsh composition. Empty =
+                         map zouwucode's api_type (deepseek → deepseek-official).
+    - ``model``        : model id resolved by that dsh adapter. Empty = the
+                         zouwucode provider's model, else deepseek-v4-flash.
+    - ``reasoning_effort`` : adapter-owned effort id. Empty = zouwucode
+                         ``reasoning_intensity`` (low/medium/max).
+    - ``patches``      : extra Cordis patch files layered after the profile.
+    """
+
+    enabled: bool = False
+    profile: str = "sdk"
+    dsh_home: str = ""
+    provider: str = ""
+    model: str = ""
+    reasoning_effort: str = ""
+    max_tokens: int = 49152
+    initialize_timeout_seconds: float = 30.0
+    request_timeout_seconds: float = 0.0
+    patches: list[str] = Field(default_factory=list)
+
+
 class ZOUWUCODEConfig(BaseModel):
     """Root configuration model."""
 
@@ -288,6 +321,7 @@ class ZOUWUCODEConfig(BaseModel):
     extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig)
     github: GithubConfig = Field(default_factory=GithubConfig)
     dev: DevConfig = Field(default_factory=DevConfig)
+    harness: HarnessConfig = Field(default_factory=HarnessConfig)
     hello_my_zouwucode: HelloMyZouwucodeConfig = Field(default_factory=HelloMyZouwucodeConfig)
     reasoning_intensity: str = "medium"  # low | medium | max
     show_thinking: bool = True           # 流式显示思考过程（/thinking 三端切换，默认开）
