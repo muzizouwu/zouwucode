@@ -4,6 +4,15 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.9.1] — 2026-10-28
+
+修掉 v1.9.0 发布后 CI 暴露的 TUI 滚动竞态（Windows / Python 3.12 上间歇性失败）。
+
+### Fixed
+- **流式输出时"贴底"偶尔差一行**：聊天视图只在用户位于底部时跟随新内容，但 `RichLog` 自带的 `scroll_end` 是对**写入前**的虚拟高度求值、刷新后才落位——新行（尤其滚动条出现导致重新折行）布局完成后，视口会停在末尾前一行（CI 上表现为 `scroll_y == max_scroll_y - 1`）。现在不再让 `RichLog` 自行滚动，而是记录写入时的位置作为锚点，在下一帧布局完成后自行贴底；锚点同时用来判定"用户是否已向上滚动"，一旦发现就放弃补位，绝不把正在读历史的视口拽回底部
+- **补位滚动的二次排队**：贴底调用改为 `immediate=True`，避免它再排一次"刷新后滚动"，否则会在用户紧接着向上滚动之后才执行，反而造成跳底
+- **CI 偶发红灯的同类测试**：`test_subagent` / `test_v106_concurrency` 的并行用例改用"串行基线 + 起始先于结束"的结构性断言，不再依赖写死的绝对耗时；`test_v190` 的 ripgrep 用例固定引擎与顺序，避免"本机没装 rg / CI 装了 rg"导致的环境差异
+
 ## [1.9.0] — 2026-10-28
 
 检索能力补齐 + 上下文预算 + Windows 文件保真：让 Agent 能"按内容找代码"，并堵住单次工具调用撑爆上下文、改写文件编码/换行这两个真实生产痛点。
@@ -447,6 +456,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.9.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.9.1
 [1.9.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.9.0
 [1.8.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.8.0
 [1.7.2]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.7.2

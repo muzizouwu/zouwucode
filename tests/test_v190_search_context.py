@@ -15,6 +15,7 @@ Defects pinned here:
 """
 
 import asyncio
+import shutil
 
 import pytest
 
@@ -65,11 +66,16 @@ class TestGrepTool:
         assert "README.md" in r.output
         assert "app.py" not in r.output
 
-    def test_files_only_returns_paths(self, workspace):
+    def test_files_only_returns_paths(self, workspace, monkeypatch):
+        # File ORDER is traversal-dependent (ripgrep parallelises, Python walks
+        # sorted) and ripgrep is pre-installed on CI runners but not on a
+        # default Windows dev box — pin the engine so the assertion tests the
+        # contract, not the host's traversal order.
+        monkeypatch.setattr(search_tools.shutil, "which", lambda _name: None)
         r = run(GrepTool().execute(pattern="Hello", path=str(workspace),
                                    files_only=True))
         assert r.success
-        assert r.output.strip().splitlines() == ["README.md", "src/app.py"]
+        assert sorted(r.output.strip().splitlines()) == ["README.md", "src/app.py"]
 
     def test_no_matches_is_success_not_error(self, workspace):
         r = run(GrepTool().execute(pattern="nonexistent_symbol_xyz",
@@ -120,6 +126,14 @@ class TestGrepTool:
                                    path=str(workspace / "src" / "util.py")))
         assert r.success
         assert "util.py:2:" in r.output
+
+    @pytest.mark.skipif(shutil.which("rg") is None,
+                        reason="ripgrep not installed on this host")
+    def test_ripgrep_path_matches_contract(self, workspace):
+        """Both engines must satisfy the same ``path:line:text`` contract."""
+        r = run(GrepTool().execute(pattern="VALUE", path=str(workspace)))
+        assert r.success
+        assert "src/util.py:2:" in r.output
 
     def test_sandbox_denies_outside_workspace(self, workspace, tmp_path):
         other = tmp_path / "other"

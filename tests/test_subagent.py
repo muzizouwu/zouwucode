@@ -135,19 +135,29 @@ class TestSubAgentIsolation:
         assert len(main_engine.cache.get_prefix()) == 0  # nothing appended at all
 
     def test_parallel_faster_than_sequential(self):
-        """并行执行：3 个 0.2s 任务总耗时应接近单任务而非三倍。"""
-        manager = _manager(_EchoProvider(delay=0.2))
+        """并行执行：3 个 0.2s 任务总耗时应接近单任务而非三倍。
 
-        async def scenario():
+        使用「同一台机器上的串行基线」比较，而不是写死 0.55s——绝对阈值
+        在慢速 CI runner（尤其 Windows + Python 3.12）上会无故变红。
+        """
+        manager = _manager(_EchoProvider(delay=0.2))
+        tasks = [{"role": f"r{i}", "instructions": "s", "task": f"t{i}"}
+                 for i in range(3)]
+
+        async def timed(parallel: bool) -> float:
             start = asyncio.get_running_loop().time()
-            await manager.run_parallel([
-                {"role": f"r{i}", "instructions": "s", "task": f"t{i}"}
-                for i in range(3)
-            ])
+            if parallel:
+                await manager.run_parallel(tasks)
+            else:
+                for task in tasks:
+                    await manager.run_parallel([task])
             return asyncio.get_running_loop().time() - start
 
-        elapsed = asyncio.run(scenario())
-        assert elapsed < 0.55, f"并行应接近 0.2s，实际 {elapsed:.2f}s（串行需 0.6s+）"
+        sequential = asyncio.run(timed(False))
+        parallel = asyncio.run(timed(True))
+        assert parallel < sequential * 0.7, (
+            f"并行应显著快于串行：sequential={sequential:.2f}s "
+            f"parallel={parallel:.2f}s")
 
 
 # ── Whitelist & status ───────────────────────────────────────────────────────

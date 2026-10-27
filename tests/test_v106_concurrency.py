@@ -78,8 +78,14 @@ class TestParallelTools:
         t0 = time.monotonic()
         _run(eng, executor, N)
         elapsed = time.monotonic() - t0
-        # Sequential would be >= N*DELAY; concurrent ~ DELAY.
-        assert elapsed < N * DELAY * 0.8, f"elapsed={elapsed:.2f}s looks sequential"
+        # Structural proof of concurrency: every call starts before ANY call
+        # ends. Wall-clock thresholds alone were flaky on slow CI runners, so
+        # the ordering assertion is the real check and the time bound is only
+        # a loose sanity check (strictly less than a sequential run costs).
+        first_end = next(i for i, (kind, _) in enumerate(order) if kind == "end")
+        starts_before_end = [name for kind, name in order[:first_end]]
+        assert len(starts_before_end) == N, f"order={order} looks sequential"
+        assert elapsed < N * DELAY, f"elapsed={elapsed:.2f}s looks sequential"
         # results still recorded in the model's original order
         names = [r for r in eng.cache.get_prefix() if r.get("tool_call_id")]
         assert [n["tool_call_id"] for n in names] == [f"c{i}" for i in range(N)]

@@ -78,13 +78,63 @@ class _StickyRichLog(RichLog):
         # with these passed positionally, so mirror the full signature and
         # only fill scroll_end when the caller left it unset.
         scroll_end_given = len(args) > 3 or kwargs.get("scroll_end") is not None
+        follow = False
         if not scroll_end_given:
+            follow = self._near_bottom()
+            # Never let RichLog scroll on its own: its scroll_end is evaluated
+            # against the OLD virtual height, so the viewport can settle one
+            # line short of the end (intermittently seen on Windows/Python
+            # 3.12 CI). We re-pin ourselves once the layout has caught up.
+            kwargs["scroll_end"] = False
+        if follow:
+            # Remember where the viewport was: at settle time scroll_y is
+            # still there (RichLog did not scroll), so "did the user scroll
+            # up since?" is answered by comparing against this anchor.
+            self._follow_anchor = self.scroll_y
+        result = super().write(content, *args, **kwargs)
+        if follow:
+            self._follow_pending = True
             try:
-                at_bottom = self.is_vertical_scroll_end
-            except Exception:  # layout not ready yet
-                at_bottom = True
-            kwargs["scroll_end"] = at_bottom
-        return super().write(content, *args, **kwargs)
+                self.call_after_refresh(self._settle_follow)
+            except Exception:  # widget not mounted/running yet
+                logger.debug("swallowed sticky-scroll reschedule failure",
+                             exc_info=True)
+        return result
+
+    def _near_bottom(self) -> bool:
+        """True when the viewport is at (or within a line of) the end."""
+        try:
+            if self.is_vertical_scroll_end:
+                return True
+            return self.scroll_y >= self.max_scroll_y - 1
+        except Exception:  # layout not ready yet
+            return True
+
+    def _settle_follow(self, attempt: int = 0) -> None:
+        """Re-pin after the new line is laid out — unless the user scrolled up.
+
+        Re-checking here (rather than trusting the pre-write decision) keeps a
+        user who scrolls up mid-stream from being yanked to the bottom by a
+        pending follow-up scroll. The pin can need more than one refresh on a
+        slow runner (the last line's layout lands after the callback), so it
+        re-queues a bounded number of times until the viewport really is at
+        the end.
+        """
+        if attempt == 0 and not getattr(self, "_follow_pending", False):
+            return
+        anchor = getattr(self, "_follow_anchor", 0)
+        try:
+            if self.scroll_y < anchor - 1:
+                self._follow_pending = False
+                return  # user moved up after we scheduled the pin
+            self.scroll_end(animate=False, immediate=True, x_axis=False)
+            if attempt < 3 and self.scroll_y < self.max_scroll_y:
+                self.call_after_refresh(
+                    lambda: self._settle_follow(attempt + 1))
+                return
+        except Exception:
+            logger.debug("swallowed sticky-scroll pin failure", exc_info=True)
+        self._follow_pending = False
 
 
 class InterruptConfirmScreen(ModalScreen):
