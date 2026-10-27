@@ -19,6 +19,11 @@
 - **`read` 读到超大文件**：>10 MB 直接拒绝并给出替代方案（`offset`/`limit` 或 `grep`），不再把整个生成文件塞进 prompt。
 - **`glob` 静默截断**：超过 200 条时补上"还有 N 条未显示"的提示。
 
+### Changed
+- **三端文档与代码对齐**：README 特性表/目录树、USAGE §12 工具系统、技术规格文档 §3.3 与目录树全部由"11 个内置工具"更新为 12 个，并补 `GrepTool` 参数契约与 `search_tools.py` 说明；USAGE 新增「工具输出限额」表，用户能直接查到每类工具的上限与超限行为
+- **版本号**：`pyproject.toml` 与 `zouwucode.__version__` 升至 `1.9.0`
+- 修正 USAGE §12 的过时表述（原文称"当前版本没有交互式审批弹窗"，实际 Agent 模式三端均已接入审批回调）
+
 ### Tests
 - 新增 `tests/test_v190_search_context.py`（23 用例）：grep 命中/过滤/忽略大小写/仅文件列表/非法正则/二进制跳过/结果上限/单文件目标/沙箱拒绝/无 ripgrep 兜底路径，read 分页与超大文件，glob 截断提示，bash 截断首尾保留，GBK 与 UTF-16 读写编辑保真，内置工具集含 grep
 - `tests/test_v180_upgrade.py` 追加 CRLF 保真/LF 匹配/幂等写入/报告预算/头尾裁剪 5 用例。套件 **631 → 659 全绿**（有/无 config.yaml 两种环境均已验证）
@@ -442,6 +447,8 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.9.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.9.0
+[1.8.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.8.0
 [1.7.2]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.7.2
 [1.7.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.7.1
 [1.7.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.7.0
