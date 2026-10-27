@@ -702,6 +702,14 @@ class EngineLoop:
                         }
                         for tc in response.tool_calls
                     ]
+                    # DeepSeek thinking mode requires the reasoning_content of
+                    # an assistant turn that invoked tools to be fed back with
+                    # the tool results — otherwise the model loses its own
+                    # chain-of-thought across the tool round and reasoning
+                    # quality degrades. Turns without tool calls are exempt
+                    # (the API ignores their reasoning_content).
+                    if response.thinking:
+                        assistant_msg["reasoning_content"] = response.thinking
                 self.cache.append(assistant_msg)
                 assistant_appended = True
 

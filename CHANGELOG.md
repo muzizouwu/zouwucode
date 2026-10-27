@@ -4,6 +4,30 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.8.0] — 2026-10-28
+
+全网调研后的能力校准：对齐 DeepSeek V4/V4.1 API 最新契约、MCP 2026-07-28 规范与 2026 年编码 Agent 的 UX 共识。
+
+### Fixed
+- **推理强度 `low` 名不副实（真 bug）**：DeepSeek V4 默认开启思考，此前 `low` 只是"不传 reasoning_effort"，实际仍按 high/max 思考，温度参数也不生效。现在 `low` 显式发送 `{"thinking": {"type": "disabled"}}`，真正关闭思考并恢复 temperature 确定性输出
+- **思考模式误发 temperature**：官方契约中思考模式忽略 temperature/top_p（传了不报错但无效）。现在 thinking 开启时不发送 temperature，避免误导
+- **工具调用轮丢失 `reasoning_content`（真 bug）**：官方要求带工具调用的 assistant 消息把 reasoning_content 随工具结果回传，否则模型的思维链在工具轮之间断裂。现在按规范回传（仅工具轮；无工具轮不发送）
+- **成本统计全面失真（真 bug）**：价格表停留在旧价——缓存命中价高约 5 倍、输出价低 2-4 倍、Pro 全错；且未区分峰谷。现按官方 2026-10 价目表重建（Flash 命中 $0.006/未命中 $0.30/输出 $1.20 每 1M，Pro $0.044/$1.32/$3.96），并实现峰谷折半（UTC 01-04、06-10 工作日为峰时）。`/usage` 与 `engine.max_cost_usd` 成本熔断从此可信
+- **OpenAI 模型被错误应用峰谷折扣**：峰谷仅适用于 DeepSeek，OpenAI 为固定价——已在价格匹配中分离
+
+### Added
+- **AGENTS.md 自动加载**：项目根的 `AGENTS.md`（Codex/Cursor/Gemini/Copilot 共用的开放格式）现与 `.zouwucode/rules.md` 一并注入系统提示，`<project_rules>` 与 `<agents_md>` 分标签呈现；32 KiB 上限防止前缀膨胀
+- **write/edit 输出 unified diff**：此前只回"写入了 N 字节 / 行数变化"，模型与用户都看不到实际改动。现在返回真实 unified diff（4k 字符截断），新建文件给出前 40 行预览——对齐 2026 年业界 "diff before write" 的 UX 共识
+- **MCP 协议版本协商**：从硬编码 2025-03-26 升级为「优先声明 2026-07-28（无状态核心）→ 依次降级 2025-11-25 / 2025-03-26」，记录服务端实际协商版本；旧的有状态服务端（Mcp-Session-Id）继续兼容
+
+### Changed
+- **默认模型名 `deepseek-v4-flash` → `deepseek-flash`**：官方已将 V4 名称列为 legacy 别名（请求仍可用，路由到 V4.1-Flash 并按 Flash 计费）；代码默认值、`--model` 帮助文案、README/USAGE/config.example/技术规格示例同步更新
+- 文档：工具数量/目录树/测试计数与代码对齐
+
+### Tests
+- 新增 `tests/test_v180_upgrade.py`（22 用例）：思考开关契约、reasoning_content 回传、峰谷定价、默认模型名、AGENTS.md、diff 输出
+- `tests/test_mcp_http.py` 新增版本协商用例；`test_v105_parity.py` 成本用例改为固定峰谷时段断言并补 OpenAI 不打折用例。套件 **606 → 631 全绿**
+
 ## [1.7.2] — 2026-10-13
 
 体检修复：文档与代码对齐 + 可观测性补漏（agent 自进化后"改了代码没同步文档"的典型偏差）。

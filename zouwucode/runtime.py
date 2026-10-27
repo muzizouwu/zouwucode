@@ -34,7 +34,7 @@ def ensure_provider_config(config: ZOUWUCODEConfig, provider_key: str) -> Provid
     if provider_key not in config.providers:
         name = (provider_key or "").lower()
         api_type = "openai" if ("openai" in name or "gpt" in name) else "deepseek"
-        model = "gpt-4o" if api_type == "openai" else "deepseek-v4-flash"
+        model = "gpt-4o" if api_type == "openai" else "deepseek-flash"
         config.providers[provider_key] = ProviderConfig(
             api_key="", model=model, api_type=api_type,
         )

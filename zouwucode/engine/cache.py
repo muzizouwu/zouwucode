@@ -8,23 +8,39 @@ server-side cache stays hot.
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from ..tokens import estimate_tokens
 
 
-# Per-model USD price per 1M tokens: (input_uncached, input_cached, output).
-# Cost was previously hardcoded to DeepSeek V4-Flash rates regardless of the
-# model, so non-DeepSeek turns — and the engine.max_cost_usd breaker — were
-# wrong. First matching substring wins; unknown models fall back to V4-Flash.
+# Official DeepSeek V4 pricing, USD per 1M tokens, PEAK rates:
+#   (input_cache_miss, input_cache_hit, output)
+# Off-peak rates are exactly half of peak. Peak hours are 01:00-04:00 and
+# 06:00-10:00 UTC, Mon-Fri (Chinese public holidays are also off-peak; we
+# cannot know them locally, so such days bill conservatively at peak).
+#
+# Source: https://api-docs.deepseek.com/quick_start/pricing (verified 2026-10).
+# The previous table was badly stale: cache-hit was ~5x too high and output
+# ~2-4x too low, so /usage and engine.max_cost_usd were both wrong.
 PRICING = {
-    "deepseek-v4-flash": (0.14, 0.028, 0.28),
-    "deepseek-v4-pro": (0.27, 0.027, 1.10),
-    "deepseek-chat": (0.27, 0.07, 1.10),
-    "deepseek-reasoner": (0.55, 0.14, 2.19),
+    "deepseek-flash": (0.30, 0.006, 1.20),
+    "deepseek-v4-flash": (0.30, 0.006, 1.20),   # legacy alias, billed as Flash
+    "deepseek-v4-pro": (1.32, 0.044, 3.96),
     "gpt-4o-mini": (0.15, 0.075, 0.60),
     "gpt-4o": (2.50, 1.25, 10.00),
 }
-DEFAULT_PRICING = (0.14, 0.028, 0.28)
+DEFAULT_PRICING = (0.30, 0.006, 1.20)
+
+# Only DeepSeek uses the peak/off-peak schedule; OpenAI prices are flat.
+_PEAK_SCHEDULED = ("deepseek",)
+
+
+def is_peak_hour(now: datetime | None = None) -> bool:
+    """Whether DeepSeek bills at peak rates right now (UTC, Mon-Fri)."""
+    now = now or datetime.now(timezone.utc)
+    if now.weekday() >= 5:          # Saturday / Sunday
+        return False
+    return (1 <= now.hour < 4) or (6 <= now.hour < 10)
 
 
 @dataclass
@@ -52,12 +68,22 @@ class CacheStats:
         self.window_misses = deque(maxlen=size)
 
     def _pricing(self):
-        """(input_uncached, input_cached, output) USD per 1M tokens."""
+        """(input_uncached, input_cached, output) USD per 1M tokens.
+
+        Applies off-peak pricing (exactly half of peak) outside DeepSeek's
+        peak windows, so /usage and the cost breaker track real billing.
+        """
         m = (self.model or "").lower()
-        for key, price in PRICING.items():
+        price = DEFAULT_PRICING
+        matched = False
+        for key, candidate in PRICING.items():
             if key in m:
-                return price
-        return DEFAULT_PRICING
+                price = candidate
+                matched = True
+                break
+        if matched and m.startswith(_PEAK_SCHEDULED) and not is_peak_hour():
+            return tuple(p / 2 for p in price)
+        return price
     _start_time: float = field(default_factory=time.time)
 
     @property
@@ -91,7 +117,8 @@ class CacheStats:
     def estimated_savings(self) -> float:
         """Estimated cost savings from caching.
 
-        Assumes cached tokens bill at ~1/5 of uncached rate.
+        Cached input bills at ~1/50 (peak) to ~1/100 (off-peak) of the
+        uncached rate on V4 — the main reason the Cache-First design exists.
         """
         if self.total_prompt_tokens == 0:
             return 0.0

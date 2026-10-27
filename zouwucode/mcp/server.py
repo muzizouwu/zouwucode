@@ -28,7 +28,7 @@ from ..runtime import create_builtin_tools
 from ..sandbox.permission import PermissionManager
 from ..tools.registry import ToolRegistry
 
-PROTOCOL_FALLBACK = "2025-06-18"
+PROTOCOL_FALLBACK = "2026-07-28"
 SERVER_NAME = "zouwucode"
 
 

@@ -10,7 +10,7 @@ reasoning_intensity: medium   # low | medium | max
 providers:
   deepseek:
     api_key: "sk-your-api-key-here"     # 必填：你的 DeepSeek API Key
-    model: "deepseek-v4-flash"
+    model: "deepseek-flash"
     base_url: "https://api.deepseek.com"
     api_type: deepseek
   # openai:

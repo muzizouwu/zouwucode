@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 606 passed](https://img.shields.io/badge/tests-606%20passed-green)](tests/)
+[![Tests: 631 passed](https://img.shields.io/badge/tests-631%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -70,7 +70,7 @@ zouwucode --init-config
 providers:
   deepseek:
     api_key: "sk-your-deepseek-api-key"
-    model: "deepseek-v4-flash"            # 推荐使用 deepseek-v4-flash
+    model: "deepseek-flash"              # 推荐 deepseek-flash（V4 时代新名）
     base_url: "https://api.deepseek.com"
 ```
 
@@ -220,7 +220,7 @@ python -m zouwucode --compress aggressive
 python -m zouwucode --max-tokens 1048576 --keep-turns 50
 
 # 指定模型
-python -m zouwucode --model deepseek-v4-flash
+python -m zouwucode --model deepseek-flash
 
 # 设置推理强度（低/中/高）
 python -m zouwucode --reasoning low

@@ -26,7 +26,7 @@ class DeepSeekProvider(BaseProvider):
         # Ensure base_url is never empty — fallback to DeepSeek default
         raw_url = config.get("base_url") or ""
         self.base_url = raw_url if raw_url.startswith("http") else "https://api.deepseek.com"
-        self.model = config.get("model", "deepseek-v4-flash")
+        self.model = config.get("model", "deepseek-flash")
         self._frozen_system_prompt: Optional[str] = None
         self._frozen_tool_schemas: Optional[list[dict]] = None
 
@@ -39,19 +39,22 @@ class DeepSeekProvider(BaseProvider):
         self._frozen_tool_schemas = schemas
 
     def set_reasoning_effort(self, level: str) -> None:
-        """Set reasoning effort level.
+        """Set reasoning level.
 
-        Maps ZOUWUCODE's three-tier abstraction to DeepSeek V4 API:
-        - low:     No reasoning, deterministic output (temperature=0)
-        - medium:  reasoning_effort="high" (default, balanced thinking)
-        - max:     reasoning_effort="max" (maximum reasoning depth)
+        Maps ZOUWUCODE's three tiers to the DeepSeek V4 API contract:
+        - low:    thinking DISABLED (fast, deterministic; temperature applies).
+                  Previously we merely omitted reasoning_effort — but DeepSeek
+                  enables thinking by default, so "low" still reasoned at
+                  high/max and the label lied.
+        - medium: thinking enabled, reasoning_effort="high"
+        - max:    thinking enabled, reasoning_effort="max"
         """
-        mapping = {
-            "low": "low",
+        self._reasoning_level = level if level in ("low", "medium", "max") else "medium"
+        self._reasoning_effort = {
+            "low": "low",       # unused: thinking is disabled for low
             "medium": "high",
             "max": "max",
-        }
-        self._reasoning_effort = mapping.get(level, "high")
+        }[self._reasoning_level]
 
     def _build_messages(self, messages: list[dict]) -> list[dict]:
         """Build the message list, avoiding duplicate system prompts."""
@@ -69,6 +72,39 @@ class DeepSeekProvider(BaseProvider):
             return self._frozen_tool_schemas
         return tools
 
+    def _build_payload(self, messages: list[dict],
+                       tools: Optional[list[dict]],
+                       temperature: float,
+                       max_tokens: int) -> dict:
+        """Assemble the request body (kept separate so it is unit-testable)."""
+        payload = {
+            "model": self.model,
+            "messages": self._build_messages(messages),
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        api_tools = self._build_tools(tools)
+        if api_tools:
+            payload["tools"] = api_tools
+        # Always request usage so cost accounting works in EVERY reasoning
+        # mode. The old 'low' branch popped stream_options, which silently
+        # made every low-reasoning turn cost $0 (no usage -> no tokens billed).
+        payload["stream_options"] = {"include_usage": True}
+
+        # Thinking mode (DeepSeek V4 contract):
+        # - thinking is ON by default, so "low" MUST send
+        #   {"thinking": {"type": "disabled"}} to actually stop reasoning.
+        # - Thinking mode ignores temperature/top_p (the API accepts them but
+        #   they have no effect), so only send temperature when thinking is off.
+        level = getattr(self, "_reasoning_level", "medium")
+        if level == "low":
+            payload["thinking"] = {"type": "disabled"}
+            payload["temperature"] = temperature
+        else:
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = getattr(self, "_reasoning_effort", "high")
+        return payload
+
     async def chat_stream(
         self,
         messages: list[dict],
@@ -77,29 +113,7 @@ class DeepSeekProvider(BaseProvider):
         max_tokens: int = 65536,
         stream_thinking: bool = True,
     ) -> AsyncIterator[ModelResponse]:
-        api_messages = self._build_messages(messages)
-        api_tools = self._build_tools(tools)
-
-        payload = {
-            "model": self.model,
-            "messages": api_messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": True,
-        }
-        if api_tools:
-            payload["tools"] = api_tools
-        # Always request usage so cost accounting works in EVERY reasoning
-        # mode. The old 'low' branch popped stream_options, which silently
-        # made every low-reasoning turn cost $0 (no usage -> no tokens billed).
-        payload["stream_options"] = {"include_usage": True}
-
-        # Reasoning effort: low → no reasoning, medium → high, max → max
-        # Maps ZOUWUCODE's three-tier abstraction to DeepSeek V4 API.
-        # Omitting reasoning_effort is all 'low' needs; usage is always kept.
-        reasoning_effort = getattr(self, '_reasoning_effort', None)
-        if reasoning_effort and reasoning_effort != "low":
-            payload["reasoning_effort"] = reasoning_effort
+        payload = self._build_payload(messages, tools, temperature, max_tokens)
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",

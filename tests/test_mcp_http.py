@@ -155,6 +155,23 @@ class TestHttpTransport:
         assert httpd.seen_session_headers[0] is None
         assert "sess-abc123" in httpd.seen_session_headers[1:]
 
+    def test_protocol_version_is_negotiated_not_assumed(self, mcp_http_server):
+        """We advertise 2026-07-28, but must record the version the server
+        actually answers with (this fake speaks 2025-03-26)."""
+        url, _ = mcp_http_server("json")
+
+        async def scenario():
+            client = MCPClient()
+            await client.connect_http("fake", url)
+            version = client._http_servers["fake"]["protocol_version"]
+            names = [t["function"]["name"] for t in client.get_tools()]
+            await client.disconnect_all()
+            return version, names
+
+        version, names = _run(scenario())
+        assert version == "2025-03-26"
+        assert "fake__echo" in names
+
     def test_disconnect_drops_tools(self, mcp_http_server):
         url, _ = mcp_http_server("json")
 

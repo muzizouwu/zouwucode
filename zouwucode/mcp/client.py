@@ -2,10 +2,14 @@
 
 Two transports are wired:
 - stdio: the server is spawned as a subprocess (``connect_stdio``)
-- Streamable HTTP (2025-03-26): a single POST endpoint that answers with
-  a plain JSON body OR a ``text/event-stream`` body; an Mcp-Session-Id
-  handed out at initialize is echoed on every later request
-  (``connect_http``).
+- Streamable HTTP: a single POST endpoint that answers with a plain JSON
+  body OR a ``text/event-stream`` body (``connect_http``).
+
+Protocol versions: we prefer the newest spec we know (2026-07-28, whose
+core is STATELESS — no session handshake) and fall back to earlier
+revisions (2025-11-25 / 2025-03-26) when a server rejects or ignores it.
+The Mcp-Session-Id header is still echoed when a server hands one out, so
+older stateful servers keep working unchanged.
 
 External servers merge their tools into one registry under a prefix.
 """
@@ -21,17 +25,24 @@ from typing import Optional
 
 import httpx
 
+import zouwucode
+
+# Newest first. The server echoes the revision it actually speaks back in
+# the initialize result; we record that and never assume our preference won.
+MCP_PROTOCOL_VERSIONS = ("2026-07-28", "2025-11-25", "2025-03-26")
+_LEGACY_PROTOCOL_VERSION = "2025-03-26"
+
 
 class MCPClient:
     """Client for connecting to MCP (Model Context Protocol) servers.
 
     Transports: stdio (``connect_stdio``) and Streamable HTTP
-    (``connect_http``, JSON or SSE response bodies, session-id echo).
+    (``connect_http``, JSON or SSE response bodies, optional session-id echo).
     """
 
     def __init__(self):
         self._stdio_processes: dict[str, subprocess.Popen] = {}
-        # name -> {"url", "headers", "session_id"} for Streamable HTTP servers
+        # name -> {"url", "headers", "session_id", "protocol_version"}
         self._http_servers: dict[str, dict] = {}
         self._tools: dict[str, dict] = {}
         self._id = 0
@@ -86,15 +97,17 @@ class MCPClient:
         )
         self._stdio_processes[name] = proc
 
-        # Handshake
+        # Handshake — declare our newest revision; the server answers with
+        # the revision it actually speaks (older servers simply echo theirs).
         await self._request(proc, {
             "jsonrpc": "2.0",
             "id": self._next_id(),
             "method": "initialize",
             "params": {
-                "protocolVersion": "2025-03-26",
+                "protocolVersion": MCP_PROTOCOL_VERSIONS[0],
                 "capabilities": {},
-                "clientInfo": {"name": "zouwucode", "version": "1.0.0"},
+                "clientInfo": {"name": "zouwucode",
+                               "version": zouwucode.__version__},
             },
         })
 
@@ -191,17 +204,43 @@ class MCPClient:
         """Connect to a Streamable-HTTP MCP server and register its tools."""
         self._http_servers[name] = {"url": url,
                                     "headers": dict(headers or {}),
-                                    "session_id": None}
+                                    "session_id": None,
+                                    "protocol_version": None}
         try:
-            await self._http_request(name, {
-                "jsonrpc": "2.0", "id": self._next_id(),
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "zouwucode", "version": "1.0.0"},
-                },
-            })
+            # Version negotiation: try newest first. A server that only speaks
+            # an older revision answers 200 with its own protocolVersion, or
+            # rejects the unsupported one with an error — handle both.
+            init_result = None
+            last_exc = None
+            for version in MCP_PROTOCOL_VERSIONS:
+                try:
+                    init_result = await self._http_request(name, {
+                        "jsonrpc": "2.0", "id": self._next_id(),
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": version,
+                            "capabilities": {},
+                            "clientInfo": {"name": "zouwucode",
+                                           "version": zouwucode.__version__},
+                        },
+                    })
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    logger.debug("MCP initialize with %s rejected: %s",
+                                 version, exc)
+            if init_result is None:
+                raise last_exc or RuntimeError("MCP initialize failed")
+
+            negotiated = ((init_result.get("result") or {})
+                          .get("protocolVersion")
+                          or _LEGACY_PROTOCOL_VERSION)
+            self._http_servers[name]["protocol_version"] = negotiated
+            if negotiated not in MCP_PROTOCOL_VERSIONS:
+                logger.warning(
+                    "MCP server '%s' negotiated unknown protocol %s; "
+                    "continuing best-effort.", name, negotiated)
+
             # Spec: follow with notifications/initialized. Servers that do
             # not need it simply answer 202 — never fatal here.
             try:

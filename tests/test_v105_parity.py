@@ -66,33 +66,66 @@ class TestCliFlagsHonorConfig:
 
 
 class TestCostModel:
-    def test_price_table_by_model(self):
+    """Cost accounting follows the official DeepSeek V4 price sheet.
+
+    Rates are peak rates; DeepSeek bills half outside peak windows, so the
+    tests pin is_peak_hour to keep assertions time-independent.
+    """
+
+    @staticmethod
+    def _pin(monkeypatch, peak: bool):
+        import zouwucode.engine.cache as cache
+        monkeypatch.setattr(cache, "is_peak_hour", lambda now=None: peak)
+        return cache
+
+    def test_price_table_by_model(self, monkeypatch):
+        self._pin(monkeypatch, True)
         from zouwucode.engine.cache import CacheStats
-        s = CacheStats(model="deepseek-v4-flash")
+        s = CacheStats(model="deepseek-flash")
         s.record_turn(True, {"prompt_tokens": 1_000_000,
                              "prompt_cache_hit_tokens": 0, "completion_tokens": 0})
-        assert abs(s.total_cost - 0.14) < 1e-6
+        assert abs(s.total_cost - 0.30) < 1e-6
 
-    def test_unknown_model_falls_back(self):
+    def test_off_peak_is_half_price(self, monkeypatch):
+        self._pin(monkeypatch, False)
+        from zouwucode.engine.cache import CacheStats
+        s = CacheStats(model="deepseek-flash")
+        s.record_turn(True, {"prompt_tokens": 1_000_000,
+                             "prompt_cache_hit_tokens": 0, "completion_tokens": 0})
+        assert abs(s.total_cost - 0.15) < 1e-6
+
+    def test_unknown_model_falls_back(self, monkeypatch):
+        self._pin(monkeypatch, True)
         from zouwucode.engine.cache import CacheStats, DEFAULT_PRICING
         s = CacheStats(model="some-local-llm")
         s.record_turn(True, {"prompt_tokens": 1_000_000,
                              "prompt_cache_hit_tokens": 0, "completion_tokens": 0})
         assert abs(s.total_cost - DEFAULT_PRICING[0]) < 1e-6
 
-    def test_expensive_model_costs_more(self):
+    def test_expensive_model_costs_more(self, monkeypatch):
+        self._pin(monkeypatch, True)
         from zouwucode.engine.cache import CacheStats
         gpt = CacheStats(model="gpt-4o")
-        ds = CacheStats(model="deepseek-v4-flash")
+        ds = CacheStats(model="deepseek-flash")
         usage = {"prompt_tokens": 500_000, "prompt_cache_hit_tokens": 0,
                  "completion_tokens": 1_000}
         gpt.record_turn(True, usage)
         ds.record_turn(True, usage)
-        assert gpt.total_cost > ds.total_cost * 5
+        # Peak: gpt-4o $1.26 vs flash $0.31 → ~4x. Assert a clear margin
+        # without hard-coding the exact multiple (prices change over time).
+        assert gpt.total_cost > ds.total_cost * 3
+
+    def test_openai_models_do_not_get_off_peak_discount(self, monkeypatch):
+        """Only DeepSeek has peak/off-peak billing; OpenAI prices are flat."""
+        cache = self._pin(monkeypatch, False)
+        s = cache.CacheStats(model="gpt-4o")
+        s.record_turn(True, {"prompt_tokens": 1_000_000,
+                             "prompt_cache_hit_tokens": 0, "completion_tokens": 0})
+        assert abs(s.total_cost - 2.50) < 1e-6
 
     def test_cached_never_negative(self):
         from zouwucode.engine.cache import CacheStats
-        s = CacheStats(model="deepseek-v4-flash")
+        s = CacheStats(model="deepseek-flash")
         s.record_turn(True, {"prompt_tokens": 100, "prompt_cache_hit_tokens": 500,
                              "completion_tokens": 0})
         assert s.total_cost >= 0

@@ -89,7 +89,7 @@
 |------|------|----------|
 | Cache-First 引擎 | Append-only 对话循环，缓存命中率 90%+ | `engine/loop.py`, `engine/cache.py` |
 | DeepSeek V4 优化 | 专用适配器，prefix-cache 感知 | `engine/providers/deepseek.py` |
-| 三档推理强度 | low / medium / max 映射 reason_effort | `deepseek.py` + `config.py` |
+| 三档推理强度 | low（**真正关闭思考**，`thinking: disabled`，temperature 生效）/ medium（thinking + effort=high）/ max（thinking + effort=max） | `deepseek.py` + `config.py` |
 | 流式思考显示 | 思考过程增量实时推送（opencode 风格），`/thinking` 三端开关 | `loop.py` + CLI/TUI/Web |
 | 任务打断 | Esc（TUI/Web）/ Ctrl+C（CLI）请求打断，在安全点（流 chunk / 轮边界 / 工具执行前）生效，抛出 `TaskInterrupted` | `engine/loop.py` |
 | 引擎安全限制 | 工具轮数上限、LLM/任务超时、连续工具错误熔断、单任务成本熔断（`max_cost_usd`）、卡死检测（动作指纹滑窗），超限抛出 `TurnLimitExceeded` | `engine/loop.py` + `config.py`（EngineConfig） |
@@ -108,8 +108,8 @@
 | 工具 | 类别 | 说明 |
 |------|------|------|
 | Read | 文件 | 读取文件内容（带行号） |
-| Write | 文件 | 写入/创建文件 |
-| Edit | 文件 | 精确字符串替换编辑 |
+| Write | 文件 | 写入/创建文件（返回 unified diff 或新文件预览） |
+| Edit | 文件 | 精确字符串替换编辑（返回 unified diff） |
 | Ls | 文件 | 列出目录内容 |
 | Glob | 文件 | 通配符文件搜索 |
 | Shell | 执行 | Shell 命令执行（沙箱保护） |
@@ -139,9 +139,9 @@
 | Devin 式 dev 模式 | `zouwucode dev`：规划→实现→多层验证→独立审查→Draft PR→CI 联动；SQLite 队列 + 并行 worker + watch 标签轮询 | `dev/` |
 | 评测 harness | `zouwucode eval`：真实 agent 栈 + 确定性行为断言，通过率/成本度量 | `eval/` |
 | 生命周期钩子 | pre_tool（可拦截）/ post_tool（自动化）shell 钩子，配置驱动 | `agent/hooks.py` |
-| Rules & Skills | `.zouwucode/rules.md` 项目规则 + `.zouwucode/skills/*.md` 技能包 | `skills/manager.py` |
+| Rules & Skills | `.zouwucode/rules.md` 项目规则 + `.zouwucode/skills/*.md` 技能包；自动加载项目根 `AGENTS.md`（跨工具开放格式，32 KiB 上限） | `skills/manager.py` |
 | 模块系统 | 可加载扩展模块，内置 hello-my-zouwucode 多智能体编排 | `modules/manager.py`, `hello_my_zouwucode/` |
-| MCP 协议 | 支持 Model Context Protocol 扩展（客户端 stdio + Streamable HTTP；服务端 `zouwucode mcp-serve`） | `mcp/client.py` · `mcp/server.py` |
+| MCP 协议 | 支持 Model Context Protocol 扩展（客户端 stdio + Streamable HTTP，协议版本协商 2026-07-28/2025-11-25/2025-03-26；服务端 `zouwucode mcp-serve`） | `mcp/client.py` · `mcp/server.py` |
 | LSP 集成 | 编辑后自动诊断 + hover 类型签名 + go-to-definition（3 工具，按需启用） | `lsp/client.py`, `extensions/lsp_ext.py` |
 | 便捷启动 | `z` 命令一键启动，PowerShell 安装脚本 | `z.bat`, `install.ps1` |
 | 流式思考 | 思考过程实时逐字显示，`show_thinking` 默认开启，`/thinking` 三端统一开关 | `loop.py` + CLI/TUI/Web |
@@ -552,9 +552,9 @@
 **职责**：连接外部 MCP（Model Context Protocol）服务器。
 
 **支持的传输方式**：
-- stdio：子进程通信（当前已实现，`connect_stdio`）
-- SSE：Server-Sent Events（预留声明，尚未接线）
-- Streamable HTTP：HTTP 流式传输（预留声明，尚未接线）
+- stdio：子进程通信（`connect_stdio`）
+- Streamable HTTP：单 POST 端点，接受 JSON 或 `text/event-stream`（SSE）响应体（`connect_http`）
+- 协议版本协商：优先声明 2026-07-28（无状态核心），依次降级 2025-11-25 / 2025-03-26，并记录服务端实际协商版本；旧服务端的 `Mcp-Session-Id` 仍会被回显以保持兼容
 
 #### `extensions/mcp_ext.py` — McpExtension
 
@@ -999,7 +999,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（606 个测试用例）
+├── tests/                              # 测试套件（631 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1063,7 +1063,7 @@ default_provider: deepseek                 # 默认 LLM 提供商
 providers:
   deepseek:
     api_key: "sk-your-key-here"            # API Key
-    model: "deepseek-v4-flash"             # 模型名称
+    model: "deepseek-flash"             # 模型名称
     base_url: "https://api.deepseek.com"   # API 地址
     api_type: deepseek                     # 提供商类型
 
@@ -1218,9 +1218,9 @@ show_thinking: true                        # true | false，默认 true 实时�
 - **影响**：无需管理员权限，绿色便携
 
 #### 决策 5：三档推理强度映射
-- **背景**：DeepSeek V4 引入 reasoning_effort 参数，DeepCode 实现三档优化
-- **方案**：low → 不发送 reasoning_effort，medium → "high"，max → "max"
-- **影响**：用户可根据任务复杂度灵活选择推理深度
+- **背景**：DeepSeek V4 默认开启思考模式，且思考模式下 temperature/top_p 不生效
+- **方案**：low → 显式发送 `{"thinking": {"type": "disabled"}}`（真正关闭思考，temperature 恢复生效）；medium → `{"thinking": {"type": "enabled"}}` + `reasoning_effort="high"`；max → thinking + `reasoning_effort="max"`。思考模式开启时不发送 temperature，避免给出无效参数
+- **影响**：用户可根据任务复杂度灵活选择推理深度；`low` 确实更快更省，而非"名义 low、实际 high"
 
 #### 决策 6：思考过程流式化（opencode 风格）
 - **背景**：回复生成期间用户看不到思考过程，长推理时体验空白
@@ -1471,7 +1471,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **606 个测试用例**
+- 共计 **631 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证

@@ -51,7 +51,7 @@ def main():
     parser.add_argument("--version", "-v", action="store_true", help="Show version and exit")
     parser.add_argument("--mode", "-m", choices=["plan", "agent", "yolo"], default=None,
                         help="Default operation mode (default: from config, else agent)")
-    parser.add_argument("--model", type=str, help="Model to use (e.g., deepseek-v4-flash)")
+    parser.add_argument("--model", type=str, help="Model to use (e.g., deepseek-flash)")
     parser.add_argument("--provider", type=str, default=None,
                         help="LLM provider key to use (default: config default_provider)")
     parser.add_argument("--api-key", type=str, help="API key for the LLM provider")

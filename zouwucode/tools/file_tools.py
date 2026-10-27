@@ -1,10 +1,45 @@
 """File operation tools — read, write, edit, list, glob."""
 
+import difflib
 from pathlib import Path
 from typing import Optional
 
 from .base import BaseTool, ToolSpec, ToolResult
 from ..errors import describe_exc
+
+# Tool output is fed back to the model and rendered in every frontend, so a
+# huge diff must not flood the turn. 4k chars covers typical edits comfortably.
+_MAX_DIFF_CHARS = 4000
+_MAX_NEW_FILE_LINES = 40
+
+
+def _unified_diff(old: str, new: str, path: str,
+                  context: int = 3) -> str:
+    """Return a truncated unified diff between two texts."""
+    lines = difflib.unified_diff(
+        old.splitlines(keepends=True),
+        new.splitlines(keepends=True),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path}",
+        n=context,
+    )
+    text = "".join(lines).rstrip("\n")
+    if not text:
+        return "(no textual change)"
+    if len(text) > _MAX_DIFF_CHARS:
+        return (text[:_MAX_DIFF_CHARS]
+                + f"\n… (diff truncated — {len(text)} chars total)")
+    return text
+
+
+def _new_file_preview(content: str) -> str:
+    """Preview of a newly created file (kept short to protect the context)."""
+    lines = content.splitlines()
+    shown = lines[:_MAX_NEW_FILE_LINES]
+    body = "\n".join(f"+ {line}" for line in shown)
+    if len(lines) > _MAX_NEW_FILE_LINES:
+        body += f"\n… ({len(lines) - _MAX_NEW_FILE_LINES} more lines)"
+    return f"(new file, {len(lines)} lines)\n{body}"
 
 
 async def _check_path_access(sandbox, path: Path) -> Optional[str]:
@@ -129,8 +164,25 @@ class WriteTool(BaseTool):
             if denied:
                 return ToolResult(success=False, output="", error=denied)
             path.parent.mkdir(parents=True, exist_ok=True)
+            old = ""
+            existed = path.is_file()
+            if existed:
+                try:
+                    old = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    old = ""
             path.write_text(content, encoding="utf-8")
-            return ToolResult(success=True, output=f"Written {len(content)} bytes to {file_path}")
+            # "diff before write" — the model (and the user watching the TUI)
+            # should see WHAT changed, not just that bytes were written.
+            if existed and old != content:
+                detail = _unified_diff(old, content, file_path)
+            elif existed:
+                detail = "(no change — file content is identical)"
+            else:
+                detail = _new_file_preview(content)
+            return ToolResult(
+                success=True,
+                output=f"Written {len(content)} bytes to {file_path}\n{detail}")
         except Exception as e:
             return ToolResult(success=False, output="", error=describe_exc(e))
 
@@ -187,10 +239,10 @@ class EditTool(BaseTool):
             new_content = content.replace(old_string, new_string, 1)
             path.write_text(new_content, encoding="utf-8")
 
-            # Show diff
-            old_lines = content.splitlines()
-            new_lines = new_content.splitlines()
-            return ToolResult(success=True, output=f"Edited {file_path} ({len(old_lines)} → {len(new_lines)} lines)")
+            # Show the actual unified diff (industry-standard "diff before
+            # write"): line counts alone cannot reveal a wrong replacement.
+            diff = _unified_diff(content, new_content, file_path)
+            return ToolResult(success=True, output=f"Edited {file_path}\n{diff}")
 
         except Exception as e:
             return ToolResult(success=False, output="", error=describe_exc(e))

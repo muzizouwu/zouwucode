@@ -65,7 +65,7 @@ zouwucode --init-config
 providers:
   deepseek:
     api_key: "sk-your-deepseek-api-key"
-    model: "deepseek-v4-flash"            # 推荐使用 deepseek-v4-flash
+    model: "deepseek-flash"              # 推荐 deepseek-flash
     base_url: "https://api.deepseek.com"
 ```
 
@@ -96,7 +96,7 @@ python -m zouwucode --web
 | `--config` | `-c` | 配置文件路径 | — |
 | `--version` | `-v` | 显示版本号 | — |
 | `--mode` | `-m` | 工作模式：plan/agent/yolo | agent |
-| `--model` | — | 指定模型名称 | deepseek-v4-flash |
+| `--model` | — | 指定模型名称 | deepseek-flash |
 | `--provider` | — | LLM 提供商 | deepseek |
 | `--api-key` | — | API Key | — |
 | `--tui` | — | 启动 Textual TUI | — |
@@ -407,15 +407,17 @@ zouwucode --forget
 
 ZOUWUCODE 提供两种方式让用户自定义 AI 的行为：**项目规则**和**技能包**。两者都是纯 `.md` 文件格式，放在 `.zouwucode/` 目录下。
 
-### 7.1 项目规则（.zouwucode/rules.md）
+### 7.1 项目规则（.zouwucode/rules.md + AGENTS.md）
 
 `rules.md` 始终自动加载，注入到系统提示词中，适合定义项目级别的通用约束。
+
+ZOUWUCODE 还会自动读取项目根目录的 **`AGENTS.md`**——这是 Codex CLI / Cursor / Gemini CLI / Copilot 等工具共用的开放格式。仓库里已有的 `AGENTS.md` 无需改动即可生效（超过 32 KiB 的部分会被截断，避免撑爆上下文）。两份内容分别以 `<project_rules>` 和 `<agents_md>` 注入。
 
 ```bash
 # 查看当前规则
 /rules
 
-# 编辑规则（用记事本打开）
+# 编辑规则（用默认编辑器打开）
 /rules edit
 ```
 
@@ -568,11 +570,13 @@ zouwucode --reasoning max
 
 ### 9.4 技术实现
 
-推理强度通过 `reasoning_effort` 参数传递给 DeepSeek V4 API：
+推理强度按 DeepSeek V4 的思考模式契约传递：
 
-- **low**：不发送 `reasoning_effort` 参数，关闭 `stream_options`，模型以非思考模式快速响应
-- **medium**：发送 `reasoning_effort="high"`，启用标准思考模式
-- **max**：发送 `reasoning_effort="max"`，启用最大推理深度，建议同时增加 `max_tokens`（如 384000）
+- **low**：显式发送 `{"thinking": {"type": "disabled"}}` —— 真正关闭思考，`temperature` 恢复生效（快速、确定性输出）。注意：V4 默认开启思考，只"不传 reasoning_effort"并不会关闭它
+- **medium**：发送 `{"thinking": {"type": "enabled"}}` + `reasoning_effort="high"`
+- **max**：发送 `{"thinking": {"type": "enabled"}}` + `reasoning_effort="max"`，建议同时增加 `max_tokens`（模型最大输出 384K）
+
+> 思考模式下 DeepSeek 会忽略 `temperature`/`top_p`（传了不报错但无效），因此开启思考时不发送这些参数。
 
 ```bash
 # 高强度 + 大输出窗口
@@ -949,7 +953,7 @@ show_thinking: true                  # 流式显示思考过程（/thinking 切�
 providers:
   deepseek:
     api_key: "sk-your-key-here"      # API Key
-    model: "deepseek-v4-flash"        # 模型名称（推荐 deepseek-v4-flash）
+    model: "deepseek-flash"        # 模型名称（推荐 deepseek-flash）
     base_url: "https://api.deepseek.com"  # API 地址
     api_type: "deepseek"             # 提供商类型
 

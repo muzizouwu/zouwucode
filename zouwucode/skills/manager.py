@@ -7,31 +7,57 @@ File layout:
         ├── python-dev.md     # Python development conventions
         ├── react-dev.md      # React component conventions
         └── ...               # Any .md file = one skill
+
+Also reads AGENTS.md at the project root (the cross-tool open format used by
+Codex CLI, Cursor, Gemini CLI, Copilot, …) so a repository's existing agent
+instructions work with ZOUWUCODE without extra setup.
 """
 
 from pathlib import Path
 from typing import Optional
 
+# Codex CLI's default project_doc_max_bytes: large enough for real project
+# docs, small enough that a runaway file cannot blow up the frozen prefix.
+_MAX_AGENTS_MD_BYTES = 32_768
+
 
 class RuleLoader:
-    """Loads and manages the project-level .zouwucode/rules.md file."""
+    """Loads project instructions: `.zouwucode/rules.md` + `AGENTS.md`."""
 
     def __init__(self, project_root: Optional[Path] = None):
         self._project_root = (project_root or Path.cwd()).resolve()
         self._rules_path = self._project_root / ".zouwucode" / "rules.md"
+        self._agents_path = self._project_root / "AGENTS.md"
 
     @property
     def rules_path(self) -> Path:
         return self._rules_path
 
+    @property
+    def agents_path(self) -> Path:
+        return self._agents_path
+
     def exists(self) -> bool:
-        return self._rules_path.exists()
+        return self._rules_path.exists() or self._agents_path.exists()
+
+    def _read_agents_md(self) -> str:
+        if not self._agents_path.is_file():
+            return ""
+        try:
+            raw = self._agents_path.read_bytes()[:_MAX_AGENTS_MD_BYTES]
+            return raw.decode("utf-8", "replace").strip()
+        except OSError:
+            return ""
 
     def load(self) -> str:
-        """Read and return the rules.md content, or empty string."""
-        if not self._rules_path.exists():
-            return ""
-        return self._rules_path.read_text(encoding="utf-8").strip()
+        """Read and return all project instructions, or empty string."""
+        parts = []
+        if self._rules_path.exists():
+            parts.append(self._rules_path.read_text(encoding="utf-8").strip())
+        agents = self._read_agents_md()
+        if agents:
+            parts.append(agents)
+        return "\n\n".join(p for p in parts if p)
 
     def save(self, content: str) -> None:
         """Write content to rules.md."""
@@ -44,11 +70,16 @@ class RuleLoader:
             self._rules_path.unlink()
 
     def get_context_block(self) -> str:
-        """Return the rules block formatted for the system prompt."""
-        content = self.load()
-        if not content:
-            return ""
-        return f"<project_rules>\n{content}\n</project_rules>"
+        """Return project instructions formatted for the system prompt."""
+        blocks = []
+        if self._rules_path.exists():
+            own = self._rules_path.read_text(encoding="utf-8").strip()
+            if own:
+                blocks.append(f"<project_rules>\n{own}\n</project_rules>")
+        agents = self._read_agents_md()
+        if agents:
+            blocks.append(f"<agents_md>\n{agents}\n</agents_md>")
+        return "\n\n".join(blocks)
 
 
 class SkillsManager:
