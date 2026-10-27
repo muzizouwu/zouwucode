@@ -384,6 +384,7 @@
 **职责**：按内容定位代码（符号、字符串、报错原文），是成熟编码 Agent 使用频率最高的操作。此前只有按文件名查找的 `glob`，而 hello-my-zouwucode 的专职 Agent 提示词却要求模型"用 grep"——模型请求了一个并不存在的工具。
 
 **实现策略**：PATH 上存在 ripgrep 时优先使用（`-e` 传模式避免 `-` 开头被当参数、`--max-columns` 限制单行长度、`--max-count` 限制单文件命中数）；不可用或执行失败时回落到纯 Python 扫描（`asyncio.to_thread`，不阻塞事件循环）。两条路径共用跳过列表、输出格式（`相对路径:行号:内容`）、结果上限与截断提示，行为可预期。二进制（NUL 字节）、>2 MB、`node_modules`/`dist`/`.git` 等目录一律跳过；路径仍受沙箱白名单约束。
+
 #### `tools/shell_tools.py` — ShellTool
 
 **职责**：执行 Shell 命令，集成沙箱安全检查。
@@ -619,7 +620,7 @@
 3. `DeepSeekProvider` / `OpenAIProvider` 创建 LLM 提供商（经 `runtime.create_provider` 工厂）
 4. `EngineLoop` 创建引擎
 5. `PermissionManager` 创建沙箱
-6. `ToolRegistry` 注册 11 个内置工具 + `task` 委派工具
+6. `ToolRegistry` 注册 12 个内置工具 + `task` 委派工具
 7. `AgentCoordinator` 创建协调器，`SubAgentManager` 创建子 Agent 管理器并绑定主引擎级联打断
 8. `ExtensionHost` 注册 `McpExtension` / `LspExtension`（默认不激活）
 9. `MemoryManager`、`TopicManager`、`TranscriptManager` 创建上下文管理
@@ -751,7 +752,7 @@
 **职责**：CLI / TUI / Web 三端共享的工厂函数，保证三端行为一致（历史上三端各自复制 provider 工厂与内置工具清单，已出现漂移）。
 
 - `create_provider(config)`：根据 `default_provider` 与 `api_type` 构建 DeepSeekProvider / OpenAIProvider（缺失时注入默认配置）
-- `create_builtin_tools(sandbox, config)`：返回 11 个内置工具实例清单（Read/Write/Edit/Ls/Glob/Shell/python_exec/Git/WebSearch/WebFetch/RepoMap；`python_exec` 在传入 config 且允许 shell 时加入）
+- `create_builtin_tools(sandbox, config)`：返回 12 个内置工具实例清单（Read/Write/Edit/Ls/Glob/Grep/Shell/python_exec/Git/WebSearch/WebFetch/RepoMap；`python_exec` 在传入 config 且允许 shell 时加入）
 - `build_agent_engine(config, sandbox_root, mode, with_subagents)`：一站式装配完整 agent 栈（引擎+沙箱+注册表+协调器+子 Agent），dev 管线与 eval harness 共用同一工厂——评测度量的就是生产跑的栈
 
 ### 5.16 `extensions/` — 扩展层
@@ -915,7 +916,8 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   │   ├── __init__.py
 │   │   ├── base.py                     # BaseTool + ToolSpec + ToolResult
 │   │   ├── registry.py                 # ToolRegistry 注册中心
-│   │   ├── file_tools.py               # Read/Write/Edit/Ls/Glob
+│   │   ├── file_tools.py               # Read/Write/Edit/Ls/Glob（编码与换行保真）
+│   │   ├── search_tools.py             # Grep 内容检索（ripgrep / Python 兜底）
 │   │   ├── shell_tools.py              # Shell 命令执行
 │   │   ├── code_exec_tool.py           # python_exec 持久 REPL（CodeAct 行动面）
 │   │   ├── git_tools.py                # Git 操作
