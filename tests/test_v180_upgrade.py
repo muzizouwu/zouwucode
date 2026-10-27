@@ -207,17 +207,11 @@ class TestFileToolDiff:
 
     def test_write_identical_content_reports_no_change(self, tmp_path):
         f = tmp_path / "same.txt"
-        f.write_text("same\n", encoding="utf-8")
+        f.write_bytes(b"same\r\n")
         res = asyncio.run(WriteTool().execute(str(f), "same\n"))
-        assert res.success and "no change" in res.output
-
-    def test_edit_shows_diff(self, tmp_path):
-        f = tmp_path / "b.py"
-        f.write_text("def f():\n    return 1\n", encoding="utf-8")
-        res = asyncio.run(EditTool().execute(
-            str(f), "return 1", "return 2"))
         assert res.success
-        assert "-    return 1" in res.output and "+    return 2" in res.output
+        assert "no change" in res.output
+        assert f.read_bytes() == b"same\r\n", "idempotent write must not alter bytes"
 
     def test_diff_is_truncated(self, tmp_path):
         f = tmp_path / "big.txt"
@@ -227,3 +221,84 @@ class TestFileToolDiff:
         res = asyncio.run(WriteTool().execute(str(f), new))
         assert "diff truncated" in res.output
         assert len(res.output) < 10_000
+
+    def test_edit_shows_diff(self, tmp_path):
+        f = tmp_path / "b.py"
+        f.write_text("def f():\n    return 1\n", encoding="utf-8")
+        res = asyncio.run(EditTool().execute(
+            str(f), "return 1", "return 2"))
+        assert res.success
+        assert "-    return 1" in res.output and "+    return 2" in res.output
+
+    def test_edit_matches_lf_old_string_in_crlf_file(self, tmp_path):
+        """Models write \\n; Windows files have \\r\\n — matching must still work."""
+        f = tmp_path / "win.txt"
+        f.write_bytes(b"alpha\r\nbeta\r\ngamma\r\n")
+        res = asyncio.run(EditTool().execute(
+            str(f), "alpha\nbeta", "alpha\nBETA"))
+        assert res.success
+        raw = f.read_bytes()
+        assert b"alpha\r\nBETA\r\ngamma\r\n" == raw, "CRLF convention must survive"
+
+    def test_write_keeps_crlf_convention(self, tmp_path):
+        f = tmp_path / "crlf.txt"
+        f.write_bytes(b"one\r\ntwo\r\n")
+        asyncio.run(WriteTool().execute(str(f), "one\ntwo\n"))
+        assert f.read_bytes() == b"one\r\ntwo\r\n"
+
+
+# ── 8. task reports are budgeted + persisted ─────────────────────────────────
+
+class _FakeAgent:
+    def __init__(self, content, role="worker", aid="sub-1"):
+        from zouwucode.agent.subagent import AgentStatus
+        self.role = role
+        self.id = aid
+        self.status = AgentStatus.COMPLETED
+        self.result = ModelResponse(content=content)
+        self.error = None
+        self.duration = 1.0
+        self.worktree = None
+
+
+class _FakeManager:
+    def __init__(self, agents, data_dir):
+        class _Cfg:
+            pass
+        self.config = _Cfg()
+        self.config.data_dir = str(data_dir)
+        self._agents = agents
+
+    async def run_parallel(self, tasks):
+        return self._agents
+
+
+class TestTaskReportBudget:
+    def test_long_reports_are_budgeted_and_saved(self, tmp_path):
+        from zouwucode.tools.agent_tools import TaskTool, _MAX_TASK_REPORT_CHARS
+        agents = [_FakeAgent("x" * 5000, aid=f"sub-{i}") for i in range(3)]
+        tool = TaskTool(_FakeManager(agents, tmp_path))
+        res = asyncio.run(tool.execute(tasks=[{"task": "t"}]))
+
+        assert res.success
+        # Budget + headers + footer stay close to the cap (never the raw 15k).
+        assert len(res.output) <= _MAX_TASK_REPORT_CHARS + 800
+        reports = list((tmp_path / "agent_reports").glob("*.md"))
+        assert len(reports) == 1
+        assert len(reports[0].read_text(encoding="utf-8")) > 15_000
+
+    def test_short_reports_pass_through(self, tmp_path):
+        from zouwucode.tools.agent_tools import TaskTool
+        agents = [_FakeAgent("short result", aid="sub-1")]
+        tool = TaskTool(_FakeManager(agents, tmp_path))
+        res = asyncio.run(tool.execute(tasks=[{"task": "t"}]))
+
+        assert "short result" in res.output
+        assert not (tmp_path / "agent_reports").exists()
+
+    def test_clip_keeps_head_and_tail(self):
+        from zouwucode.tools.agent_tools import _clip
+        text = "HEAD" + "m" * 5000 + "TAIL"
+        out = _clip(text, 1000)
+        assert out.startswith("HEAD") and out.endswith("TAIL")
+        assert len(out) <= 1000

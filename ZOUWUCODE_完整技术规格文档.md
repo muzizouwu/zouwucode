@@ -103,7 +103,7 @@
 | TUI | `--tui` | OpenAI Code 风格 | Textual 框架，彩色消息 |
 | Web UI | `--web` | DeepCode 暗色风格 | 浏览器界面，API 端点 |
 
-### 3.3 工具系统（11 个内置工具 + oracle 复核 + task 委派工具）
+### 3.3 工具系统（12 个内置工具 + oracle 复核 + task 委派工具）
 
 | 工具 | 类别 | 说明 |
 |------|------|------|
@@ -112,6 +112,7 @@
 | Edit | 文件 | 精确字符串替换编辑（返回 unified diff） |
 | Ls | 文件 | 列出目录内容 |
 | Glob | 文件 | 通配符文件搜索 |
+| Grep | 文件 | 正则内容检索（ripgrep 优先 / 纯 Python 兜底；跳过二进制、构建产物与 VCS 内部目录） |
 | Shell | 执行 | Shell 命令执行（沙箱保护） |
 | python_exec | 执行 | 持久 Python REPL（CodeAct 可执行动作，跨调用保留变量/导入） |
 | Git | 执行 | Git 操作（status/diff/commit/log） |
@@ -376,7 +377,13 @@
 | EditTool | 精确字符串替换编辑 | file_path, old_string, new_string |
 | LsTool | 列出目录 | path |
 | GlobTool | 通配符搜索 | pattern, path |
+| GrepTool | 正则内容检索（`search_tools.py`） | pattern, path, include, ignore_case, files_only, max_results |
 
+#### `tools/search_tools.py` — GrepTool
+
+**职责**：按内容定位代码（符号、字符串、报错原文），是成熟编码 Agent 使用频率最高的操作。此前只有按文件名查找的 `glob`，而 hello-my-zouwucode 的专职 Agent 提示词却要求模型"用 grep"——模型请求了一个并不存在的工具。
+
+**实现策略**：PATH 上存在 ripgrep 时优先使用（`-e` 传模式避免 `-` 开头被当参数、`--max-columns` 限制单行长度、`--max-count` 限制单文件命中数）；不可用或执行失败时回落到纯 Python 扫描（`asyncio.to_thread`，不阻塞事件循环）。两条路径共用跳过列表、输出格式（`相对路径:行号:内容`）、结果上限与截断提示，行为可预期。二进制（NUL 字节）、>2 MB、`node_modules`/`dist`/`.git` 等目录一律跳过；路径仍受沙箱白名单约束。
 #### `tools/shell_tools.py` — ShellTool
 
 **职责**：执行 Shell 命令，集成沙箱安全检查。
@@ -999,7 +1006,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（631 个测试用例）
+├── tests/                              # 测试套件（659 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1471,7 +1478,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **631 个测试用例**
+- 共计 **659 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证

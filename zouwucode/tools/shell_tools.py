@@ -28,6 +28,27 @@ _PS_SYNTAX_NOTE = (
     "install Git for Windows (git.exe's bundled bash is auto-detected)."
 )
 
+# A runaway command (test suites, log dumps, `cat` on a huge file) must not
+# dump megabytes into the prompt: the model cannot read it and the cost is
+# billed. Keep the head (where the cause usually is) and the tail (where the
+# verdict usually is), with an explicit marker for what was dropped.
+_MAX_STREAM_CHARS = 30_000
+_STREAM_HEAD = 20_000
+_STREAM_TAIL = 10_000
+_MAX_TIMEOUT_SECONDS = 3600
+
+
+def _cap_stream(text: str) -> str:
+    """Truncate one output stream to a context-safe size."""
+    if len(text) <= _MAX_STREAM_CHARS:
+        return text
+    dropped = len(text) - _STREAM_HEAD - _STREAM_TAIL
+    return (text[:_STREAM_HEAD]
+            + f"\n… (output truncated: {dropped} chars omitted out of "
+              f"{len(text)} total — rerun with a narrower command, e.g. "
+              f"redirect to a file and grep it)\n"
+            + text[-_STREAM_TAIL:])
+
 
 def _find_git_bash() -> Optional[str]:
     """Locate Git-for-Windows bash.exe (cheap, cached)."""
@@ -134,6 +155,11 @@ class ShellTool(BaseTool):
                     error=f"Command blocked by sandbox: {command}",
                 )
 
+        try:
+            timeout = max(1, min(int(timeout or 30), _MAX_TIMEOUT_SECONDS))
+        except (TypeError, ValueError):
+            timeout = 30
+
         if self._use_container():
             return await self._run_in_container(command, timeout, workdir)
 
@@ -164,6 +190,8 @@ class ShellTool(BaseTool):
 
             output = decode_console(stdout)
             error = decode_console(stderr)
+            output = _cap_stream(output)
+            error = _cap_stream(error)
 
             if proc.returncode != 0:
                 # PowerShell 5 '&&' syntax error → teach the model the fix
@@ -201,6 +229,8 @@ class ShellTool(BaseTool):
 
         output = decode_console(stdout)
         error = decode_console(stderr)
+        output = _cap_stream(output)
+        error = _cap_stream(error)
         if code != 0:
             return ToolResult(success=False, output=output,
                               error=error or f"Exit code: {code}")

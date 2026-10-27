@@ -15,6 +15,7 @@ from .engine.providers.deepseek import DeepSeekProvider
 from .engine.providers.openai import OpenAIProvider
 from .tools.base import BaseTool
 from .tools.file_tools import ReadTool, WriteTool, EditTool, LsTool, GlobTool
+from .tools.search_tools import GrepTool
 from .tools.shell_tools import ShellTool
 from .tools.git_tools import GitTool
 from .tools.web_tools import WebSearchTool, WebFetchTool
@@ -140,6 +141,7 @@ def create_builtin_tools(sandbox, config: ZOUWUCODEConfig = None) -> list[BaseTo
         EditTool(sandbox, allow_write=allow_write),
         LsTool(sandbox),
         GlobTool(sandbox),
+        GrepTool(sandbox),
         ShellTool(sandbox, container=_make_container(sandbox, config)),
         GitTool(sandbox),
         WebSearchTool(sandbox),
