@@ -84,6 +84,9 @@ class TestUsageSummary:
 
     def test_usage_summary_fields(self):
         eng = self._engine()
+        # Pin the model explicitly: relying on whatever config.yaml happens to
+        # exist made this pass locally and fail on CI (no config file).
+        eng.provider.model = "deepseek-v4-flash"
         eng.stats = CacheStats(model="deepseek-v4-flash")
         eng.stats.record_turn(True, {"prompt_tokens": 1_000_000,
                                      "prompt_cache_hit_tokens": 800_000,
