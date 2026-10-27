@@ -128,7 +128,7 @@ class _StickyRichLog(RichLog):
                 self._follow_pending = False
                 return  # user moved up after we scheduled the pin
             self.scroll_end(animate=False, immediate=True, x_axis=False)
-            if attempt < 3 and self.scroll_y < self.max_scroll_y:
+            if attempt < 5 and self.scroll_y < self.max_scroll_y:
                 self.call_after_refresh(
                     lambda: self._settle_follow(attempt + 1))
                 return

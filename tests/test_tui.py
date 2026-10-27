@@ -10,6 +10,22 @@ from zouwucode.tui.textual_app import (
 from zouwucode.tui.app import ZOUWUCODEApp
 
 
+async def _pause_until(pilot, predicate, tries: int = 12) -> bool:
+    """Advance the UI until *predicate* holds, or stop after *tries* frames.
+
+    Sticky-follow is deliberately frame-based (pin after layout + bounded
+    re-checks), so a single ``pilot.pause()`` is not a valid snapshot on a
+    loaded CI runner — polling a bounded number of frames tests the real
+    behaviour ("eventually follows") without hiding a genuine regression
+    (the bound is small and the predicate is strict).
+    """
+    for _ in range(tries):
+        if predicate():
+            return True
+        await pilot.pause()
+    return predicate()
+
+
 class TestRestoreTerminal:
     """The TUI enables SGR mouse reporting; if it dies before Textual's own
     teardown the shell echoes raw mouse-move sequences (the wall of
@@ -372,22 +388,27 @@ class TestChatViewUX:
                 chat = app.query_one("#chat-view")
                 for i in range(150):
                     chat.write(f"history line {i}")
-                await pilot.pause()
-                assert chat.scroll_y == chat.max_scroll_y  # following bottom
+                # Following the bottom needs one layout frame plus the sticky
+                # re-pin, and a loaded CI runner can take a few — poll instead
+                # of asserting a single-frame snapshot.
+                assert await _pause_until(
+                    pilot, lambda: chat.scroll_y >= chat.max_scroll_y), \
+                    "chat never followed the bottom"
 
                 chat.scroll_home(animate=False)
-                await pilot.pause()
-                assert chat.scroll_y == 0
+                assert await _pause_until(pilot, lambda: chat.scroll_y == 0)
 
                 chat.write("NEW while reading history")
+                await pilot.pause()
                 await pilot.pause()
                 assert chat.scroll_y == 0, "viewport was yanked to the bottom"
 
                 chat.scroll_end(animate=False)
                 await pilot.pause()
                 chat.write("NEW at bottom")
-                await pilot.pause()
-                assert chat.scroll_y == chat.max_scroll_y  # follows again
+                assert await _pause_until(
+                    pilot, lambda: chat.scroll_y >= chat.max_scroll_y), \
+                    "chat did not follow again after scrolling to the end"
 
         asyncio.run(run())
 

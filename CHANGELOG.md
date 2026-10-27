@@ -4,6 +4,17 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.10.1] — 2026-10-28
+
+修掉 v1.10.0 发布后 CI 暴露的 TUI 贴底竞态（Windows / Python 3.12）。
+
+### Fixed
+- **贴底需要多个布局帧才能收敛**：聊天区粘性滚动在"用户已在底部、新内容到达"时按帧补位（写入 → 布局 → 重新贴底 → 必要时再校验）。慢速 runner 上单个 `pilot.pause()` 只能推进一帧，断言看到的是中间态（`scroll_y == max_scroll_y - 1`）。现在 `_settle_follow` 的有界重试从 3 次提高到 5 次，覆盖高负载下的多帧收敛
+- **测试对单帧快照过敏**：`test_reading_position_survives_new_output` 改为"有界轮询直到收敛"（最多 12 帧，谓词仍要求真正到达底部），既不再假红也不会掩盖真实回归；"向上滚动时不得把视口拽走"的断言保持不变
+
+### Tests
+- `tests/test_tui.py` 新增 `_pause_until` 辅助；TUI/打断相关 57 用例连续 5 轮本地全绿，套件 **677 passed**
+
 ## [1.10.0] — 2026-10-28
 
 接入 DeepSeek 官方 Harness（dsh）：让任务可以交给官方 Cordis 插件式运行时执行，同时保留 zouwucode 自有引擎。
@@ -475,6 +486,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.10.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.1
 [1.10.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.0
 [1.9.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.9.1
 [1.9.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.9.0
