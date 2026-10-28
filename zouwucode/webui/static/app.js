@@ -429,6 +429,7 @@
       });
       document.querySelectorAll(".session-item").forEach((el) => el.classList.remove("active"));
       btn?.classList.add("active");
+      closeDrawer();
       toast("已恢复会话 " + id, "ok");
       scroll(true);
     } catch (err) { toast("恢复失败：" + err.message, "error"); }
@@ -437,7 +438,20 @@
     chat.innerHTML = "";
     emptyState();
     input.focus();
+    closeDrawer();
     toast("已开新对话（会话在下次提问时建立）");
+  });
+
+  /* ── narrow-screen drawer (session list is unreachable otherwise) ──────── */
+  function closeDrawer() { $("#sidebar").classList.remove("open"); }
+  $("#sidebar-toggle").addEventListener("click", () => {
+    $("#sidebar").classList.toggle("open");
+  });
+  document.addEventListener("click", (ev) => {
+    const sidebar = $("#sidebar");
+    if (!sidebar.classList.contains("open")) return;
+    if (sidebar.contains(ev.target) || ev.target.closest("#sidebar-toggle")) return;
+    closeDrawer();
   });
 
   /* ── commands ──────────────────────────────────────────────────────────── */

@@ -103,6 +103,12 @@ class TestUxBehaviour:
         assert "overflow-wrap: anywhere" in CSS, "长 token 应折行"
         assert "prefers-reduced-motion" in CSS
 
+    def test_narrow_screen_drawer_toggle(self):
+        """≤860px 侧栏变为抽屉，必须有按钮能把它拉出来。"""
+        assert 'id="sidebar-toggle"' in INDEX
+        assert "sidebar-toggle" in JS and 'classList.toggle("open")' in JS
+        assert "#sidebar-toggle" in CSS and "display: grid" in CSS
+
     def test_thinking_is_collapsible(self):
         assert "details" in JS and "thinking" in JS
         assert "details.thinking" in CSS

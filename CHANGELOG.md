@@ -4,6 +4,17 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.11.1] — 2026-10-28
+
+界面实测后的补丁：窄屏下会话列表原本拿不到。
+
+### Fixed
+- **≤860px 时侧栏变成抽屉却没有开关**：媒体查询把 `.sidebar` 移出画布，但没有任何入口把它拉回来，手机上等于丢失「会话列表 / 快捷键」。顶栏新增 `#sidebar-toggle`（仅窄屏显示），点击切换 `open`，点击遮罩区域自动收起；恢复会话或新建对话后也会自动收起
+- TUI 主题补全焦点态；`styles.tcss` 与 GUI 使用同一套主色（v1.11.0 已做，本版无变化）
+
+### Tests
+- 新增 1 条守护用例：窄屏抽屉必须有可见开关（DOM + JS toggle + CSS 断点）。套件 **698 → 699 全绿**
+
 ## [1.11.0] — 2026-10-28
 
 桌面 GUI + 界面统一重构：三端终于有了同一套精心设计的界面，而不是三份各自演化的前端。
@@ -525,6 +536,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.11.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.11.1
 [1.11.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.11.0
 [1.10.2]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.2
 [1.10.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.1

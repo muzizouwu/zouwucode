@@ -388,6 +388,13 @@ button.danger { background: color-mix(in srgb, var(--danger) 18%, var(--panel));
 .toast.error { border-left-color: var(--danger); }
 .toast.ok { border-left-color: var(--ok); }
 
+#sidebar-toggle { display: none; }
+
+@media (max-width: 860px) {
+  #sidebar-toggle { display: grid; }
+  .sidebar.open { box-shadow: var(--shadow); }
+}
+
 /* ── responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 1180px) {
   .shell { grid-template-columns: 212px minmax(0, 1fr); }
