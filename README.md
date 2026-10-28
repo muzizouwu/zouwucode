@@ -22,6 +22,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **Cache-First 引擎** | Append-only 对话循环，DeepSeek 缓存命中率 90%+，成本降至约 1/5 |
 | **三种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面） |
 | **桌面 GUI** | `zouwucode --gui`：原生窗口（pywebview），与 Web 共用同一套精美前端；未装依赖自动回落浏览器，端口占用直接报错 |
+| **附件发送** | 对话框支持回形针 / 拖拽 / 粘贴添加图片与文件（≤5 个、单个 ≤8 MB）：落盘到 `.zouwucode/uploads/` 并告知模型路径，纯文本模型也能用工具处理；多模态模型额外内联图片 |
 | **三种模式** | Plan（只读）、Agent（交互审批）、YOLO（自动执行） |
 | **完整工具集** | 文件读写、内容检索（grep 正则搜索）、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 12 个内置工具 |
 | **模型路由 / oracle** | 便宜模型干活、更强模型只读复核（`/oracle`、`oracle` 工具）；主会话缓存不受影响 |
@@ -294,7 +295,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 | `/api/status` | GET | 运行状态（模式、运行中标志、推理强度、缓存统计、上下文、规则、技能） |
 | `/api/mode` | POST | 切换模式（`{"mode":"plan"}`） |
 | `/api/reasoning` | POST | 设置推理强度（`{"reasoning":"max"}`） |
-| `/api/chat` | POST | 发送消息（`{"message":"你好"}`） |
+| `/api/chat` | POST | 发送消息（`{"message":"你好","attachments":[{"name":"a.png","mime":"image/png","data":"<base64>"}]}`，附件可选） |
 | `/api/interrupt` | POST | 打断当前执行中的任务（等价于界面 ⏹ 按钮 / Esc） |
 | `/api/cache` | GET | 缓存性能统计 |
 | `/api/rules` | GET | 获取项目规则内容 |

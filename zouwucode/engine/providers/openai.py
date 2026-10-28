@@ -16,6 +16,15 @@ class OpenAIProvider(BaseProvider):
         self.base_url = config.get("base_url", "https://api.openai.com/v1")
         self.model = config.get("model", "gpt-4o")
 
+    @property
+    def supports_vision(self) -> bool:
+        """Only known vision-capable model families get inline images."""
+        name = (self.model or "").lower()
+        return any(tag in name for tag in (
+            "gpt-4o", "gpt-4.1", "gpt-4-turbo", "gpt-5", "omni",
+            "vision", "llava", "qwen-vl", "claude-3", "gemini",
+        ))
+
     async def chat_stream(
         self,
         messages: list[dict],

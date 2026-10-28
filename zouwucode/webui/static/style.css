@@ -396,6 +396,54 @@ details.thinking .think-body { white-space: pre-wrap; font-family: var(--mono); 
 #input:focus { outline: none; }
 .composer-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .hint { color: var(--text-faint); font-size: 11px; margin-right: auto; }
+.composer.dragging .composer-box {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.attach-btn { padding: 4px 7px; height: 26px; }
+.attach-btn svg { display: block; }
+
+/* attachment chips in the composer */
+.attach-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.attach-preview[hidden] { display: none; }
+.attach-chip {
+  display: flex; align-items: center; gap: 6px;
+  max-width: 240px; padding: 3px 6px 3px 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 11.5px; color: var(--text-dim);
+}
+.attach-chip img {
+  width: 26px; height: 26px; object-fit: cover;
+  border-radius: 6px; border: 1px solid var(--line);
+}
+.attach-ico {
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 6px; background: var(--bg-soft); border: 1px solid var(--line);
+  color: var(--text-faint);
+}
+.attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-size { color: var(--text-faint); }
+.attach-del {
+  border: 0; background: transparent; color: var(--text-faint);
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.attach-del:hover { color: var(--danger); }
+
+/* attachments echoed inside the user bubble */
+.attach-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.attach-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px 3px 3px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 8px; font-size: 11.5px;
+}
+.attach-item img {
+  width: 44px; height: 44px; object-fit: cover;
+  border-radius: 6px; border: 1px solid var(--line);
+}
 button.primary {
   background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--violet) 55%, var(--accent)));
   color: #06131a; border: 0; border-radius: 10px; padding: 7px 16px; font-weight: 700; cursor: pointer;

@@ -4,6 +4,22 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.14.0] — 2026-10-28
+
+对话框可以直接发图片和文件了——而且无论模型是不是多模态，Agent 都真的能用上它们。
+
+### Added
+- **附件发送**：输入框左侧回形针、拖拽、粘贴三种方式添加附件，最多 5 个、单个 8 MB；图片显示缩略图，其他文件显示图标，发送前可逐个移除
+- **落盘优先**：所有附件写入工作区 `.zouwucode/uploads/<时间戳>-<序号>-<安全文件名>`，并在用户消息末尾追加
+  `[attachments — 已保存到工作区…]` 清单（相对路径 / MIME / 字节数）。这样即使 DeepSeek 这类纯文本模型，也能用 `read`、`python_exec` 等工具真正处理文件，而不是"上传被静默丢弃"
+- **多模态模型内联**：`BaseProvider.supports_vision`（默认 `False`），OpenAI 兼容提供方按模型名（`gpt-4o`、`qwen-vl`、`claude-3`、`gemini` 等）判定；为真时用户消息改写成 `text + image_url` 内容块，图片以 `data:` URL 内联
+- **两侧端点一致**：`POST /api/chat/stream` 与 `POST /api/chat` 都接受 `attachments: [{name, mime, data}]`（`data` 支持裸 base64 或 `data:` URL）；流式端点额外推送 `{"type":"attachments", saved, errors}` 事件，界面据此提示落盘路径
+- **失败不致命**：超出数量/大小、base64 损坏、空文件、目录不可写都转成可读警告（`errors`），其余附件照常保存，这一轮对话继续
+
+### Tests
+- 新增 `tests/test_v1140_attachments.py`（20 用例）：保存与相对路径、`data:` 前缀、文件名净化与去重、数量/大小上限、坏 base64/空内容、清单文本、`image_parts` 仅图片、文本模型收路径、视觉模型收内容块、无附件保持纯字符串、非流式端点回传附件信息、上传失败不中断、前端契约（回形针/拖拽/粘贴/base64 发送/前后端上限一致）
+- 全量套件 **761 → 781 passed / 1 skipped**
+
 ## [1.13.0] — 2026-10-28
 
 会话有了标题、可改名，工作空间可以在界面里切换。

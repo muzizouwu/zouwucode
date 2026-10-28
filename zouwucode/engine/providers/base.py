@@ -84,6 +84,10 @@ class ModelResponse:
 class BaseProvider(ABC):
     """Abstract base class for LLM providers."""
 
+    # Whether this provider can accept inline image parts. False means uploads
+    # are only referenced by path (the agent still gets them as files).
+    supports_vision = False
+
     def __init__(self, config: dict):
         self.api_key = config.get("api_key", "")
         self.base_url = config.get("base_url", "")

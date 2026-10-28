@@ -191,7 +191,8 @@ Web UI 界面包括：
 - **顶部标题栏**：显示应用名称和版本
 - **模式切换栏**：Agent / Plan / YOLO 三个按钮
 - **聊天区域**：显示消息历史，支持用户消息、助手回复、思考过程
-- **输入框**：底部输入区域，Ctrl+Enter 发送
+- **输入框**：底部输入区域，Enter 发送 / Shift+Enter 换行
+- **附件**：回形针按钮、拖拽或粘贴添加图片与文件（≤5 个、单个 ≤8 MB）；附件保存到 `.zouwucode/uploads/`，纯文本模型也能用工具读取，多模态模型同时收到内联图片
 - **状态栏**：显示缓存命中率、成本统计
 
 API 端点：
@@ -202,7 +203,7 @@ API 端点：
 | `/api/status` | GET | 运行状态（模式、推理强度、缓存统计、上下文、规则、技能） |
 | `/api/mode` | POST | 切换模式（`{"mode":"plan"}`） |
 | `/api/reasoning` | POST | 设置推理强度（`{"reasoning":"max"}`） |
-| `/api/chat` | POST | 发送消息（`{"message":"你好"}`） |
+| `/api/chat` | POST | 发送消息（`{"message":"你好","attachments":[{"name":"a.png","mime":"image/png","data":"<base64>"}]}`，附件可选） |
 | `/api/interrupt` | POST | 打断当前执行中的任务 |
 | `/api/rules` | GET | 获取项目规则内容 |
 | `/api/skills` | GET | 获取可用和已加载的技能列表 |
@@ -646,7 +647,7 @@ zouwucode --web
 | `/api/status` | GET | 运行状态（模式、推理强度、缓存统计、上下文、规则、技能） |
 | `/api/mode` | POST | 切换模式（`{"mode":"plan"}`） |
 | `/api/reasoning` | POST | 设置推理强度（`{"reasoning":"max"}`） |
-| `/api/chat` | POST | 发送消息（`{"message":"你好"}`） |
+| `/api/chat` | POST | 发送消息（`{"message":"你好","attachments":[{"name":"a.png","mime":"image/png","data":"<base64>"}]}`，附件可选） |
 | `/api/interrupt` | POST | 打断当前执行中的任务 |
 | `/api/rules` | GET | 获取项目规则内容 |
 | `/api/skills` | GET | 获取可用和已加载的技能列表 |

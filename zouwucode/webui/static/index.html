@@ -79,8 +79,15 @@
     <form id="composer" class="composer" autocomplete="off">
       <div id="slash-menu" class="slash-menu" hidden></div>
       <div class="composer-box">
-        <textarea id="input" rows="1" placeholder="描述你的任务…  / 唤起命令"></textarea>
+        <div id="attach-preview" class="attach-preview" hidden></div>
+        <textarea id="input" rows="1" placeholder="描述你的任务…  可拖入图片 / 文件"></textarea>
         <div class="composer-actions">
+          <button type="button" id="attach-btn" class="icon-btn attach-btn" title="添加图片或文件（也可拖拽 / 粘贴）" aria-label="添加附件">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 11.1l-8.4 8.4a5.5 5.5 0 01-7.8-7.8l8.4-8.4a3.7 3.7 0 015.2 5.2l-8.4 8.4a1.85 1.85 0 01-2.6-2.6l7.7-7.7"/>
+            </svg>
+          </button>
+          <input id="attach-input" type="file" multiple hidden>
           <span id="composer-hint" class="hint">Enter 发送 · Shift+Enter 换行</span>
           <button type="button" id="interrupt-btn" class="danger" hidden>停止</button>
           <button type="submit" id="send-btn" class="primary">发送</button>

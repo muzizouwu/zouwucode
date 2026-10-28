@@ -11,6 +11,12 @@
   const statusDot = $("#status-dot");
   const statusText = $("#status-text");
   const slashMenu = $("#slash-menu");
+  const attachBtn = $("#attach-btn");
+  const attachInput = $("#attach-input");
+  const attachPreview = $("#attach-preview");
+
+  const MAX_ATTACH = 5;
+  const MAX_ATTACH_BYTES = 8 * 1024 * 1024;
 
   const state = {
     busy: false,
@@ -19,6 +25,7 @@
     abort: null,
     sessionId: null,
     msgCount: 0,
+    attachments: [],
   };
 
   /* ── utils ─────────────────────────────────────────────────────────────── */
@@ -163,9 +170,32 @@
   }
   chat.addEventListener("scroll", syncMarkers);
 
-  function addUser(text) {
+  function addUser(text, files = []) {
     const body = addMessage("user", "你");
-    body.textContent = text;
+    if (text) {
+      const line = document.createElement("div");
+      line.textContent = text;
+      body.appendChild(line);
+    }
+    if (files.length) {
+      const list = document.createElement("div");
+      list.className = "attach-list";
+      files.forEach((file) => {
+        const item = document.createElement("div");
+        item.className = "attach-item";
+        if ((file.mime || "").startsWith("image/")) {
+          const img = document.createElement("img");
+          img.src = file.data;
+          img.alt = file.name;
+          item.appendChild(img);
+        }
+        const cap = document.createElement("span");
+        cap.textContent = file.name;
+        item.appendChild(cap);
+        list.appendChild(item);
+      });
+      body.appendChild(list);
+    }
     return body;
   }
 
@@ -201,6 +231,122 @@
     return card;
   }
 
+  /* ── attachments ───────────────────────────────────────────────────────── */
+  function fmtSize(n) {
+    return n >= 1024 * 1024 ? (n / 1048576).toFixed(1) + " MB"
+      : Math.max(1, Math.round(n / 1024)) + " KB";
+  }
+
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addAttachment(file) {
+    if (!file) return;
+    if (state.attachments.length >= MAX_ATTACH) {
+      toast(`一次最多 ${MAX_ATTACH} 个附件`, "error");
+      return;
+    }
+    if (file.size > MAX_ATTACH_BYTES) {
+      toast(`${file.name} 超过 8 MB，已跳过`, "error");
+      return;
+    }
+    try {
+      const data = await readFile(file);
+      state.attachments.push({
+        id: "att-" + Math.random().toString(36).slice(2, 9),
+        name: file.name || "file",
+        mime: file.type || "application/octet-stream",
+        size: file.size || 0,
+        data,
+      });
+      renderAttachments();
+    } catch {
+      toast("读取失败：" + (file.name || "文件"), "error");
+    }
+  }
+
+  function renderAttachments() {
+    attachPreview.innerHTML = "";
+    attachPreview.hidden = state.attachments.length === 0;
+    state.attachments.forEach((att) => {
+      const chip = document.createElement("div");
+      chip.className = "attach-chip";
+      if ((att.mime || "").startsWith("image/")) {
+        const img = document.createElement("img");
+        img.src = att.data;
+        img.alt = att.name;
+        chip.appendChild(img);
+      } else {
+        const ico = document.createElement("span");
+        ico.className = "attach-ico";
+        ico.textContent = "▤";
+        chip.appendChild(ico);
+      }
+      const name = document.createElement("span");
+      name.className = "attach-name";
+      name.textContent = att.name;
+      name.title = `${att.name} · ${fmtSize(att.size)}`;
+      const meta = document.createElement("span");
+      meta.className = "attach-size";
+      meta.textContent = fmtSize(att.size);
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "attach-del";
+      del.title = "移除";
+      del.setAttribute("aria-label", "移除 " + att.name);
+      del.textContent = "×";
+      del.addEventListener("click", () => {
+        state.attachments = state.attachments.filter((a) => a !== att);
+        renderAttachments();
+      });
+      chip.append(name, meta, del);
+      attachPreview.appendChild(chip);
+    });
+  }
+
+  function clearAttachments() {
+    state.attachments = [];
+    renderAttachments();
+  }
+
+  async function addAttachmentFiles(files) {
+    for (const file of Array.from(files || [])) await addAttachment(file);
+  }
+
+  attachBtn.addEventListener("click", () => attachInput.click());
+  attachInput.addEventListener("change", async () => {
+    await addAttachmentFiles(attachInput.files);
+    attachInput.value = "";
+  });
+  input.addEventListener("paste", (ev) => {
+    const files = ev.clipboardData?.files;
+    if (files && files.length) {
+      ev.preventDefault();
+      addAttachmentFiles(files);
+    }
+  });
+  ["dragenter", "dragover"].forEach((type) => {
+    composer.addEventListener(type, (ev) => {
+      ev.preventDefault();
+      composer.classList.add("dragging");
+    });
+  });
+  composer.addEventListener("dragleave", (ev) => {
+    if (composer.contains(ev.relatedTarget)) return;
+    composer.classList.remove("dragging");
+  });
+  composer.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    composer.classList.remove("dragging");
+    addAttachmentFiles(ev.dataTransfer?.files);
+  });
+
   /* ── composer ──────────────────────────────────────────────────────────── */
   function autoGrow() {
     input.style.height = "auto";
@@ -226,11 +372,13 @@
 
   async function send(text) {
     const message = (text ?? input.value).trim();
-    if (!message || state.busy) return;
+    const files = state.attachments.slice();
+    if ((!message && !files.length) || state.busy) return;
     input.value = "";
     autoGrow();
     hideSlash();
-    addUser(message);
+    addUser(message, files);
+    clearAttachments();
     setBusy(true);
 
     let thinkingNode = null;
@@ -243,7 +391,10 @@
       const resp = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({
+          message,
+          attachments: files.map(({ name, mime, data }) => ({ name, mime, data })),
+        }),
         signal: controller.signal,
       });
       if (!resp.ok || !resp.body) throw new Error("HTTP " + resp.status);
@@ -301,6 +452,14 @@
       }
       case "approval_request": {
         showApproval(evt);
+        return;
+      }
+      case "attachments": {
+        const saved = evt.saved || [];
+        if (saved.length) {
+          addSystem("附件已保存到工作区：" + saved.map((s) => s.relative).join("、"));
+        }
+        (evt.errors || []).forEach((err) => toast(err, "error"));
         return;
       }
       case "done": {
@@ -821,8 +980,8 @@
   composer.addEventListener("submit", (ev) => {
     ev.preventDefault();
     const text = input.value.trim();
-    if (!text) return;
-    if (runCommand(text)) return;
+    if (!text && !state.attachments.length) return;
+    if (text && runCommand(text)) return;
     send(text);
   });
 

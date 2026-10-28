@@ -15,6 +15,7 @@ import time
 import traceback
 
 from ..engine.loop import EngineLoop, TaskInterrupted
+from ..attachments import attachment_note, image_parts, save_attachments
 from ..errors import describe_exc
 from ..tools.registry import ToolRegistry
 from ..agent.coordinator import AgentCoordinator
@@ -129,6 +130,29 @@ class WebUIServer:
         except Exception as _exc:
             logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
+    def _user_content(self, message: str, attachments) -> tuple[object, dict]:
+        """Persist uploads and build the user turn's content.
+
+        Uploads land in the workspace first, so text-only providers (DeepSeek)
+        can still act on them through tools. Vision-capable providers get the
+        images inline as data URLs as well.
+        """
+        text = str(message or "")
+        saved, errors = save_attachments(attachments, Path.cwd())
+        note = attachment_note(saved, errors)
+        if note:
+            text = (text.rstrip() + note) if text.strip() else note.strip()
+        info = {
+            "saved": [{k: v for k, v in item.items() if k != "path"} for item in saved],
+            "errors": errors,
+        }
+        provider = getattr(self.engine, "provider", None)
+        if saved and getattr(provider, "supports_vision", False):
+            parts = image_parts(saved)
+            if parts:
+                return [{"type": "text", "text": text}] + parts, info
+        return text, info
+
     async def _web_approve(self, tool_call, context) -> bool:
         """Ask the browser (y/n/a) before a tool runs in agent mode.
 
@@ -191,6 +215,7 @@ class WebUIServer:
         try:
             data = json.loads(body)
             message = data.get("message", "")
+            attachments = data.get("attachments") or []
         except json.JSONDecodeError:
             await self._sse_send(writer, {"type": "error", "error": "Invalid JSON"})
             writer.close()
@@ -233,6 +258,11 @@ class WebUIServer:
                 writer.close()
                 return
 
+        # Uploads → workspace files (plus inline images for vision models).
+        user_content, attach_info = self._user_content(message, attachments)
+        if attach_info["saved"] or attach_info["errors"]:
+            await self._sse_send(writer, {"type": "attachments", **attach_info})
+
         queue: asyncio.Queue = asyncio.Queue()
         # Approvals for this turn are asked through the same SSE stream.
         self._approval_queue = queue
@@ -264,7 +294,7 @@ class WebUIServer:
             messages = []
             if project_ctx:
                 messages.append({"role": "system", "content": project_ctx})
-            messages.append({"role": "user", "content": message})
+            messages.append({"role": "user", "content": user_content})
 
             task = asyncio.create_task(self.engine.run(
                 messages=messages,
@@ -433,6 +463,7 @@ class WebUIServer:
             try:
                 data = json.loads(body)
                 message = data.get("message", "")
+                attachments = data.get("attachments") or []
             except json.JSONDecodeError:
                 return self._json_response({"error": "Invalid JSON"}, 400)
 
@@ -459,11 +490,12 @@ class WebUIServer:
             self._chat_busy = True
             try:
                 project_ctx = self.coordinator.project_memory.get_full_context() if hasattr(self.coordinator, 'project_memory') else ""
+                user_content, attach_info = self._user_content(message, attachments)
 
                 messages = []
                 if project_ctx:
                     messages.append({"role": "system", "content": project_ctx})
-                messages.append({"role": "user", "content": message})
+                messages.append({"role": "user", "content": user_content})
 
                 response = await self.engine.run(
                     messages=messages,
@@ -475,6 +507,8 @@ class WebUIServer:
                     "thinking": response.thinking,
                     "tools": list(self._tool_buffer),
                     "cache_hit": response.cache_hit,
+                    "attachments": attach_info["saved"],
+                    "attachment_errors": attach_info["errors"],
                     "stats": f"Cache: {self.engine.stats.hit_rate * 100:.0f}% | Cost: ${self.engine.stats.total_cost:.4f}",
                 })
             except Exception as e:
