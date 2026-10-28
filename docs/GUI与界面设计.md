@@ -23,6 +23,8 @@ pip install "zouwucode[gui]"   # 安装原生窗口依赖
 ```
 
 - 安装 `pywebview` 时打开原生窗口（1280×860，最小 960×600）；未安装时**自动回落到系统浏览器**并打印安装提示，不会死路。
+- 判断当前是哪种：启动输出里原生路径会打印 `Native window opened (pywebview)`，进程会有一个标题为 `ZOUWUCODE` 的窗口；若只看到网址与 `Native window unavailable`，说明还缺依赖。
+- Windows 上 `pip install "zouwucode[gui]"` 会带入 `pythonnet`，底层使用系统 WebView2（Win10/11 自带）。
 - GUI 与 `--web` 使用同一套 CLI 覆盖（`--model/--mode/--reasoning/--compress`），行为一致。
 - 端口被占用时直接报错退出（退出码 2），不会静默抢端口。
 

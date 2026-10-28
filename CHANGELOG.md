@@ -4,6 +4,21 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.12.1] — 2026-10-28
+
+让 `--gui` 真的是 GUI，并把 v1.12.0 的会话管理补上单元测试。
+
+### Fixed
+- **`--gui` 看起来和 `--web` 一样**：此前 `pywebview` 只是可选依赖，没装时启动器静默走浏览器分支，用户看到的就是网页。现在原生路径纳入测试覆盖（窗口参数、后端失败回落），并明确打印「Native window opened (pywebview)」；本机安装 `pywebview 6.2.1 + pythonnet` 后实测打开标题为 `ZOUWUCODE` 的原生窗口（进程 `MainWindowTitle` 已验证），同时服务端 `GET /` 返回 200
+- 缺少依赖时的提示保持原样：`pip install "zouwucode[gui]"`
+
+### Tests
+- 新增 `tests/test_v1121_gui_native.py`（17 用例）：
+  - 原生窗口：`_open_window` 正确传参（1280×860、最小 960×600）、后端抛错/包缺失时回落 `False`、`launch_gui` 走原生路径的日志
+  - 会话路由：delete/archive/unarchive/fork 的分发与参数、缺 id → 400、坏 JSON → 400、未知会话 → 404、运行中任务 → 409 且**不触碰** manager、无 manager → 400、fork 透传截断点、归档列表
+  - 归档互通：归档会话仍可 fork、取消归档后可 `load_session`、归档列表可清理
+- 全量套件连续两轮 **734 passed / 1 skipped**
+
 ## [1.12.0] — 2026-10-28
 
 会话不再"消失"：恢复、归档、删除、分支，加上对话轨迹点导航。
@@ -552,6 +567,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.12.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.12.1
 [1.12.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.12.0
 [1.11.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.11.1
 [1.11.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.11.0

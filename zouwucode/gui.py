@@ -48,7 +48,8 @@ def _open_window(url: str) -> bool:
     """Open a native window when pywebview is available. False otherwise."""
     try:
         import webview  # noqa: PLC0415 — optional dependency
-    except Exception:  # noqa: BLE001 — missing or broken install
+    except Exception as exc:  # noqa: BLE001 — missing or broken install
+        logger.info("pywebview unavailable (%s) — falling back to the browser", exc)
         return False
     try:
         webview.create_window(
@@ -89,6 +90,7 @@ def launch_gui(app, port: int = 8080, *, block: bool = True) -> int:
 
     print(f"  ZOUWUCODE GUI → {url}")
     if _open_window(url):
+        print("  Native window opened (pywebview) — close it to stop the server.")
         return 0
 
     opened = webbrowser.open(url, new=2)
