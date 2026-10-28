@@ -24,6 +24,7 @@ class TestWebBodyStreaming:
     @classmethod
     def setup_class(cls):
         cls.src = _read("zouwucode/webui/server.py")
+        cls.js = _read("zouwucode/webui/static/app.js")
 
     def test_backend_emits_content_deltas(self):
         assert '"type": "content", "delta": delta' in self.src
@@ -36,12 +37,13 @@ class TestWebBodyStreaming:
         assert '"streamed": streamed_body["any"]' in self.src
 
     def test_js_renders_content_events(self):
-        assert "addAssistantStream" in self.src
-        assert "evt.type === 'content'" in self.src
-        assert "contentBody.textContent += evt.delta" in self.src
+        assert "ensureContent" in self.js
+        assert 'case "content"' in self.js
+        assert "textContent += evt.delta" in self.js
 
     def test_js_avoids_double_content(self):
-        assert "evt.content && !contentBody" in self.src
+        # 后端已流式发送正文时，done 事件不再整段重绘（避免内容重复）
+        assert "evt.streamed" in self.js
 
 
 class TestWebResume:
@@ -50,6 +52,7 @@ class TestWebResume:
     @classmethod
     def setup_class(cls):
         cls.src = _read("zouwucode/webui/server.py")
+        cls.js = _read("zouwucode/webui/static/app.js")
 
     def test_app_method_exists(self):
         assert "def resume_session(self, session_id" in _read("zouwucode/tui/app.py")
@@ -64,7 +67,8 @@ class TestWebResume:
         assert "app=self," in _read("zouwucode/tui/app.py")
 
     def test_js_resume_command(self):
-        assert "cmd.startsWith('/resume')" in self.src
+        assert '{ cmd: "/resume"' in self.js
+        assert "/api/session/resume" in self.js
         assert "/api/session/resume" in self.src
 
     def test_resume_guards_against_concurrent_turn(self):

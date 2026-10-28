@@ -135,4 +135,5 @@ class TestAppWiring:
             assert 'command == "/rewind"' in src
         web = _read("zouwucode/webui/server.py")
         assert '"/api/rewind"' in web and '"/api/checkpoints"' in web
-        assert "cmd.startsWith('/rewind')" in web
+        js = _read("zouwucode/webui/static/app.js")
+        assert '{ cmd: "/rewind"' in js and '"/api/rewind"' in js

@@ -99,6 +99,8 @@ class TestFrontendWiring:
 
     def test_web_endpoints_and_commands(self):
         web = (ROOT / "zouwucode/webui/server.py").read_text(encoding="utf-8")
-        for needle in ('"/api/share"', '"/api/msg"', '"/api/inbox"', '"/api/peers"',
-                       "cmd.startsWith('/msg ')", "cmd === '/inbox'", "cmd === '/peers'"):
+        for needle in ('"/api/share"', '"/api/msg"', '"/api/inbox"', '"/api/peers"'):
             assert needle in web, needle
+        js = (ROOT / "zouwucode/webui/static/app.js").read_text(encoding="utf-8")
+        for needle in ('{ cmd: "/msg"', '{ cmd: "/inbox"', '{ cmd: "/peers"'):
+            assert needle in js, needle

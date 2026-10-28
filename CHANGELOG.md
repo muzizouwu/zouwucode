@@ -4,6 +4,28 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.11.0] — 2026-10-28
+
+桌面 GUI + 界面统一重构：三端终于有了同一套精心设计的界面，而不是三份各自演化的前端。
+
+### Added
+- **`zouwucode --gui`（桌面 GUI）**：`gui.py` 在守护线程里启动本地服务，主线程开原生窗口（`pywebview`，1280×860 / 最小 960×600）。未安装依赖时**自动回落系统浏览器**并提示 `pip install "zouwucode[gui]"`；端口被占用直接报错退出（码 2），不会静默抢端口
+- **全新三栏前端（Web 与 GUI 共用）**：左侧会话列表（点击回放历史）、中间对话流、右侧运行状态与用量面板。支持流式思考折叠块、工具调用卡片（完成/失败配色）、代码块语言标签与一键复制、审批模态框（允许一次 / 本会话始终允许 / 拒绝）、打断二次确认、命令面板 `Ctrl+K`、内联 `/` 命令候选、深浅主题（`localStorage` 持久化）、响应式断点（≤1180px 收起状态栏、≤860px 侧栏变抽屉）
+- **22 个前端斜杠命令**：`/help /clear /plan /agent /yolo /thinking /theme /sessions /usage /context /oracle /resume /rewind /msg /share /memory /decide /goal /compress /agents /inbox /peers`，与 CLI/TUI 语义保持一致
+- **可选依赖 `zouwucode[gui]`** 与 `package-data` 声明，冻结打包时静态资源随包分发
+
+### Changed
+- **前端从 server.py 内嵌字符串拆成静态资源**：`zouwucode/webui/static/index.html + style.css + app.js`（零 CDN、零构建、零前端框架，离线可用），`server.py` 由 **2264 行精简到 881 行**；`read_static()` 只允许扁平文件名（拒绝 `../`、点文件、子目录），并按后缀给正确 `Content-Type`
+- **TUI 主题同步**：`styles.tcss` 换为与 GUI 同一套石墨+青色+紫色配色，补全焦点态；删除从未被使用的 `.message-*` 死样式
+- 旧的 7 个前端接线测试（v1.0.5/1.0.7/1.0.8/1.1.0/1.2.0/1.3.0）改为校验新前端资源，语义不变
+
+### Docs
+- 新增 [GUI 与界面设计](docs/GUI与界面设计.md)：界面结构、快捷键、斜杠命令、审批协议、主题变量、响应式与三端一致性对照
+- README/USAGE/技术规格文档同步；实测记录：`GET /` 200 text/html、`/static/*` 正确 MIME、`/static/../server.py` 404、`/api/status` 200 JSON
+
+### Tests
+- 新增 `tests/test_v1110_gui.py`（15 用例）+ 重写 `tests/test_webui.py` 的前端部分：**DOM 契约**（JS 里每个 `$("#id")` 必须有对应节点）、**API 契约**（前端调用的每个 `/api/*` 必须已在服务端注册）、静态资源与 MIME、路径穿越拒绝、打断二次确认、无外部 CDN、响应式与主题持久化、TUI 主题一致性。套件 **686 → 698 全绿**
+
 ## [1.10.2] — 2026-10-28
 
 首次真实接入实测后的修正：对着官方 SDK `0.2.1rc2` 把冒烟跑通，并把踩到的上游坑变成可操作提示。
@@ -503,6 +525,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.11.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.11.0
 [1.10.2]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.2
 [1.10.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.1
 [1.10.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.0

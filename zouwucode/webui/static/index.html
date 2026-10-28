@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZOUWUCODE</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <span class="brand-name">ZOUWUCODE</span>
+    <span class="brand-tag">CLI · TUI · GUI · Harness</span>
+  </div>
+
+  <div class="topbar-mid">
+    <label class="field">
+      <span class="field-label">模式</span>
+      <select id="mode-select">
+        <option value="agent">Agent</option>
+        <option value="plan">Plan</option>
+        <option value="yolo">YOLO</option>
+      </select>
+    </label>
+    <label class="field">
+      <span class="field-label">推理</span>
+      <select id="reasoning-select">
+        <option value="low">low</option>
+        <option value="medium">medium</option>
+        <option value="max">max</option>
+      </select>
+    </label>
+    <button id="thinking-toggle" class="toggle" aria-pressed="true">思考流</button>
+  </div>
+
+  <div class="topbar-right">
+    <span id="status-dot" class="dot" data-state="idle" title="就绪"></span>
+    <span id="status-text">就绪</span>
+    <button id="theme-toggle" class="icon-btn" title="切换主题 (Ctrl+J)">◐</button>
+    <button id="palette-btn" class="icon-btn" title="命令面板 (Ctrl+K)">⌘</button>
+  </div>
+</header>
+
+<main class="shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="side-head">
+      <button id="new-session" class="primary">＋ 新会话</button>
+    </div>
+    <div class="side-section">
+      <div class="side-title">会话</div>
+      <div id="session-list" class="session-list">
+        <div class="placeholder">加载中…</div>
+      </div>
+    </div>
+    <div class="side-section side-foot">
+      <div class="side-title">快捷键</div>
+      <ul class="kbd-list">
+        <li><kbd>Enter</kbd> 发送</li>
+        <li><kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</li>
+        <li><kbd>Esc</kbd> 打断任务</li>
+        <li><kbd>Ctrl</kbd>+<kbd>K</kbd> 命令面板</li>
+        <li><kbd>Ctrl</kbd>+<kbd>L</kbd> 清空对话</li>
+      </ul>
+    </div>
+  </aside>
+
+  <section class="chat-pane">
+    <div id="chat" class="chat-log" role="log" aria-live="polite"></div>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <div id="slash-menu" class="slash-menu" hidden></div>
+      <div class="composer-box">
+        <textarea id="input" rows="1" placeholder="描述你的任务…  / 唤起命令"></textarea>
+        <div class="composer-actions">
+          <span id="composer-hint" class="hint">Enter 发送 · Shift+Enter 换行</span>
+          <button type="button" id="interrupt-btn" class="danger" hidden>停止</button>
+          <button type="submit" id="send-btn" class="primary">发送</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <aside class="inspector" id="inspector">
+    <div class="card">
+      <div class="card-title">运行状态</div>
+      <div class="kv"><span>引擎</span><b id="status-engine">—</b></div>
+      <div class="kv"><span>模式</span><b id="status-mode">—</b></div>
+      <div class="kv"><span>推理</span><b id="status-reasoning">—</b></div>
+      <div class="kv"><span>思考流</span><b id="status-thinking">—</b></div>
+    </div>
+    <div class="card">
+      <div class="card-title">用量</div>
+      <div class="kv"><span>缓存命中</span><b id="status-cache">—</b></div>
+      <div class="kv"><span>请求数</span><b id="status-req">—</b></div>
+      <div class="kv"><span>花费</span><b id="status-cost">—</b></div>
+      <div class="kv"><span>上下文</span><b id="status-context">—</b></div>
+      <div class="meter"><i id="context-meter"></i></div>
+    </div>
+    <div class="card">
+      <div class="card-title">项目</div>
+      <div class="kv"><span>规则</span><b id="status-rules">—</b></div>
+      <div class="kv"><span>技能</span><b id="status-skills">—</b></div>
+      <div class="kv"><span>模块</span><b id="status-modules">—</b></div>
+    </div>
+  </aside>
+</main>
+
+<div id="approval" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="approval-title">
+    <h2 id="approval-title">⚠ 需要确认</h2>
+    <p class="modal-sub">Agent 模式：执行工具前需要你的许可</p>
+    <div class="modal-tool"><code id="approval-tool">tool</code></div>
+    <pre id="approval-preview" class="modal-preview"></pre>
+    <div class="modal-actions">
+      <button id="approve-deny" class="ghost">拒绝</button>
+      <button id="approve-always" class="ghost">本会话始终允许</button>
+      <button id="approve-once" class="primary">允许一次</button>
+    </div>
+  </div>
+</div>
+
+<div id="interrupt-confirm" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <h2>中断当前任务？</h2>
+    <p class="modal-sub">已执行完的工具结果会保留；未执行的调用会被标记为「已中断」。</p>
+    <div class="modal-actions">
+      <button id="interrupt-cancel" class="ghost">继续任务</button>
+      <button id="interrupt-ok" class="danger">确认中断</button>
+    </div>
+  </div>
+</div>
+
+<div id="palette" class="modal" hidden>
+  <div class="modal-card palette-card" role="dialog" aria-modal="true">
+    <input id="palette-input" placeholder="搜索命令…" autocomplete="off">
+    <ul id="palette-list" class="palette-list"></ul>
+    <p class="modal-sub">↑↓ 选择 · Enter 执行 · Esc 关闭</p>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

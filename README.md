@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 686 passed](https://img.shields.io/badge/tests-686%20passed-green)](tests/)
+[![Tests: 698 passed](https://img.shields.io/badge/tests-698%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -21,6 +21,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 |------|------|
 | **Cache-First 引擎** | Append-only 对话循环，DeepSeek 缓存命中率 90%+，成本降至约 1/5 |
 | **三种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面） |
+| **桌面 GUI** | `zouwucode --gui`：原生窗口（pywebview），与 Web 共用同一套精美前端；未装依赖自动回落浏览器，端口占用直接报错 |
 | **三种模式** | Plan（只读）、Agent（交互审批）、YOLO（自动执行） |
 | **完整工具集** | 文件读写、内容检索（grep 正则搜索）、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 12 个内置工具 |
 | **模型路由 / oracle** | 便宜模型干活、更强模型只读复核（`/oracle`、`oracle` 工具）；主会话缓存不受影响 |
@@ -393,6 +394,12 @@ zouwucode/                       # 核心包
 │   ├── deepseek.py              # 配置解析 + 官方 SDK 包装 + 友好降级
 │   └── cli.py                   # harness 子命令（--doctor/--json/--verbose）
 │
+├── webui/                       # Web / GUI 服务 + 前端静态资源
+│   ├── server.py                # HTTP/SSE 服务（静态资源 + REST 路由）
+│   └── static/                  # 前端：index.html / style.css / app.js（零 CDN）
+│
+├── gui.py                       # 桌面 GUI 启动器（pywebview，缺失回落浏览器）
+│
 ├── extensions/                  # 扩展层（MCP/LSP 预留接口）
 │   ├── host.py                  # ExtensionHost + Extension 基类
 │   ├── mcp_ext.py               # MCP 服务器工具桥接
@@ -459,6 +466,7 @@ hello_my_zouwucode/              # 多智能体编排模块（复刻自 oh-my-op
 
 ## 近期更新
 
+- **v1.11.0 — 桌面 GUI + 界面统一重构**：新增 `zouwucode --gui`（原生窗口，pywebview 可选、缺失自动回落浏览器）；Web/GUI 共用全新三栏前端（会话列表 · 对话流 · 运行状态），支持流式思考折叠块、工具卡片、代码复制、审批模态、打断二次确认、命令面板 `Ctrl+K`、深浅主题与响应式布局；前端从 server.py 内嵌的 1500 行字符串拆成 `webui/static/`（HTML/CSS/JS，零 CDN、零构建），server.py 精简约 1400 行；TUI 主题同步换为同一套石墨+青色配色，并移除已失效的 `.message-*` 死样式。
 - **v1.10.0 — 接入 DeepSeek 官方 Harness（dsh）**：新增 `zouwucode harness "<任务>"`——把任务交给 DeepSeek 开源的 Cordis 插件式 harness 执行，支持 `--doctor` 前置检查、DSH_HOME/profile/provider/model/推理强度/patch 层配置、会话续接、`--json` 与 `--verbose` 通知流；SDK 为可选依赖，缺失时给出安装指引而非 traceback。同时提供反向接入：`zouwucode mcp-serve` 可把全部内置工具挂进 dsh 的 MCP 插件。详见 [接入指南](docs/deepseek-harness接入.md)。
 - **v1.9.0 — 检索能力与上下文预算**：新增 `grep` 内容检索工具（ripgrep 优先、纯 Python 兜底，跳过二进制/构建产物，结果上限明确提示），补齐成熟编码 Agent 最常用的"按内容找代码"能力；`read`/`bash`/`glob`/子 Agent 报告统一加输出限额（超限如实告知而非静默截断）；修复 Windows 上的文件保真问题——GBK/UTF-16 编码不再被改写、CRLF 与 LF 不再被互相转换（编辑一行不再产生全文件 diff）。
 - **子 Agent 系统与扩展层**：新增子 Agent 系统——主 Agent 通过 `task` 工具分解任务并行委派，每个子 Agent 拥有独立引擎/缓存（隔离 PrefixCache），支持工具白名单、独立超时、主引擎级联打断；新增统一 Extension 扩展层预留 MCP/LSP 集成空间（配置即启用，默认零开销）。详见 [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md)。
@@ -495,6 +503,7 @@ hello_my_zouwucode/              # 多智能体编排模块（复刻自 oh-my-op
 - [dev模式使用说明](docs/dev模式使用说明.md) — Devin 式自主 issue → Draft PR 工作流
 - [dev模式快速上手](docs/dev模式快速上手.md) — 5 分钟跑通第一个自主任务
 - [DeepSeek Harness 接入](docs/deepseek-harness接入.md) — `zouwucode harness` 用法、配置、对标映射与故障排查
+- [GUI 与界面设计](docs/GUI与界面设计.md) — 桌面 GUI / Web 前端结构、快捷键、斜杠命令、主题与响应式
 
 hello-my-zouwucode 多智能体编排模块相关文档：
 

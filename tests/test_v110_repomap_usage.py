@@ -108,7 +108,8 @@ class TestUsageWiring:
     def test_web_endpoint_and_command(self):
         web = _read("zouwucode/webui/server.py")
         assert '"/api/usage"' in web
-        assert "cmd === '/usage'" in web
+        js = _read("zouwucode/webui/static/app.js")
+        assert '{ cmd: "/usage"' in js and '"/api/usage"' in js
 
     def test_repo_map_injectable_into_prompt(self):
         for rel in ("zouwucode/tui/app.py", "zouwucode/tui/textual_app.py"):

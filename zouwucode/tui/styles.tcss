@@ -1,130 +1,93 @@
-/* ── ZOUWUCODE Textual Theme ──────────────────────────────────────────────── */
+/* ── ZOUWUCODE TUI Theme ─────────────────────────────────────────────────────
+   Palette mirrors the GUI (webui/static/style.css): graphite surfaces, cyan
+   accent, violet secondary. Only selectors that the app actually renders are
+   styled — the old .message-* rules were dead (chat is drawn as Rich text).
+   ────────────────────────────────────────────────────────────────────────── */
 
 Screen {
-    background: #1a1a2e;
+    background: #0a0e16;
+    color: #e6edf7;
 }
 
-/* ── Header ───────────────────────────────────────────────────────────────── */
+/* ── Header ──────────────────────────────────────────────────────────────── */
 #header {
     height: 3;
-    background: #16213e;
-    border-bottom: solid #0f3460;
-    padding: 0 1;
+    background: #111826;
+    border-bottom: solid #1e293b;
+    padding: 0 2;
 }
-
 #header-title {
-    content-align: center middle;
+    content-align: left middle;
     text-style: bold;
-    color: #e94560;
+    color: #22d3ee;
 }
-
 #header-mode {
     content-align: right middle;
-    color: #4ade80;
     text-style: bold;
+    color: #a78bfa;
 }
 
-/* ── Chat Container ───────────────────────────────────────────────────────── */
+/* ── Chat ────────────────────────────────────────────────────────────────── */
 #chat-container {
     height: 1fr;
-    border: none;
     padding: 0 1;
 }
-
 #chat-view {
-    background: #1a1a2e;
-    border: solid #0f3460;
-    border-title-color: #0f3460;
-    padding: 0 1;
-}
-
-/* ── Message Styles ───────────────────────────────────────────────────────── */
-.message-box {
-    margin: 0 0 1 0;
+    background: #0a0e16;
+    border: round #1e293b;
+    border-title-color: #22d3ee;
     padding: 1 2;
-    min-height: 1;
+}
+#chat-view:focus {
+    border: round #22d3ee;
 }
 
-.message-user {
-    background: #0f3460;
-    color: #eee;
-    margin-left: 4;
-}
-
-.message-assistant {
-    background: #16213e;
-    color: #eee;
-    margin-right: 4;
-}
-
-.message-thinking {
-    background: #1a1a2e;
-    color: #888;
-    text-style: italic;
-    border-left: solid #e94560;
-}
-
-.message-system {
-    background: transparent;
-    color: #666;
-    text-align: center;
-}
-
-/* ── Input Area ───────────────────────────────────────────────────────────── */
+/* ── Composer ────────────────────────────────────────────────────────────── */
 #input-area {
-    height: 5;
-    background: #16213e;
-    border-top: solid #0f3460;
-    padding: 0 1 1 1;
+    height: auto;
+    background: #111826;
+    border-top: solid #1e293b;
+    padding: 1 2;
 }
-
 #input-box {
     height: 3;
-    background: #1a1a2e;
-    color: #eee;
-    border: solid #333;
+    background: #0e1420;
+    color: #e6edf7;
+    border: round #1e293b;
     padding: 0 1;
 }
-
 #input-box:focus {
-    border: solid #e94560;
+    border: round #22d3ee;
 }
 
-/* ── Status Bar ───────────────────────────────────────────────────────────── */
+/* ── Status bar ──────────────────────────────────────────────────────────── */
 #status-bar {
     height: 1;
-    background: #0d0d1a;
-    color: #666;
-    padding: 0 1;
+    background: #0e1420;
+    color: #9aa8bd;
+    padding: 0 2;
 }
-
-#status-left {
-    width: 1fr;
-}
-
+#status-left { width: 1fr; }
 #status-right {
     width: 1fr;
     content-align: right middle;
+    color: #6b7a90;
 }
 
-/* ── Footer / Help ────────────────────────────────────────────────────────── */
+/* ── Footer ──────────────────────────────────────────────────────────────── */
 #footer {
     height: 1;
-    background: #16213e;
-    color: #555;
-    padding: 0 1;
+    background: #111826;
+    padding: 0 2;
 }
-
-/* ── Keyboard Shortcuts Display ───────────────────────────────────────────── */
 #shortcuts {
     width: 1fr;
-    color: #555;
+    color: #6b7a90;
     content-align: left middle;
 }
-
 #footer-progress {
     width: auto;
-    color: #4ade80;
+    color: #22d3ee;
     content-align: right middle;
     text-style: bold;
 }

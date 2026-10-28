@@ -150,22 +150,25 @@ class TestWebParity:
     @classmethod
     def setup_class(cls):
         cls.src = _read("zouwucode/webui/server.py")
+        cls.js = _read("zouwucode/webui/static/app.js")
 
     @pytest.mark.parametrize("route", ["/api/memory", "/api/goal", "/api/decide",
                                        "/api/context", "/api/compress", "/api/agents"])
     def test_endpoint_present(self, route):
         assert '"' + route + '"' in self.src
 
-    @pytest.mark.parametrize("cmd", ["'/memory'", "'/decide'", "'/context'",
-                                     "'/compress'", "'/agents'"])
+    @pytest.mark.parametrize("cmd", ["/memory", "/decide", "/context",
+                                     "/compress", "/agents"])
     def test_js_command_present(self, cmd):
-        assert ("cmd === " + cmd) in self.src or ("cmd.startsWith(" + cmd) in self.src
+        assert ('{ cmd: "' + cmd + '"') in self.js
 
     def test_mode_commands(self):
-        assert "cmd === '/plan' || cmd === '/agent' || cmd === '/yolo'" in self.src
+        for mode in ("/plan", "/agent", "/yolo"):
+            assert ('{ cmd: "' + mode + '"') in self.js
 
     def test_hello_agents_is_real_dispatch(self):
-        assert "runModule('agents'" in self.src
+        assert '"/api/agents"' in self.js, "前端应调用 /api/agents"
+        assert '"/api/agents"' in self.src
 
     def test_subagent_manager_wired(self):
         assert "subagent_manager=None," in self.src

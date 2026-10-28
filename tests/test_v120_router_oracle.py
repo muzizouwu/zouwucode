@@ -155,4 +155,5 @@ class TestWiring:
             assert 'command == "/oracle"' in src, rel
         web = (ROOT / "zouwucode/webui/server.py").read_text(encoding="utf-8")
         assert '"/api/oracle"' in web
-        assert "cmd.startsWith('/oracle')" in web
+        js = (ROOT / "zouwucode/webui/static/app.js").read_text(encoding="utf-8")
+        assert '{ cmd: "/oracle"' in js and '"/api/oracle"' in js

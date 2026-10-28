@@ -1,0 +1,133 @@
+# GUI 与界面设计
+
+> 适用版本：v1.11.0+ ｜ 三端一致：CLI · TUI · GUI（桌面窗口）/ Web
+
+## 1. 设计原则
+
+| 原则 | 落地方式 |
+|------|----------|
+| **一套前端** | 桌面 GUI 与浏览器 Web 共用 `zouwucode/webui/static/`（同一份 HTML/CSS/JS），不存在两套界面各自漂移 |
+| **离线可用** | 零 CDN、零外部字体、零构建步骤、零前端框架；断网也能正常渲染 |
+| **信息密度优先** | 三栏布局：会话列表 / 对话流 / 运行状态；状态、成本、上下文常驻可见 |
+| **不打断阅读** | 流式输出只在视口贴底时自动跟随；用户上翻后绝不被拽回 |
+| **安全的破坏性操作** | 打断需二次确认；工具执行审批是模态框，默认焦点在「允许一次」 |
+| **可访问性** | 语义标签 + `aria-live` 对话区、`aria-modal` 弹窗、可见 focus ring、`prefers-reduced-motion` 降级 |
+
+## 2. 启动
+
+```bash
+zouwucode --gui                # 桌面窗口（需 pywebview）
+zouwucode --gui --port 9000    # 指定端口
+zouwucode --web                # 浏览器界面（同一个前端）
+pip install "zouwucode[gui]"   # 安装原生窗口依赖
+```
+
+- 安装 `pywebview` 时打开原生窗口（1280×860，最小 960×600）；未安装时**自动回落到系统浏览器**并打印安装提示，不会死路。
+- GUI 与 `--web` 使用同一套 CLI 覆盖（`--model/--mode/--reasoning/--compress`），行为一致。
+- 端口被占用时直接报错退出（退出码 2），不会静默抢端口。
+
+## 3. 界面结构
+
+```
+┌ topbar ───────────────────────────────────────────────────────────┐
+│ logo ZOUWUCODE · 模式 / 推理 / 思考流 · 状态灯 · 主题 · 命令面板      │
+├──────────┬──────────────────────────────────────┬─────────────────┤
+│ 会话列表  │ 对话流（消息 / 思考折叠块 / 工具卡片）  │ 运行状态 / 用量   │
+│ 快捷键    │ 输入区（Enter 发送 · Shift+Enter 换行）│ 上下文进度条      │
+└──────────┴──────────────────────────────────────┴─────────────────┘
+```
+
+### 3.1 对话流
+
+- **消息行**：头像 + 角色 + 时间；用户消息用强调色卡片，助手消息为正文块
+- **思考过程**：`<details>` 折叠块，支持实时追加（`/thinking` 或顶栏开关可关）
+- **工具调用**：等宽卡片显示工具名与参数，完成后转绿边，失败转红边
+- **代码块**：语言标签 + hover 出现的「复制」按钮；所有内容先转义再渲染，模型输出里的 HTML 不会被执行
+- **流式光标**：`▍` 闪烁；`done` 事件到达后移除，且不重复渲染已流式输出的正文
+
+### 3.2 侧栏
+
+- 会话列表来自 `GET /api/sessions`，点击即 `POST /api/session/resume` 回放历史
+- 「新会话」只清空视图；真正的会话在下次提问时建立
+- 会话长名与长 token（URL/代码）强制折行，不产生横向滚动
+
+### 3.3 状态面板
+
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| 引擎 / 模式 / 推理 / 思考流 | `GET /api/status` | 每 3 秒刷新，与顶栏控件双向同步 |
+| 缓存命中 / 请求数 / 花费 | `GET /api/status` | 直接反映 Cache-First 引擎收益 |
+| 上下文 | `GET /api/status` + 进度条 | `context_tokens / max_context_tokens` |
+| 规则 / 技能 / 模块 | `GET /api/status` | 一眼看到当前会话加载了什么 |
+
+## 4. 交互与快捷键
+
+| 操作 | 快捷键 | 说明 |
+|------|--------|------|
+| 发送 | `Enter` | 输入框内；`Shift+Enter` 换行 |
+| 换行 | `Shift+Enter` | 也支持 `Ctrl+Enter` 发送 |
+| 打断任务 | `Esc` 或「停止」按钮 | **先弹确认框**，确认后才调用 `/api/interrupt` |
+| 命令面板 | `Ctrl+K` | 模糊搜索全部斜杠命令 |
+| 清空对话 | `Ctrl+L` | 仅清空显示 |
+| 切换主题 | `Ctrl+J` | 深浅色，选择写入 `localStorage` |
+| 唤起命令 | 输入 `/` | 弹出内联命令候选 |
+
+### 4.1 斜杠命令（前端）
+
+`/help` `/clear` `/plan` `/agent` `/yolo` `/thinking` `/theme` `/sessions` `/usage` `/context` `/oracle <q>` `/resume <id>` `/rewind [n]` `/msg <peer> <text>` `/share` `/memory` `/decide <text>` `/goal <text>` `/compress` `/agents` `/inbox` `/peers`
+
+> 这些命令在浏览器里直接调用对应的 REST 接口，与 CLI/TUI 的斜杠命令语义保持一致。
+
+### 4.2 审批
+
+Agent 模式下工具执行前会阻塞并发起 `approval_request` SSE 事件，前端弹出模态框：
+
+- **允许一次** / **本会话始终允许** / **拒绝** → `POST /api/approve {id, decision}`（`y` / `a` / `n`）
+- 默认焦点在「允许一次」，`Esc` 等于拒绝（最安全的默认）
+
+## 5. 视觉与主题
+
+所有颜色/圆角/阴影集中在 `static/style.css` 的 CSS 变量里，TUI 的 `styles.tcss` 使用同一套主色，两端观感一致：
+
+```css
+--bg: #0a0e16;      /* 石墨底 */
+--panel: #111826;   /* 面板 */
+--accent: #22d3ee;  /* 主强调（青） */
+--violet: #a78bfa;  /* 次强调（紫） */
+--ok/--warn/--danger: #34d399 / #fbbf24 / #f87171
+```
+
+`[data-theme="light"]` 覆盖同一组变量即可切浅色；新增配色只改变量，不需要动组件规则。
+
+## 6. 响应式
+
+| 断点 | 行为 |
+|------|------|
+| `≤1180px` | 隐藏右侧状态栏（信息仍在顶栏/对话内） |
+| `≤860px` | 侧栏变为抽屉（`translateX`），对话区全宽；顶栏隐藏次要标签 |
+
+## 7. 三端一致性
+
+| 能力 | CLI | TUI | GUI/Web |
+|------|-----|-----|---------|
+| 流式思考 | ✅ | ✅ | ✅（折叠块） |
+| 流式正文 | ✅ | ✅ | ✅（逐字追加） |
+| 工具调用可见 | ✅ `→ tool` | ✅ | ✅ 工具卡片 |
+| 打断 + 确认 | `Ctrl+C` | `Esc` + 模态 | `Esc` + 模态 |
+| 审批 | 终端提问 | Modal | Modal |
+| 会话恢复 | `--resume` | `/sessions` | 侧栏点击 / `/resume` |
+| 成本可见 | `/usage` | 状态栏 | 右侧面板 |
+
+## 8. 扩展点
+
+- **加一个斜杠命令**：在 `static/app.js` 的 `COMMANDS` 数组里追加一项（`cmd` / `desc` / `run(arg)`），命令面板与内联候选会自动收录。
+- **加一个面板**：在 `static/index.html` 加语义块，`style.css` 用现有变量配色；`TestDomContract` 会校验 JS 引用的节点存在。
+- **换主题**：只改 CSS 变量；`prefers-reduced-motion` 已统一关闭动画。
+- **打包进桌面安装包**：`pyproject.toml` 的 `package-data` 已包含 `zouwucode.webui = ["static/*"]`，冻结打包（PyInstaller）时静态资源会随包分发。
+
+## 9. 已验证
+
+- `GET /` → 200 `text/html`；`/static/style.css` → `text/css`；`/static/app.js` → `application/javascript`
+- `GET /static/../server.py` → 404（路径穿越被拒）
+- `GET /api/status` → 200 JSON
+- 套件 **698 passed / 1 skipped**，含：DOM 契约（JS 里每个 `$("#id")` 必须有对应节点）、API 契约（前端调用的每个 `/api/*` 必须已在服务端注册）、打断必须二次确认、无外部 CDN、响应式断点、主题持久化

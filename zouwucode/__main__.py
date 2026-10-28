@@ -38,6 +38,7 @@ def main():
                "  zouwucode                    # Start CLI (interactive mode)\n"
                "  zouwucode --tui              # Start Textual TUI (full-featured)\n"
                "  zouwucode --web              # Start browser UI\n"
+               "  zouwucode --gui              # Start desktop GUI (native window)\n"
                "  zouwucode --mode plan        # Start in plan mode\n"
                "  zouwucode dev <issue-url>    # Devin-style: issue → draft PR\n"
                "  zouwucode dev --workers 3    # Drain dev task queue\n"
@@ -65,6 +66,9 @@ def main():
     # ── Interface selection ─────────────────────────────────────────────────
     parser.add_argument("--tui", action="store_true", help="Start Textual terminal UI (full-featured TUI)")
     parser.add_argument("--web", action="store_true", help="Start browser-based UI")
+    parser.add_argument("--gui", action="store_true",
+                        help="Start the desktop GUI (native window; falls back "
+                             "to the browser when pywebview is not installed)")
     parser.add_argument("--port", type=int, default=8080, help="Web UI port (default: 8080)")
 
     # ── Project Memory ──────────────────────────────────────────────────────
@@ -239,6 +243,10 @@ def main():
                     "max_tokens": args.max_tokens,
                     "keep_turns": args.keep_turns,
                 })
+    elif args.gui:
+        # ── Desktop GUI (same frontend as --web, native window) ─────────────
+        from .gui import launch_gui
+        sys.exit(launch_gui(app, port=args.port))
     elif args.web:
         # ── Web UI mode ─────────────────────────────────────────────────────
         asyncio.run(app.run_web(port=args.port))

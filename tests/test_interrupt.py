@@ -428,21 +428,26 @@ class TestTUIInterruptModalBehavior:
 
 
 class TestWebUIInterruptWiring:
-    """WebUI 打断功能接线 — 按钮 / 接口 / SSE 事件。"""
+    """WebUI 打断功能接线 — 按钮 / 接口 / SSE 事件（前端已拆为静态资源）。"""
+
+    @staticmethod
+    def _assets():
+        from zouwucode.webui import server
+        return (server.read_static("index.html")[0],
+                server.read_static("app.js")[0])
 
     def test_interrupt_button_in_html(self):
-        from zouwucode.webui.server import HTML_TEMPLATE
-
-        assert 'id="interrupt-btn"' in HTML_TEMPLATE, "页面必须有打断按钮"
-        assert "interruptTask" in HTML_TEMPLATE, "页面必须绑定打断 JS 函数"
+        index, js = self._assets()
+        assert 'id="interrupt-btn"' in index, "页面必须有打断按钮"
+        assert "requestInterrupt" in js, "页面必须绑定打断处理函数"
 
     def test_interrupt_confirm_dialog_in_html(self):
-        from zouwucode.webui.server import HTML_TEMPLATE
-
-        assert "confirm(" in HTML_TEMPLATE, "WebUI 打断必须有确认对话框"
-        assert "api/interrupt" in HTML_TEMPLATE, "前端必须调用打断接口"
-        assert "e.key === 'Escape'" in HTML_TEMPLATE, "前端必须用 Esc 触发打断"
-        assert "ctrl+x" not in HTML_TEMPLATE.lower(), "Ctrl+X 已废弃"
+        index, js = self._assets()
+        assert 'id="interrupt-confirm"' in index, "WebUI 打断必须有确认弹窗"
+        assert 'id="interrupt-ok"' in index and 'id="interrupt-cancel"' in index
+        assert '"/api/interrupt"' in js, "前端必须调用打断接口"
+        assert '"Escape"' in js, "前端必须用 Esc 触发打断"
+        assert "ctrl+x" not in js.lower(), "Ctrl+X 已废弃"
 
     def test_interrupt_route_registered(self):
         import inspect
@@ -452,10 +457,12 @@ class TestWebUIInterruptWiring:
         assert "/api/interrupt" in src, "服务端必须注册 /api/interrupt 路由"
 
     def test_sse_interrupted_event(self):
-        from zouwucode.webui.server import HTML_TEMPLATE
         import inspect
         from zouwucode.webui.server import WebUIServer
 
-        assert "'interrupted'" in HTML_TEMPLATE, "前端必须处理 interrupted SSE 事件"
+        _, js = self._assets()
+        assert "'interrupted'" in js or '"interrupted"' in js, \
+            "前端必须处理 interrupted SSE 事件"
         server_src = inspect.getsource(WebUIServer)
         assert "TaskInterrupted" in server_src, "SSE 处理必须捕获 TaskInterrupted"
+

@@ -1406,6 +1406,24 @@ zouwucode mcp-serve     # stdio MCP 服务端：initialize / tools/list / tools/
 
 ---
 
+## 22. 桌面 GUI 与界面设计
+
+```bash
+zouwucode --gui                # 原生窗口（需 pip install "zouwucode[gui]"）
+zouwucode --gui --port 9000    # 指定端口
+zouwucode --web                # 浏览器界面（同一个前端）
+```
+
+- 桌面 GUI 与 Web 共用 `zouwucode/webui/static/`（同一份 HTML/CSS/JS），零 CDN、零构建、离线可用。
+- 未安装 `pywebview` 时自动回落到系统浏览器并提示安装命令；端口被占用直接报错退出（码 2）。
+- 三栏布局：会话列表 / 对话流 / 运行状态；流式思考折叠块、工具卡片、代码块一键复制、审批模态框、打断二次确认。
+- 快捷键：`Enter` 发送、`Shift+Enter` 换行、`Esc` 打断（需确认）、`Ctrl+K` 命令面板、`Ctrl+L` 清空、`Ctrl+J` 切主题。
+- 斜杠命令：`/help /clear /plan /agent /yolo /thinking /theme /sessions /usage /context /oracle /resume /rewind /msg /share /memory /decide /goal /compress /agents /inbox /peers`。
+
+完整结构、主题变量、响应式断点与扩展方式见 [GUI 与界面设计](docs/GUI与界面设计.md)。
+
+---
+
 ## 附录：项目结构
 
 ```

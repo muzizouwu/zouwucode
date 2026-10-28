@@ -102,6 +102,7 @@
 | CLI | 默认 | OpenAI Code 风格 | 轻量，提示符 `z a >` |
 | TUI | `--tui` | OpenAI Code 风格 | Textual 框架，彩色消息 |
 | Web UI | `--web` | DeepCode 暗色风格 | 浏览器界面，API 端点 |
+| 桌面 GUI | `--gui` | 与 Web 同一前端 | 原生窗口（pywebview）；缺失时回落浏览器 |
 
 ### 3.3 工具系统（12 个内置工具 + oracle 复核 + task 委派工具）
 
@@ -900,6 +901,16 @@ zouwucode eval --list / --task X / --tasks dir/
 - 反向接入：`zouwucode mcp-serve`（既有 MCP stdio 服务端）可把全部内置工具挂进 dsh 的 MCP 插件，复用 zouwucode 的工具实现与沙箱策略。
 - 边界：dsh 处于 developer preview，接口会演进；本层只承诺"配置映射 + 结果映射 + 友好失败"，不锁定 dsh 内部结构；dsh 会话的工具/沙箱/计费由 dsh 侧负责。
 
+### 5.22 `gui.py` + `webui/static/` — 桌面 GUI 与共享前端
+
+**职责**：桌面窗口与浏览器共用同一套前端，避免两套 UI 漂移。
+
+- `gui.py`：`launch_gui(app, port)` —— 在守护线程里跑 `run_web`（自带事件循环），主线程开窗口。`pywebview` 可用 → 原生窗口（1280×860，最小 960×600）；不可用 → `webbrowser.open` 并打印 `pip install "zouwucode[gui]"`，不会死路。端口占用直接返回码 2；30s 内未监听返回码 1。
+- `webui/static/`：`index.html` + `style.css` + `app.js`，零 CDN、零构建、零前端框架。`server.read_static(name)` 只允许扁平文件名（拒绝 `../`、点文件、子目录），并给出正确 `Content-Type`；`/` 与 `/index.html` 由 `page_html()` 读取，缺失时返回 500 而不是空白页。
+- 前端契约：SSE 事件 `thinking/content/approval_request/done/interrupted/error`；审批 `POST /api/approve {id, decision}`（y/a/n）；打断 `POST /api/interrupt` 且必须二次确认；状态每 3s 轮询 `/api/status`。
+- 设计系统：CSS 变量集中定义（石墨底 + 青色主强调 + 紫色次强调），`[data-theme="light"]` 覆盖同一组变量；`≤1180px` 隐藏右侧状态栏，`≤860px` 侧栏变抽屉；`prefers-reduced-motion` 统一关闭动画。TUI 的 `styles.tcss` 复用同一套主色。
+- 守护测试：`TestDomContract`（JS 里每个 `$("#id")` 必须有对应节点）、`TestApiContract`（前端调用的每个 `/api/*` 必须已在服务端注册）、打断二次确认、无外部 CDN、响应式断点。
+
 ---
 
 ## 6. 文件结构
@@ -1025,7 +1036,7 @@ zouwucode/                             # 仓库克隆目录（项目根）
 │   ├── intent_gate.py                  # 意图门控
 │   └── categories.py                   # 任务分类
 │
-├── tests/                              # 测试套件（686 个测试用例）
+├── tests/                              # 测试套件（698 个测试用例）
 │   ├── __init__.py
 │   ├── test_code_exec.py              # python_exec 持久 REPL（命名空间/超时重启/破坏性拦截）
 │   ├── test_compressor.py
@@ -1497,7 +1508,7 @@ beautifulsoup4>=4.12.0
 
 ### 11.1 测试概览
 
-- 共计 **686 个测试用例**
+- 共计 **698 个测试用例**
 - 覆盖所有核心模块
 - 使用 pytest + pytest-asyncio
 - 全部通过（`pytest tests/` 绿色），GitHub Actions CI 在 Python 3.10/3.12 × Ubuntu/Windows 矩阵验证

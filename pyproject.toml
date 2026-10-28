@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zouwucode"
-version = "1.10.2"
+version = "1.11.0"
 description = "ZOUWUCODE - DeepSeek-native AI Coding Agent for your terminal"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,9 @@ dependencies = [
 tui = [
     "textual>=1.0.0",
 ]
+gui = [
+    "pywebview>=5.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
@@ -40,6 +43,7 @@ include = ["zouwucode*", "hello_my_zouwucode*"]
 [tool.setuptools.package-data]
 "zouwucode.eval" = ["tasks/*.yaml"]
 "zouwucode.tui" = ["*.tcss"]
+"zouwucode.webui" = ["static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
