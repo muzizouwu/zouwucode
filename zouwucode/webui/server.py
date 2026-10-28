@@ -636,8 +636,12 @@ class WebUIServer:
                 for s in manager.list_sessions():
                     sessions_list.append({
                         "id": s.get("id", ""),
+                        # v1.13 auto-titles never reached the sidebar because
+                        # this route dropped them; keep the label here.
+                        "title": s.get("title") or s.get("id", ""),
                         "turns": s.get("turns", 0),
                         "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(s.get("updated", 0))),
+                        "project_root": s.get("project_root", ""),
                     })
             return self._json_response({"sessions": sessions_list})
 

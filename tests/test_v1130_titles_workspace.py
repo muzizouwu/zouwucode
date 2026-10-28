@@ -160,6 +160,16 @@ class TestRenameRoute:
         assert self._post(srv, '{"id":"s-1","title":"x"}').startswith("HTTP/1.1 400")
 
 
+class TestSessionListRoute:
+    def test_list_keeps_titles_and_project_root(self):
+        """The sidebar renders item.title; the route must not drop it."""
+        srv = _srv(_FakeSessions())
+        raw = asyncio.run(srv._route("GET", "/api/sessions", ""))
+        body = json.loads(raw.split("\r\n\r\n", 1)[1])
+        assert body["sessions"][0]["title"] == "T"
+        assert "project_root" in body["sessions"][0]
+
+
 class TestWorkspaceRoutes:
     def test_listing_reports_current(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

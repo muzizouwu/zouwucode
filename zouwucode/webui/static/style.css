@@ -200,7 +200,10 @@ select:focus-visible, button:focus-visible, textarea:focus-visible, input:focus-
 }
 .session-item:hover { border-color: var(--line-strong); color: var(--text); }
 .session-item.active { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--accent-soft); color: var(--text); }
-.session-item b { display: block; font-weight: 600; color: inherit; }
+.session-item b {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; font-weight: 600; color: inherit; line-height: 1.35;
+}
 .session-item span { color: var(--text-faint); font-size: 11px; }
 .placeholder { color: var(--text-faint); font-size: 12px; padding: 6px 2px; }
 .kbd-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 11px; color: var(--text-faint); }
@@ -318,7 +321,9 @@ kbd {
   font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
 }
 .code-block .lang {
-  position: absolute; top: 8px; left: 12px;
+  /* Top-right (the copy button lives at right:6px and only shows on hover) —
+     it used to sit over the first code line at the top-left. */
+  position: absolute; top: 8px; right: 58px;
   font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint);
 }
 .code-block .copy {

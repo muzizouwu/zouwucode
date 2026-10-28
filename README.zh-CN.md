@@ -1,0 +1,549 @@
+# ZOUWUCODE
+
+[English](README.md) | **简体中文**
+
+> DeepSeek-native AI Coding Agent — 为终端而生的编程智能体
+>
+> 开发团队：走戊工作室（Zouwu Studio）
+
+[![Version](https://img.shields.io/github/v/tag/muzizouwu/zouwucode?label=version&color=blue)](https://github.com/muzizouwu/zouwucode/releases)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests: 783 passed](https://img.shields.io/badge/tests-783%20passed-green)](tests/)
+[![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
+
+<img src="docs/assets/demo.gif" alt="ZOUWUCODE Web UI 演示：欢迎页、英文会话、中文会话" width="820">
+
+ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
+
+支持 **四种界面**（CLI / TUI / Web UI / 桌面 GUI）和 **三种工作模式**（Plan / Agent / YOLO），提供完整的项目记忆、对话压缩、上下文管理、附件发送与安全沙箱功能。
+
+> 界面截图（真实运行）：
+> [Web UI 英文会话](docs/assets/webui-en.png) ·
+> [Web UI 中文会话](docs/assets/webui-zh.png) ·
+> [欢迎页](docs/assets/webui-empty.png) ·
+> [下载演示视频](docs/assets/demo.mp4)
+
+---
+
+## 特性一览
+
+| 特性 | 说明 |
+|------|------|
+| **Cache-First 引擎** | Append-only 对话循环，DeepSeek 缓存命中率 90%+，成本降至约 1/5 |
+| **三种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面） |
+| **桌面 GUI** | `zouwucode --gui`：原生窗口（pywebview），与 Web 共用同一套精美前端；未装依赖自动回落浏览器，端口占用直接报错 |
+| **附件发送** | 对话框支持回形针 / 拖拽 / 粘贴添加图片与文件（≤5 个、单个 ≤8 MB）：落盘到 `.zouwucode/uploads/` 并告知模型路径，纯文本模型也能用工具处理；多模态模型额外内联图片 |
+| **三种模式** | Plan（只读）、Agent（交互审批）、YOLO（自动执行） |
+| **完整工具集** | 文件读写、内容检索（grep 正则搜索）、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 12 个内置工具 |
+| **模型路由 / oracle** | 便宜模型干活、更强模型只读复核（`/oracle`、`oracle` 工具）；主会话缓存不受影响 |
+| **会话共享 / 跨会话消息** | `/share` 导出自包含 Markdown；`/msg`·`/inbox`·`/peers` 让本机多个会话互通（本地 SQLite，无守护进程） |
+| **子代理 worktree 隔离** | 可选：每个子 Agent 在独立 git worktree（`dev/sub-<id>`）里干活，并行改文件互不冲突 |
+| **项目记忆** | 跨会话持久化，保存目标、决策、状态、摘要 |
+| **项目规则** | `.zouwucode/rules.md` 定义项目专属规则，自动注入系统提示词 |
+| **技能系统** | `.zouwucode/skills/` 可插拔知识包，`/skill` 命令动态加载/卸载 |
+| **推理强度** | 三档可调：low（快速确定）、medium（均衡思考）、max（深度推理） |
+| **对话压缩** | 三级压缩策略（lossless / balanced / aggressive） |
+| **上下文窗口** | 三层管理（Hot / Warm / Cold），自动滑动归档 |
+| **安全沙箱** | 危险命令检测、零宽字符防护、路径白名单；可选**容器隔离**（`sandbox.container`，一次性容器执行、默认断网、运行时缺失自动回退） |
+| **任务打断** | 三端统一：TUI/WebUI 按 `Esc`（带确认弹窗）、CLI 按 `Ctrl+C`，打断后可「继续」恢复或放弃 |
+| **子 Agent 系统** | 主 Agent 通过 `task` 工具分解任务并并行委派：每个子 Agent 独立引擎/缓存，支持工具白名单、独立超时、级联打断 |
+| **Devin 式 dev 模式** | `zouwucode dev <issue>` 自主完成 issue→隔离 worktree→实现→验证→Draft PR 全流程；支持队列并行、watch 自动认领、成本熔断 |
+| **扩展层（MCP/LSP）** | MCP 服务器工具桥接（stdio + Streamable HTTP），并可 `zouwucode mcp-serve` 反向暴露为 MCP 服务器；LSP 三工具：诊断、hover 类型签名、go-to-definition，配置即启用，零配置零开销 |
+| **DeepSeek Harness 接入** | `zouwucode harness "<任务>"` 把任务交给官方 harness（dsh）执行：SDK 可选依赖、DSH_HOME/模型/推理强度/patch 层可配、`--json` 供脚本消费；反向亦可用 `zouwucode mcp-serve` 把内置工具挂进 dsh |
+| **引擎安全限制** | 工具轮数上限、单请求/单任务超时、连续工具错误熔断 — 杜绝死循环与执行停顿；工具输出统一限额（read 2000 行 / bash 30k 字符 / 子 Agent 报告 12k 字符，超限明确告知），避免单次工具调用撑爆上下文 |
+| **会话管理** | 自动保存、恢复、回滚 |
+| **hello-my-zouwucode 多智能体编排模块** | 复刻自 OpenCode 生态的 oh-my-opencode：11 专职 Agent + IntentGate 意图门控 + ultrawork 全自主管线 |
+| **MCP 协议** | 支持 Model Context Protocol 扩展（经扩展层接入，配置即启用） |
+| **便捷启动** | `z` 命令一键启动，PowerShell 安装脚本 |
+
+---
+
+## 快速开始
+
+### 安装（推荐方式 — 全局安装）
+
+```bash
+cd zouwucode          # 进入本仓库克隆目录
+pip install -e .
+```
+
+安装后，在任何目录都可以直接使用 `zouwucode` 命令。
+
+### 配置 API Key
+
+```bash
+# 生成默认配置文件
+zouwucode --init-config
+```
+
+编辑 `zouwucode_data/config.yaml`（或项目根目录 `config.yaml`），填入 [DeepSeek API Key](https://platform.deepseek.com/api_keys)：
+
+```yaml
+providers:
+  deepseek:
+    api_key: "sk-your-deepseek-api-key"
+    model: "deepseek-flash"              # 推荐 deepseek-flash（V4 时代新名）
+    base_url: "https://api.deepseek.com"
+```
+
+> **安全提示**：`config.yaml` 含密钥，已在 [.gitignore](.gitignore) 中排除，切勿提交。
+> 配置模板见 [config.example.yaml](config.example.yaml)。若密钥曾泄露，请到
+> [DeepSeek 控制台](https://platform.deepseek.com/api_keys) 重置。
+
+### 启动
+
+```bash
+# CLI 交互模式（默认）
+zouwucode
+
+# Web UI 模式（浏览器）
+zouwucode --web
+
+# TUI 模式（终端图形界面）
+zouwucode --tui
+
+# 如果未全局安装，使用 python -m
+python -m zouwucode --web
+```
+
+---
+
+## 使用方式
+
+### 四种界面
+
+| 界面 | 启动命令 | 说明 |
+|------|----------|------|
+| CLI | `zouwucode` | 轻量级终端交互，无需额外依赖 |
+| Web UI | `zouwucode --web` | 浏览器界面，`http://127.0.0.1:8080`；支持附件（回形针 / 拖拽 / 粘贴） |
+| 桌面 GUI | `zouwucode --gui` | 原生窗口（pywebview），与 Web 共用同一套前端；缺依赖自动回落浏览器 |
+| TUI | `zouwucode --tui` | Textual 终端图形界面，需安装 `textual` |
+
+### 三种模式
+
+| 模式 | 命令 | 快捷键 | 说明 |
+|------|------|--------|------|
+| Plan | `/plan` | Ctrl+S 循环 | 只读探索，不能修改代码 |
+| Agent | `/agent` | Ctrl+S 循环 | 交互审批，工具调用需确认（默认） |
+| YOLO | `/yolo` | Ctrl+S 循环 | 自动执行，工具调用无需确认 |
+
+### Devin 式 dev 模式（issue → Draft PR）
+
+把 ZOUWUCODE 变成自主异步工程师：给它一个 GitHub issue，它在隔离的 git worktree 里独立完成实现、跑测试验证，成功后自动创建 **Draft PR**（永远需人工 review 后合并）。
+
+```bash
+# 前置：export GITHUB_TOKEN=ghp_xxx（最小权限 contents:write + pull_requests:write）
+
+zouwucode dev https://github.com/you/repo/issues/42   # 处理一个 issue → Draft PR
+zouwucode dev "给 README 加安装说明"                    # 自由文本任务（本地分支，不建 PR）
+zouwucode dev --queue <issue-url>                      # 提交到任务队列
+zouwucode dev --workers 3                              # 3 个 worker 进程并行排空队列
+zouwucode dev --watch you/repo                         # 轮询 `zouwucode:do` 标签 issue 自动认领
+zouwucode dev --status                                 # 查看队列状态
+```
+
+质量门禁：显式规划（PLAN→ACT→REFLECT）+ 多层验证（lint→typecheck→test+覆盖率→security）+ 独立只读 AI 审查 diff + CI 联动（本地过但真实 CI 挂会提示）+ 自适应成本预算 + 卡死检测（动作指纹滑窗，防"工具都成功但原地打转"）。安全边界：只操作 `dev/*` 分支（保护分支硬拒绝）、agent 被沙箱限定在 worktree 内、任务超时/成本熔断（`engine.max_cost_usd`）、生命周期钩子（pre_tool 可拦截）、失败自动回帖 issue 请求人工介入。详见 [dev 模式说明](docs/dev模式使用说明.md)。
+
+### 评测 harness（度量脚手架质量）
+
+```bash
+zouwucode eval                # 跑内置评测任务（真实 agent 栈 + 确定性判分）
+zouwucode eval --list         # 列出可用任务
+zouwucode eval --tasks my/    # 跑自定义任务目录（YAML 定义 setup + 行为断言）
+```
+
+行业共识：agent 质量差距主要来自脚手架而非模型本身——评测 harness 让每次改动（prompt/验证层/引擎）的收益可量化。详见 [评测 harness 说明](docs/评测harness使用说明.md)。
+
+### 常用命令
+
+| 命令 | 说明 |
+|------|------|
+| `/help` | 显示帮助信息 |
+| `/exit` | 退出程序 |
+| `/mode` | 显示当前模式 |
+| `/cache` | 显示缓存性能统计 |
+| `/sessions` | 列出已保存的会话 |
+| `/memory` | 显示项目记忆内容 |
+| `/goal` | 显示当前目标 |
+| `/goal set <目标>` | 设置新目标 |
+| `/decide <决策>` | 记录架构决策 |
+| `/context` | 显示上下文窗口统计 |
+| `/compress` | 显示压缩器状态 |
+| `/reasoning` | 显示/设置推理强度 |
+| `/thinking` | 切换流式思考显示 |
+| `/agents` | 查看子 Agent 系统与扩展层状态 |
+| `/rules` | 查看项目规则 |
+| `/skill list` | 列出可用和已加载的技能 |
+| `/hello-ultrawork <任务>` | hello-my-zouwucode 全自主管线（也可用 `ultrawork`/`ulw` 消息前缀） |
+| `/hello-plan <任务>` | Prometheus 规划（写入 `.hello-my-zouwucode/plans/`，`/plan <任务>` 兼容） |
+| `/hello-start-work` | Atlas 执行活动计划（Boulder RESUME/INIT） |
+| `/hello-status` | 查看 hello-my-zouwucode 进度与智慧积累 |
+| `/hello-agents` | 列出 11 个内置 Agent |
+| `/hello-categories` | 列出任务类别 |
+
+---
+
+## 项目记忆
+
+ZOUWUCODE 支持跨会话的项目状态持久化。
+
+```bash
+# 初始化项目记忆
+python -m zouwucode --init
+
+# 初始化并设置目标
+python -m zouwucode --init --goal "开发登录功能"
+
+# 清除项目记忆
+python -m zouwucode --forget
+```
+
+初始化后，记忆数据存储在 `.zouwucode/memory/` 目录中，包括：
+- 项目状态（名称、描述）
+- 架构决策记录
+- 项目目标
+- 会话摘要
+- 项目快照
+
+---
+
+## 配置
+
+```bash
+# 生成默认配置
+python -m zouwucode --init-config
+
+# 查看当前配置
+python -m zouwucode --show-config
+
+# 使用自定义配置
+python -m zouwucode --config /path/to/config.yaml
+```
+
+### 常用配置选项
+
+```bash
+# 指定工作模式
+python -m zouwucode --mode plan
+
+# 设置压缩级别
+python -m zouwucode --compress aggressive
+
+# 调整上下文窗口
+python -m zouwucode --max-tokens 1048576 --keep-turns 50
+
+# 指定模型
+python -m zouwucode --model deepseek-flash
+
+# 设置推理强度（低/中/高）
+python -m zouwucode --reasoning low
+python -m zouwucode --reasoning max
+```
+
+### 引擎安全限制（config.yaml）
+
+```yaml
+engine:
+  max_tool_rounds: 25               # 单次任务最多工具轮数
+  turn_timeout_seconds: 300         # 单次 LLM 请求超时（秒）
+  task_timeout_seconds: 1800        # 单次任务总耗时上限（秒）
+  max_consecutive_tool_errors: 3    # 工具连续失败熔断阈值
+  max_llm_retries: 2                # 瞬时故障重试次数（0=关闭）
+  retry_base_delay_seconds: 1.0     # 指数退避基数（秒）
+```
+
+超过任一限制时任务会以 `TurnLimitExceeded` 安全终止（可恢复），防止模型反复
+调用失败工具导致的死循环与执行停顿。
+
+---
+
+## 便捷启动（z 命令）
+
+### 方法一：pip 全局安装（推荐）
+
+```bash
+# 一次安装，全局使用
+cd zouwucode          # 进入本仓库克隆目录
+pip install -e .
+
+# 之后在任何目录直接使用
+zouwucode
+zouwucode --web
+zouwucode --tui
+```
+
+### 方法二：使用 z.bat
+
+```bash
+# 直接运行
+z
+
+# 带参数
+z --web
+z --mode plan
+z --tui
+```
+
+### 方法三：安装到系统
+
+以管理员身份运行 PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+安装后，打开新终端即可在任何目录使用 `z` 命令。
+
+---
+
+## Web UI API
+
+启动 `--web` 后，可通过 HTTP API 与 ZOUWUCODE 交互：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | HTML 页面 |
+| `/api/status` | GET | 运行状态（模式、运行中标志、推理强度、缓存统计、上下文、规则、技能） |
+| `/api/mode` | POST | 切换模式（`{"mode":"plan"}`） |
+| `/api/reasoning` | POST | 设置推理强度（`{"reasoning":"max"}`） |
+| `/api/chat` | POST | 发送消息（`{"message":"你好","attachments":[{"name":"a.png","mime":"image/png","data":"<base64>"}]}`，附件可选） |
+| `/api/interrupt` | POST | 打断当前执行中的任务（等价于界面 ⏹ 按钮 / Esc） |
+| `/api/cache` | GET | 缓存性能统计 |
+| `/api/rules` | GET | 获取项目规则内容 |
+| `/api/skills` | GET | 获取可用和已加载的技能列表 |
+| `/api/skills` | POST | 加载/卸载技能（`{"action":"load","name":"python-dev"}`） |
+| `/api/sessions` | GET | 获取会话列表 |
+| `/api/hello-my-zouwucode` | POST | hello-my-zouwucode 多智能体编排模块（`{"action":"ultrawork\|plan\|start-work\|status", ...}`） |
+
+---
+
+## 运行测试
+
+```bash
+# 运行全部测试
+python -m pytest tests/ -v
+
+# 测试特定模块
+python -m pytest tests/test_compressor.py -v
+python -m pytest tests/test_project_memory.py -v
+python -m pytest tests/test_sandbox.py -v
+python -m pytest tests/test_interrupt.py -v
+
+# 生成覆盖率报告
+python -m pytest tests/ --cov=zouwucode --cov-report=term
+
+# 冒烟测试（需已配置 API Key，验证核心工具链真实运行）
+python scripts/smoke_test.py
+```
+
+---
+
+## 打包为独立可执行文件
+
+```bash
+python build.py
+```
+
+生成 `dist/ZOUWUCODE.exe`，不依赖系统 Python 环境。
+
+---
+
+## 项目架构
+
+```
+zouwucode/                       # 核心包
+├── __init__.py                  # 版本信息
+├── __main__.py                  # CLI 入口、参数解析
+├── config.py                    # 配置管理（Pydantic）
+├── project_memory.py            # 持久项目记忆系统
+│
+├── modules/                     # 可扩展模块系统
+│   └── manager.py               # ModuleManager（注册/注销/状态查询 + 三路派发）
+│
+├── engine/                      # Cache-First LLM 引擎
+│   ├── loop.py                  # Append-only 对话循环
+│   ├── cache.py                 # 前缀缓存管理
+│   └── providers/               # 模型提供商适配器
+│       ├── base.py              # 抽象基类
+│       ├── deepseek.py          # DeepSeek 优化适配器
+│       └── openai.py            # OpenAI 兼容适配器
+│
+├── tools/                       # 工具系统（12 个内置工具）
+│   ├── base.py                  # 工具基类
+│   ├── registry.py              # 工具注册中心
+│   ├── file_tools.py            # 文件读写编辑（含编码/换行保真）
+│   ├── search_tools.py          # grep 内容检索（ripgrep 优先，纯 Python 兜底）
+│   ├── shell_tools.py           # Shell 命令执行
+│   ├── code_exec_tool.py        # python_exec 持久 REPL（CodeAct 可执行动作）
+│   ├── git_tools.py             # Git 操作
+│   ├── web_tools.py             # Web 搜索与抓取
+│   ├── repo_map_tool.py         # repo_map 代码地图（Aider 式签名地图）
+│   ├── agent_tools.py           # task 子 Agent 委派工具
+│   ├── oracle_tool.py           # oracle 只读复核工具
+│   └── _encoding.py             # 子进程输出按控制台编码解码
+│
+├── agent/                       # Agent 层
+│   ├── coordinator.py           # 工具调用协调器（引擎 ↔ 工具注册中心 + 钩子）
+│   ├── hooks.py                 # 生命周期钩子（pre_tool 可拦截 / post_tool）
+│   └── subagent.py              # 子 Agent 系统（隔离引擎/并行/白名单/级联打断）
+│
+├── dev/                         # Devin 式自主开发模式（issue → Draft PR）
+│   ├── github.py                # GitHub REST 客户端（issue/PR/评论/标签/Checks）
+│   ├── workspace.py             # git worktree 隔离 + dev/* 分支白名单
+│   ├── pipeline.py              # 端到端管线（规划→实现→多层验证→审查→PR→CI）
+│   ├── verifiers.py             # 多层验证管线（lint/typecheck/test/security）
+│   ├── reviewer.py              # 独立只读 AI 审查（打破自写自测偏差）
+│   ├── queue.py                 # SQLite 任务队列（异步托管）
+│   └── cli.py                   # dev 子命令路由/worker/watch
+│
+├── eval/                        # 任务级评测 harness（pass-rate + 成本度量）
+│   ├── runner.py                # 真实 agent 栈跑任务，确定性判分
+│   ├── checks.py                # 行为断言（file/python_eval/command_pass）
+│   ├── cli.py                   # eval 子命令路由
+│   └── tasks/                   # 内置示例评测任务（*.yaml）
+│
+├── harness/                     # DeepSeek Harness（dsh）接入层（可选依赖）
+│   ├── deepseek.py              # 配置解析 + 官方 SDK 包装 + 友好降级
+│   └── cli.py                   # harness 子命令（--doctor/--json/--verbose）
+│
+├── webui/                       # Web / GUI 服务 + 前端静态资源
+│   ├── server.py                # HTTP/SSE 服务（静态资源 + REST 路由）
+│   └── static/                  # 前端：index.html / style.css / app.js（零 CDN）
+│
+├── gui.py                       # 桌面 GUI 启动器（pywebview，缺失回落浏览器）
+│
+├── extensions/                  # 扩展层（MCP/LSP 预留接口）
+│   ├── host.py                  # ExtensionHost + Extension 基类
+│   ├── mcp_ext.py               # MCP 服务器工具桥接
+│   └── lsp_ext.py               # LSP 诊断工具
+│
+├── skills/                      # 技能系统
+│   └── manager.py               # .zouwucode/skills/ 加载器
+│
+├── context/                     # 三层上下文管理
+│   ├── memory.py                # MEMORY.md 索引
+│   ├── topics.py                # Topic 文件管理
+│   ├── transcript.py            # 对话日志
+│   ├── compressor.py            # 对话压缩算法
+│   └── sliding_window.py        # 滑动窗口
+│
+├── sandbox/                     # 权限沙箱
+│   ├── permission.py            # 多层安全检测
+│   └── container.py             # 可选容器隔离（一次性容器、默认断网）
+
+├── session/                     # 会话管理
+│   ├── manager.py               # 会话保存/恢复
+│   └── snapshot.py              # 消息回退（rewind：文件/对话/两者）
+│
+├── mcp/                         # MCP 协议支持（客户端 + 服务端）
+│   ├── client.py                # MCP 客户端
+│   └── server.py                # MCP 服务端（stdio，zouwucode mcp-serve）
+│
+├── lsp/                         # LSP 集成
+│   └── client.py                # LSP 客户端
+│
+├── tui/                         # 终端界面
+│   ├── app.py                   # CLI 主应用
+│   ├── textual_app.py           # Textual TUI
+│   └── styles.tcss              # TUI 样式表
+│
+└── webui/                       # Web UI
+    └── server.py                # HTTP 服务器
+
+hello_my_zouwucode/              # 多智能体编排模块（复刻自 oh-my-opencode）
+├── module.py                    # HelloMyZouwucodeModule 模块接口
+├── agents.py                    # 11 个专职 Agent + 系统提示词
+├── categories.py                # Category 语义路由表
+├── intent_gate.py               # IntentGate 意图分类器
+├── boulder.py                   # Boulder 跨会话任务状态
+├── notepad.py                   # Notepad 智慧积累
+├── planner.py                   # Prometheus 规划器
+├── atlas.py                     # Atlas 执行器
+└── orchestrator.py              # Sisyphus 主编排器
+```
+
+---
+
+## 技术栈
+
+- **语言**: Python 3.10+
+- **HTTP 客户端**: httpx
+- **配置管理**: Pydantic + PyYAML
+- **TUI 框架**: Textual
+- **HTML 解析**: BeautifulSoup4
+- **测试**: pytest + pytest-asyncio + pytest-cov
+- **打包**: PyInstaller
+
+---
+
+## 近期更新
+
+- **v1.13.0 — 会话标题与工作空间**：会话按首条消息自动命名、可随时重命名（归档会话也能改）；顶栏新增工作空间选择器（最近目录 + 手填路径），切换会改 cwd、重定沙箱、重载项目记忆并开新会话。套件 761 全绿。
+- **v1.12.0 — 会话生命周期 + 对话轨迹**：打开 Web/GUI 自动续上最近会话（此前看起来"会话消失"）；会话支持恢复 / 归档（可逆）/ 删除（二次确认）/ **分支 fork**（可从任意消息处截断重开）；新增 Trae 式**对话轨迹点导航**（点击跳转、当前消息高亮）。套件 717 全绿。
+- **v1.11.0 — 桌面 GUI + 界面统一重构**：新增 `zouwucode --gui`（原生窗口，pywebview 可选、缺失自动回落浏览器）；Web/GUI 共用全新三栏前端（会话列表 · 对话流 · 运行状态），支持流式思考折叠块、工具卡片、代码复制、审批模态、打断二次确认、命令面板 `Ctrl+K`、深浅主题与响应式布局；前端从 server.py 内嵌的 1500 行字符串拆成 `webui/static/`（HTML/CSS/JS，零 CDN、零构建），server.py 精简约 1400 行；TUI 主题同步换为同一套石墨+青色配色，并移除已失效的 `.message-*` 死样式。
+- **v1.10.0 — 接入 DeepSeek 官方 Harness（dsh）**：新增 `zouwucode harness "<任务>"`——把任务交给 DeepSeek 开源的 Cordis 插件式 harness 执行，支持 `--doctor` 前置检查、DSH_HOME/profile/provider/model/推理强度/patch 层配置、会话续接、`--json` 与 `--verbose` 通知流；SDK 为可选依赖，缺失时给出安装指引而非 traceback。同时提供反向接入：`zouwucode mcp-serve` 可把全部内置工具挂进 dsh 的 MCP 插件。详见 [接入指南](docs/deepseek-harness接入.md)。
+- **v1.9.0 — 检索能力与上下文预算**：新增 `grep` 内容检索工具（ripgrep 优先、纯 Python 兜底，跳过二进制/构建产物，结果上限明确提示），补齐成熟编码 Agent 最常用的"按内容找代码"能力；`read`/`bash`/`glob`/子 Agent 报告统一加输出限额（超限如实告知而非静默截断）；修复 Windows 上的文件保真问题——GBK/UTF-16 编码不再被改写、CRLF 与 LF 不再被互相转换（编辑一行不再产生全文件 diff）。
+- **子 Agent 系统与扩展层**：新增子 Agent 系统——主 Agent 通过 `task` 工具分解任务并行委派，每个子 Agent 拥有独立引擎/缓存（隔离 PrefixCache），支持工具白名单、独立超时、主引擎级联打断；新增统一 Extension 扩展层预留 MCP/LSP 集成空间（配置即启用，默认零开销）。详见 [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md)。
+- **任务打断功能（三端统一）**：TUI/WebUI 按 `Esc`（确认弹窗防误触）、CLI 按 `Ctrl+C`，可在任意安全点（流式 chunk / 工具轮次 / 工具执行前）即时打断任务，中断后可输入「继续」从断点恢复或 `/clear` 放弃。详见 [打断功能使用说明](docs/打断功能使用说明.md)。
+- **引擎安全限制**：新增 `EngineConfig`（工具轮数上限 / 单请求与单任务超时 / 连续工具错误熔断），引擎循环由递归重构为迭代，彻底解决任务执行死循环与不可恢复停顿。
+- **上下文重复膨胀修复**：UI 层每轮仅向引擎发送新增消息（引擎 PrefixCache 已持有完整历史），项目记忆仅在内容变化时重发。
+- **代码清理**：删除未接线的权限队列、空桩方法与全部未使用 import；修复 Shell 工具双重可执行名、`--init-config` 路径拼接、WebUI 状态 token 统计等问题；新增 `.gitignore` 并将 `config.yaml`（含密钥）排除出版本库，提供 `config.example.yaml` 模板。
+- **Web UI 欢迎横幅修复**：修复 ASCII 艺术字因 CSS 缺 `white-space: pre` 被折叠导致的纵向压缩变形，横幅现完整显示 6 行并保持比例。
+- **Web UI 响应式布局**：新增 `@media (max-width: 560px)` 窄屏断点（header 自动换行），长 URL/代码/会话名折行（`overflow-wrap: anywhere`），思考块内部滚动（`max-height: 240px`）。
+
+## 详细文档
+
+完整的使用手册请参阅 [USAGE.md](USAGE.md)，包含：
+
+- 命令行参数详解
+- 三种界面模式完整指南
+- 三种工作模式说明
+- 内置命令参考
+- 项目记忆系统详解
+- 对话压缩与上下文管理
+- Web UI / TUI 使用指南
+- 工具系统说明
+- 权限沙箱配置
+- 会话管理
+- 配置详解
+- 便捷启动安装
+- 打包说明
+- 故障排除
+
+专项功能文档：
+
+- [打断功能使用说明](docs/打断功能使用说明.md) — 触发方式、安全点、恢复选项、接口说明
+- [子Agent系统与扩展接口说明](docs/子Agent系统与扩展接口说明.md) — 任务分解与并行委派、MCP/LSP 预留接口
+- [dev模式使用说明](docs/dev模式使用说明.md) — Devin 式自主 issue → Draft PR 工作流
+- [dev模式快速上手](docs/dev模式快速上手.md) — 5 分钟跑通第一个自主任务
+- [DeepSeek Harness 接入](docs/deepseek-harness接入.md) — `zouwucode harness` 用法、配置、对标映射与故障排查
+- [GUI 与界面设计](docs/GUI与界面设计.md) — 桌面 GUI / Web 前端结构、快捷键、斜杠命令、主题与响应式
+
+hello-my-zouwucode 多智能体编排模块相关文档：
+
+- [hello-my-zouwucode 集成文档](docs/hello-my-zouwucode_集成文档.md) — 复刻范围、适配决策、代码结构
+- [hello-my-zouwucode 功能测试报告](docs/hello-my-zouwucode_功能测试报告.md) — 53 项新测试 + 端到端冒烟明细
+- [hello-my-zouwucode 使用说明](docs/hello-my-zouwucode_使用说明.md) — 命令、工作流、状态文件详解
+
+---
+
+## 许可
+
+MIT License — 详见 [LICENSE](LICENSE)。
+
+Copyright © 2026 走戊工作室（Zouwu Studio）
+
+## 参与贡献
+
+- 开发环境与规范见 [CONTRIBUTING.md](CONTRIBUTING.md)
+- 版本变更记录见 [CHANGELOG.md](CHANGELOG.md)
+- 安全漏洞请**私下**报告，方式见 [SECURITY.md](SECURITY.md)
+- 运行日志：`zouwucode_data/logs/zouwucode.log`（轮转 5MB×5，级别经 `log_level` 配置）
+
+## 致谢
+
+- [Reasonix](https://github.com/esengine/DeepSeek-Reasonix) — Cache-First 循环设计
+- [DeepSeek-TUI](https://github.com/Hmbown/DeepSeek-TUI) — 多模式工作流
+- [Deep Code](https://github.com/HKUDS/DeepCode) — 多智能体编排
+- [Claude Code](https://anthropic.com/claude-code) — 架构设计参考

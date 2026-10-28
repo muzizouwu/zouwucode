@@ -4,6 +4,24 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.14.1] — 2026-10-28
+
+GitHub 首页终于像个产品页了：英文落地页 + 中文镜像、真实界面截图与可播放的演示动图。
+
+### Changed
+- **README 双语拆分**：`README.md` 改为英文落地页（简介、特性、截图、快速开始、API、测试、文档索引），原中文全文迁移到 `README.zh-CN.md`，顶部互切
+- **真实演示素材**：`docs/assets/` 下新增 Web UI 欢迎页 / 英文会话 / 中文会话三张真机截图，以及由它们合成的 `demo.gif`（README 内联播放）与 `demo.mp4`
+- 徽章更新：版本徽章改为读取最新 tag，测试数同步到 783
+
+### Fixed
+- **侧栏看不到会话标题**：`GET /api/sessions` 只返回 id/轮数/时间，丢掉了 v1.13 写入的 `title`，界面显示成 `session-xxxx`；现在一并返回 `title` 与 `project_root`
+- **代码块语言标签压住第一行**：`python`/`text` 标签原在左上角与代码重叠，移到右上（复制按钮左侧）
+- **侧栏长标题撑高列表**：会话名最多两行，超出省略
+
+### Tests
+- `tests/test_v1130_titles_workspace.py` 新增会话列表路由断言（title / project_root 不得丢）
+- 全量套件 **783 passed / 1 skipped**
+
 ## [1.14.0] — 2026-10-28
 
 对话框可以直接发图片和文件了——而且无论模型是不是多模态，Agent 都真的能用上它们。
