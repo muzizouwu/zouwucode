@@ -299,6 +299,12 @@ class HarnessConfig(BaseModel):
     provider: str = ""
     model: str = ""
     reasoning_effort: str = ""
+    # Base URL override for the dsh provider. Empty = let the harness use its
+    # own default endpoint — forwarding zouwucode's OpenAI-compatible
+    # ``providers.<key>.base_url`` here is wrong for dsh's own providers
+    # (deepseek-official speaks a different API shape; a mismatch shows up as
+    # HTTP 404 on the first turn).
+    base_url: str = ""
     max_tokens: int = 49152
     initialize_timeout_seconds: float = 30.0
     request_timeout_seconds: float = 0.0

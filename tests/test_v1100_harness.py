@@ -53,6 +53,7 @@ class _FakeHarness:
 
     captured: dict = {}
     next_reason = "completed"
+    next_events = None
     closed = False
 
     def __init__(self, **kwargs):
@@ -62,7 +63,11 @@ class _FakeHarness:
     def run(self, prompt, session_id=None, on_notification=None):
         if on_notification is not None:
             on_notification("subagent-start")
-        return _FakeResult(f"done: {prompt}", reason=_FakeHarness.next_reason)
+        events = (_FakeHarness.next_events
+                  if _FakeHarness.next_events is not None
+                  else [{"type": "turn/start"}, {"type": "turn/end"}])
+        return _FakeResult(f"done: {prompt}", reason=_FakeHarness.next_reason,
+                           events=events)
 
     def close(self):
         _FakeHarness.closed = True
@@ -78,6 +83,7 @@ def fake_sdk(monkeypatch):
     monkeypatch.setattr(ds, "sdk_installed", lambda: True)
     monkeypatch.setattr(cli_mod, "sdk_installed", lambda: True)
     _FakeHarness.next_reason = "completed"
+    _FakeHarness.next_events = None
     yield module
     for key in list(sys.modules):
         if key == "deepseek_harness":
@@ -127,9 +133,28 @@ class TestResolveSettings:
         s = ds.resolve_settings(_config(tmp_path), cwd=tmp_path)
         assert s.provider == "deepseek-official"
         assert s.model == "deepseek-flash"
-        assert s.reasoning_effort == "max"       # from reasoning_intensity
         assert s.api_key == "test-key"
-        assert s.base_url == "https://api.deepseek.com"
+        # providers.<key>.base_url is OpenAI-compatible and must NOT be
+        # forwarded: dsh's own provider uses a different API shape (doing so
+        # produced HTTP 404 on the first turn).
+        assert s.base_url == ""
+
+    def test_explicit_base_url_is_forwarded(self, tmp_path):
+        s = ds.resolve_settings(_config(tmp_path), cwd=tmp_path,
+                                base_url="https://example.test/override")
+        assert s.base_url == "https://example.test/override"
+
+    def test_reasoning_intensity_is_not_inherited(self, tmp_path):
+        """dsh rejects effort ids it does not know (deepseek-official refuses
+        "medium"), so zouwucode's tiers must not leak into the SDK by default."""
+        cfg = _config(tmp_path)
+        assert cfg.reasoning_intensity == "max"
+        assert ds.resolve_settings(cfg, cwd=tmp_path).reasoning_effort == ""
+
+    def test_configured_effort_is_forwarded(self, tmp_path):
+        cfg = _config(tmp_path)
+        cfg.harness.reasoning_effort = "max"
+        assert ds.resolve_settings(cfg, cwd=tmp_path).reasoning_effort == "max"
 
     def test_dsh_home_defaults_under_data_dir(self, tmp_path):
         s = ds.resolve_settings(_config(tmp_path), cwd=tmp_path)
@@ -162,11 +187,13 @@ class TestResolveSettings:
         kwargs = ds.resolve_settings(_config(tmp_path), cwd=tmp_path).sdk_kwargs()
         assert kwargs["provider"] == "deepseek-official"
         assert kwargs["model"] == "deepseek-flash"
-        assert kwargs["reasoning_effort"] == "max"
         assert kwargs["max_tokens"] == 49152
         assert kwargs["initialize_timeout_seconds"] == 30.0
         assert kwargs["dsh_home"].endswith("dsh_home")
         assert "request_timeout_seconds" not in kwargs  # 0 = unbounded
+        # Only forwarded when explicitly configured (see effort test above).
+        assert "reasoning_effort" not in kwargs
+        assert "base_url" not in kwargs
 
 
 # ── runner ──────────────────────────────────────────────────────────────────
@@ -199,6 +226,64 @@ class TestHarnessRunner:
         runner = ds.HarnessRunner(ds.resolve_settings(_config(tmp_path), cwd=tmp_path))
         with pytest.raises(ValueError):
             runner.run("   ")
+
+
+class TestFailureDiagnostics:
+    """A preview runtime that fails must say WHY — bare "error" is useless."""
+
+    def test_turn_end_reason_is_parsed(self):
+        events = [
+            {"type": "turn/start", "data": {"turn": 1}},
+            {"type": "turn/end", "data": {"reason": {
+                "kind": "error", "message": "provider rejected the request"}}},
+        ]
+        assert ds._turn_end_reason(events) == "error — provider rejected the request"
+
+    def test_reason_missing_yields_empty(self):
+        assert ds._turn_end_reason([{"type": "turn/start"}]) == ""
+        assert ds._turn_end_reason([]) == ""
+        assert ds._turn_end_reason(None) == ""
+
+    def test_runner_surfaces_turn_end_reason(self, tmp_path, fake_sdk):
+        _FakeHarness.next_reason = "error"
+        _FakeHarness.next_events = [
+            {"type": "turn/end", "data": {"reason": {
+                "kind": "provider-error", "message": "401 invalid api key"}}},
+        ]
+        runner = ds.HarnessRunner(ds.resolve_settings(_config(tmp_path), cwd=tmp_path))
+        with pytest.raises(ds.HarnessError) as info:
+            runner.run("x")
+        assert "401 invalid api key" in str(info.value)
+        assert "--verbose" in str(info.value)
+
+    def test_known_upstream_defects_get_a_hint(self):
+        """Windows koffi defect and unsupported effort ids must not look like
+        user errors — each maps to a concrete next step."""
+        koffi = ds._platform_hint(
+            "{'message': 'The specified module could not be found. "
+            "@koromix/koffi-win32-x64/koffi.node'}")
+        assert "--profile sdk-minimal" in koffi
+
+        effort = ds._platform_hint(
+            'model "deepseek-v4-flash" does not support reasoning effort "medium"')
+        assert "--reasoning" in effort
+
+        assert ds._platform_hint("something else") == ""
+
+
+class TestNotificationFormatting:
+    def test_structured_payload_keeps_reason_fields(self):
+        class _Notification:
+            method = "session.event"
+            payload = {"event": {"type": "turn/end", "data": {
+                "reason": {"kind": "error", "message": "boom"}}}}
+
+        text = cli_mod._format_notification(_Notification())
+        assert text.startswith("session.event: ")
+        assert '"kind": "error"' in text
+
+    def test_plain_text_is_bounded(self):
+        assert len(cli_mod._format_notification("x" * 2000)) <= 600
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────

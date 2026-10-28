@@ -1369,6 +1369,8 @@ zouwucode harness --patch ./my.patch.yml "叠加自定义插件层"
 
 退出码：`0` 成功；`1` 运行时失败；`2` 前置条件不满足（缺 SDK / 缺 prompt / provider 无法映射）。
 
+> **Windows 实测提示（runtime-bin 0.2.1rc2）**：`--profile sdk` 会因上游未分发 `koffi.node` 原生模块而失败，先用 `--profile sdk-minimal`（已实测跑通）；`--reasoning medium` 不被 deepseek-official 适配器接受，省略该参数或改用 `low`/`max`。
+
 ### 21.3 配置
 
 ```yaml
@@ -1378,7 +1380,8 @@ harness:
   dsh_home: ""            # 空 = <data_dir>/dsh_home（dsh 不会自动发现 ~/.dsh）
   provider: ""            # 空 = 按 api_type 映射（DeepSeek → deepseek-official）
   model: ""               # 空 = provider.model → deepseek-v4-flash
-  reasoning_effort: ""    # 空 = reasoning_intensity
+  reasoning_effort: ""    # 空 = 不传（模型默认）；dsh 只接受其适配器认识的档位
+  base_url: ""             # 空 = 用 harness 自己的 endpoint（勿填 OpenAI 兼容地址）
   max_tokens: 49152
   initialize_timeout_seconds: 30
   request_timeout_seconds: 0   # 0 = 单轮不设限

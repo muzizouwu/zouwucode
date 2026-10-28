@@ -124,6 +124,7 @@ def resolve_settings(
     max_tokens: Optional[int] = None,
     request_timeout_seconds: Optional[float] = None,
     patches: Optional[tuple[str, ...]] = None,
+    base_url: Optional[str] = None,
 ) -> HarnessSettings:
     """Resolve SDK settings from zouwucode config, with CLI overrides winning.
 
@@ -170,8 +171,10 @@ def resolve_settings(
         else (getattr(hcfg, "reasoning_effort", "") if hcfg is not None
               else "")
     )
-    if effort == "":
-        effort = getattr(config, "reasoning_intensity", "") or ""
+    # NOTE: deliberately NOT inheriting zouwucode's ``reasoning_intensity``.
+    # dsh validates the effort against the selected adapter and rejects values
+    # it does not know (e.g. deepseek-official refuses "medium"), so the two
+    # runtimes' tiers are not interchangeable. Omission means "model default".
 
     chosen_max_tokens = (
         max_tokens if max_tokens is not None
@@ -188,6 +191,13 @@ def resolve_settings(
         patches if patches is not None
         else tuple(getattr(hcfg, "patches", ()) or ()))
 
+    chosen_base_url = (
+        base_url if base_url is not None
+        else (getattr(hcfg, "base_url", "") if hcfg is not None else ""))
+    # Deliberately NOT inheriting providers.<key>.base_url: that endpoint is
+    # OpenAI-compatible, while dsh's own providers speak a different API shape
+    # (forwarding it produced an HTTP 404 on the first turn).
+
     return HarnessSettings(
         dsh_home=home,
         cwd=workspace,
@@ -201,8 +211,50 @@ def resolve_settings(
         request_timeout_seconds=float(chosen_timeout),
         patches=tuple(str(p) for p in chosen_patches),
         api_key=(getattr(prov, "api_key", "") if prov else "") or "",
-        base_url=(getattr(prov, "base_url", "") if prov else "") or "",
+        base_url=chosen_base_url,
     )
+
+
+def _turn_end_reason(events) -> str:
+    """Best-effort failure detail from the last ``turn/end`` event.
+
+    The SDK surfaces ``finish_reason == "error"`` without a message, and the
+    real cause (provider rejection, auth, tool failure) lives in the event's
+    ``data.reason``. Without this the user only sees "error" — a preview
+    runtime must at least explain itself.
+    """
+    for event in reversed(list(events or ())):
+        if not isinstance(event, dict) or event.get("type") != "turn/end":
+            continue
+        data = event.get("data") or {}
+        reason = data.get("reason") or {}
+        if isinstance(reason, dict):
+            kind = reason.get("kind") or reason.get("type") or ""
+            detail = reason.get("message") or reason.get("error") or ""
+            if kind and detail:
+                return f"{kind} — {detail}"
+            if kind or detail:
+                return str(kind or detail)
+        elif reason:
+            return str(reason)
+        return ""
+    return ""
+
+
+def _platform_hint(detail: str) -> str:
+    """Extra guidance for known upstream runtime defects (preview era)."""
+    text = (detail or "").lower()
+    if "koffi" in text or "specified module could not be found" in text:
+        return (
+            "\n[hint] 这是 dsh 运行时（deepseek-harness-runtime-bin 0.2.1rc2）"
+            "在 Windows 上的原生模块打包缺陷，不是 zouwucode 的问题。"
+            "可先用 `--profile sdk-minimal` 运行，或升级到修复后的 SDK。")
+    if "does not support reasoning effort" in text:
+        return (
+            "\n[hint] dsh 的 provider 适配器只接受它认识的 effort 档位"
+            "（例如 deepseek-official 不接受 medium）。去掉 --reasoning，"
+            "或改用 low/max。")
+    return ""
 
 
 def _load_sdk():
@@ -293,9 +345,12 @@ class HarnessRunner:
         events = getattr(raw, "events", ()) or ()
         notifications = getattr(raw, "notifications", ()) or ()
         if reason == "error":
+            detail = _turn_end_reason(events)
+            detail = detail or text or "无输出"
             raise HarnessError(
                 "DeepSeek Harness 以 error 结束本轮"
-                f"（会话 {session_id or '<new>'}）：{text or '无输出'}")
+                f"（会话 {session_id or '<new>'}）：{detail}。"
+                "可用 --verbose 查看完整事件流。" + _platform_hint(str(detail)))
         return HarnessResult(
             session_id=getattr(raw, "session_id", session_id or "") or "",
             text=text,

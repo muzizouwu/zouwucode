@@ -4,6 +4,23 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.10.2] — 2026-10-28
+
+首次真实接入实测后的修正：对着官方 SDK `0.2.1rc2` 把冒烟跑通，并把踩到的上游坑变成可操作提示。
+
+### Fixed
+- **不再继承 zouwucode 的推理强度**：dsh 会校验 effort 是否为所选适配器认识的值（`deepseek-official` 直接拒绝 `medium`），此前默认透传导致首个任务在初始化阶段就失败。现在默认不传（用模型默认），仅在显式配置 `harness.reasoning_effort` 或传 `--reasoning` 时下发
+- **不再转发 OpenAI 兼容的 provider `base_url`**：`providers.<key>.base_url`（如 `https://api.deepseek.com`）与 dsh 自有 provider 的 API 形态不同，透传会让首轮请求返回 `HTTP 404 (Messages request failed)`。现在默认使用 harness 自己的 endpoint，新增 `--base-url` / `harness.base_url` 供显式覆盖
+- **失败只剩一句 "error"**：SDK 的 `finish_reason=error` 不带原因。现在从 `turn/end` 事件的 `data.reason` 提取 `kind`/`message` 一并抛出，并针对已知上游缺陷给出下一步（Windows `koffi.node` 缺模块 → 先用 `--profile sdk-minimal`；effort 不支持 → 去掉 `--reasoning`）
+- **`--verbose` 通知被截断成无信息**：原先按 160 字符硬截断，正好把 `turn/end` 的 reason 切掉；改为结构化 JSON 渲染（上限 600 字符）
+
+### Verified
+- 本机实测（Windows 10 x64 / Python 3.10.11 / `deepseek-harness-sdk 0.2.1rc2` + `runtime-bin 0.2.1rc2`）：`--doctor` 通过；`--profile sdk-minimal "只回复两个字：OK"` → 输出 `OK`，退出码 0
+- `--profile sdk` 仍失败于上游 `koffi.node` 原生模块未随 wheel 分发（已写入文档与错误提示，非本项目缺陷）
+
+### Tests
+- harness 用例 18 → 26：推理强度不继承、base_url 不转发与显式覆盖、`_turn_end_reason` 解析、错误信息携带原因与建议、通知渲染格式。套件 **677 → 686 全绿**
+
 ## [1.10.1] — 2026-10-28
 
 修掉 v1.10.0 发布后 CI 暴露的 TUI 贴底竞态（Windows / Python 3.12）。
@@ -486,6 +503,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.10.2]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.2
 [1.10.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.1
 [1.10.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.0
 [1.9.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.9.1

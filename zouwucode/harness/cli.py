@@ -48,8 +48,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--provider", type=str,
                         help="dsh 组合中已注册的 provider 路由（默认由 api_type 映射）")
     parser.add_argument("--model", type=str, help="模型 id（dsh 侧解析）")
+    parser.add_argument("--base-url", type=str, dest="base_url",
+                        help="覆盖 dsh 侧 provider 的 endpoint（默认用 harness 自己的）")
     parser.add_argument("--reasoning", choices=["low", "medium", "max"],
-                        default=None, help="推理强度（默认取 zouwucode 配置）")
+                        default=None,
+                        help="推理强度；省略则由 dsh 用模型默认值"
+                             "（dsh 只接受其适配器认识的档位）")
     parser.add_argument("--max-tokens", type=int,
                         help="单次请求输出上限（默认取配置，49152）")
     parser.add_argument("--timeout", type=float,
@@ -71,6 +75,25 @@ def _print_err(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+def _format_notification(event, limit: int = 600) -> str:
+    """Render one SDK notification compactly but without hiding the reason.
+
+    ``str(event)`` truncated at 160 chars used to cut ``turn/end`` payloads
+    mid-field, so a failing turn showed no cause at all. Structured payloads
+    are JSON-serialised instead (still bounded, but losslessly enough to
+    diagnose auth/tool failures).
+    """
+    method = getattr(event, "method", None)
+    payload = getattr(event, "payload", None)
+    if method is not None and payload is not None:
+        try:
+            text = json.dumps(payload, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            text = str(payload)
+        return f"{method}: {text[:limit]}"
+    return str(event)[:limit]
+
+
 def harness_main(argv: Optional[list[str]] = None) -> int:
     """Entry point for ``zouwucode harness``; returns a process exit code."""
     args = _build_parser().parse_args(argv)
@@ -90,6 +113,7 @@ def harness_main(argv: Optional[list[str]] = None) -> int:
             max_tokens=args.max_tokens,
             request_timeout_seconds=args.timeout,
             patches=tuple(args.patches) if args.patches else None,
+            base_url=args.base_url,
         )
     except ValueError as exc:  # unsupported provider mapping etc.
         _print_err(f"[harness] {exc}")
@@ -107,6 +131,8 @@ def harness_main(argv: Optional[list[str]] = None) -> int:
         print(f"  provider   : {settings.provider}")
         print(f"  model      : {settings.model}")
         print(f"  reasoning  : {settings.reasoning_effort or '(model default)'}")
+        if settings.base_url:
+            print(f"  base_url   : {settings.base_url}")
         print(f"  max_tokens : {settings.max_tokens}")
         print(f"  timeout    : "
               f"{(str(settings.request_timeout_seconds) + 's') if settings.request_timeout_seconds else 'unbounded'}")
@@ -132,8 +158,7 @@ def harness_main(argv: Optional[list[str]] = None) -> int:
     notify = None
     if args.verbose:
         def notify(event) -> None:  # noqa: ANN001 — SDK opaque event object
-            text = str(event)
-            print(f"[harness] {text[:160]}", file=sys.stderr)
+            print(f"[harness] {_format_notification(event)}", file=sys.stderr)
 
     try:
         result = runner.run(prompt, session_id=args.session,

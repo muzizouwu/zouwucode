@@ -88,7 +88,8 @@ zouwucode harness --profile sdk-minimal "在最小工具集下完成改动"
 | `--profile` | dsh profile：`sdk` / `sdk-minimal` | `sdk` |
 | `--provider` | dsh 组合中已注册的 provider 路由 | 由 `api_type` 映射（DeepSeek → `deepseek-official`） |
 | `--model` | 模型 id（由 dsh 侧适配器解析） | provider 配置的 model，否则 `deepseek-v4-flash` |
-| `--reasoning` | 推理强度 `low`/`medium`/`max` | zouwucode `reasoning_intensity` |
+| `--base-url` | 覆盖 dsh 侧 provider 的 endpoint | 不传（用 harness 自己的默认 endpoint） |
+| `--reasoning` | 推理强度 `low`/`medium`/`max` | 不传（用模型默认；dsh 只接受其适配器认识的档位） |
 | `--max-tokens` | 单次请求输出上限 | `49152` |
 | `--timeout` | 单轮请求超时秒数（`0` = 不设限） | `0` |
 | `--patch` | 追加 Cordis patch 文件，可多次指定 | 无 |
@@ -107,7 +108,8 @@ harness:
   dsh_home: ""                # 空 = <data_dir>/dsh_home
   provider: ""                # 空 = 按 api_type 映射
   model: ""                   # 空 = provider.model → deepseek-v4-flash
-  reasoning_effort: ""        # 空 = reasoning_intensity
+  reasoning_effort: ""        # 空 = 不传（模型默认）；dsh 会校验档位是否支持
+  base_url: ""                # 空 = 用 dsh 自己的 endpoint（切勿填 OpenAI 兼容地址）
   max_tokens: 49152
   initialize_timeout_seconds: 30
   request_timeout_seconds: 0  # 0 = 不设限
@@ -133,6 +135,19 @@ zouwucode harness --patch ./my.patch.yml "用自定义工具链完成任务"
 ```
 
 > `--provider` 必须指向该组合里**真实注册**的路由。若要用非 DeepSeek 的 provider，需要自己在组合里挂载对应插件（如 `llm-pi-ai` 并配置凭据），这是 dsh 侧的配置工作，不是 zouwucode 的开关。
+
+### 2.7 实测状态（2026-10-28）
+
+环境：Windows 10 x64 / Python 3.10.11 / `deepseek-harness-sdk 0.2.1rc2` + `deepseek-harness-runtime-bin 0.2.1rc2`。
+
+| 步骤 | 结果 |
+|------|------|
+| `zouwucode harness --doctor` | 通过（退出码 0） |
+| `--profile sdk` 跑任务 | 失败：运行时尝试加载 `G:\snapshot\node\...\@koromix\koffi-win32-x64\koffi.node`，该原生模块未随 wheel 分发（**上游 Windows 打包缺陷**） |
+| `--profile sdk-minimal` 跑任务 | **通过**：`zouwucode harness --profile sdk-minimal "只回复两个字：OK"` → `OK` |
+| `--reasoning medium` | 初始化被拒：deepseek-official 适配器不支持 `medium`（`low`/`max` 可用） |
+
+因此在该版本组合下，Windows 请先用 `--profile sdk-minimal`；等上游修复 `sdk` profile 的原生模块后再切回完整工具集。zouwucode 侧已把这两类已知缺陷转成带下一步建议的错误提示。
 
 ---
 
@@ -174,6 +189,9 @@ dsh 侧按官方文档把它注册为一个 MCP 服务器插件（profile 配置
 | `SDK 版本与当前参数不兼容` | SDK 预发布接口变动 | 升级 SDK；或去掉 `--timeout/--patch` 等新参数 |
 | `DeepSeek Harness 启动失败` | DSH_HOME 配置/组合损坏 | 用 `dsh --profile <p> --dump-default-config` 自检；换一个干净的 `--dsh-home` |
 | `provider ... api_type='openai' 无法直接映射` | dsh 默认组合只注册 `deepseek-official` | 用 `--provider` 指定组合中已注册的路由，或挂载自定义 provider 插件 |
+| `The specified module could not be found … koffi.node` | 上游 Windows 打包缺陷（runtime-bin 0.2.1rc2 的 `sdk` profile） | 改用 `--profile sdk-minimal`，或升级到修复版 SDK |
+| `does not support reasoning effort "medium"` | dsh 适配器不认该 effort 档位 | 去掉 `--reasoning`（用模型默认）或改用 `low`/`max` |
+| 首轮 `HTTP 404 (Messages request failed)` | 把 OpenAI 兼容的 `providers.<key>.base_url` 传给了 dsh | 不要传 `--base-url` / `harness.base_url`，让 harness 用自己的 endpoint |
 | 初始化被拒（model/effort 不支持） | dsh 适配器不认识该模型/推理档 | 用 `--doctor` 确认；换成适配器支持的 model / effort |
 | 单轮长时间无响应 | SDK 默认不限制单轮时长 | 显式 `--timeout 600` |
 
