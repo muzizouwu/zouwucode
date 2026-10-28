@@ -253,12 +253,103 @@ class SessionManager:
             return True
         return False
 
-    def get_session(self, session_id: str) -> Optional[dict]:
-        """Get full session data."""
-        path = self._sessions_dir / f"{session_id}.json"
-        if path.exists():
+    # ── Archive / fork (GUI session management) ─────────────────────────────
+    # Kept as separate files rather than a flag so the active list stays a
+    # cheap glob and archiving is reversible by moving the file back.
+
+    @property
+    def _archive_dir(self) -> Path:
+        return self._sessions_dir / "archive"
+
+    def _read_session_file(self, path: Path) -> Optional[dict]:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("unreadable session file %s: %s", path.name,
+                           describe_exc(exc))
+            return None
+
+    @staticmethod
+    def _summarize(data: dict) -> dict:
+        return {
+            "id": data.get("session_id", ""),
+            "turns": len(data.get("turns", [])),
+            "updated": data.get("updated_at", 0),
+            "project_root": data.get("project_root", ""),
+        }
+
+    def archive_session(self, session_id: str) -> bool:
+        """Move a session out of the active list (reversible)."""
+        src = self._sessions_dir / f"{session_id}.json"
+        if not src.exists():
+            return False
+        self._archive_dir.mkdir(parents=True, exist_ok=True)
+        src.replace(self._archive_dir / src.name)
+        return True
+
+    def unarchive_session(self, session_id: str) -> bool:
+        """Move a session back into the active list."""
+        src = self._archive_dir / f"{session_id}.json"
+        if not src.exists():
+            return False
+        self._sessions_dir.mkdir(parents=True, exist_ok=True)
+        src.replace(self._sessions_dir / src.name)
+        return True
+
+    def list_archived(self) -> list[dict]:
+        """Archived sessions, most recently updated first."""
+        if not self._archive_dir.exists():
+            return []
+        out = []
+        for f in self._archive_dir.glob("*.json"):
+            data = self._read_session_file(f)
+            if data:
+                out.append(self._summarize(data))
+        out.sort(key=lambda s: s["updated"], reverse=True)
+        return out
+
+    def fork_session(self, session_id: str, at_turn: Optional[int] = None,
+                     new_id: Optional[str] = None) -> Optional[dict]:
+        """Copy a session (optionally truncated to ``at_turn``) as a new one.
+
+        Forking is how a user explores "what if I had stopped here / taken the
+        other branch" without destroying the original conversation.
+        """
+        data = self.get_session(session_id)
+        if data is None:
+            return None
+        turns = list(data.get("turns", []))
+        if at_turn is not None:
             try:
-                return json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
+                cut = max(0, int(at_turn))
+            except (TypeError, ValueError):
                 return None
+            turns = turns[:cut]
+        sid = new_id or f"fork-{session_id[:24]}-{uuid.uuid4().hex[:6]}"
+        now = time.time()
+        forked = {
+            "session_id": sid,
+            "project_root": data.get("project_root") or str(Path.cwd().resolve()),
+            "started_at": turns[0].get("timestamp", now) if turns else now,
+            "updated_at": now,
+            "turns": turns,
+            "checkpoints": [],
+            "forked_from": session_id,
+        }
+        self._sessions_dir.mkdir(parents=True, exist_ok=True)
+        (self._sessions_dir / f"{sid}.json").write_text(
+            json.dumps(forked, ensure_ascii=False, indent=2), encoding="utf-8")
+        return self._summarize(forked)
+
+    def get_session(self, session_id: str) -> Optional[dict]:
+        """Get full session data (archived sessions included)."""
+        for path in (self._sessions_dir / f"{session_id}.json",
+                     self._archive_dir / f"{session_id}.json"):
+            if path.exists():
+                try:
+                    return json.loads(path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    logger.warning("unreadable session %s: %s", session_id,
+                                   describe_exc(exc))
+                    return None
         return None

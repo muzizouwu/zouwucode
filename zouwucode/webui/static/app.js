@@ -17,6 +17,8 @@
     theme: localStorage.getItem("zwc-theme") || "dark",
     showThinking: true,
     abort: null,
+    sessionId: null,
+    msgCount: 0,
   };
 
   /* ── utils ─────────────────────────────────────────────────────────────── */
@@ -118,16 +120,48 @@
 
   function addMessage(role, label) {
     clearEmpty();
+    const index = state.msgCount++;
     const row = document.createElement("div");
     row.className = `msg ${role}`;
+    row.dataset.index = String(index);
     const initial = { user: "你", assistant: "Z", system: "·", module: "M" }[role] || "·";
     row.innerHTML = `<div class="avatar">${initial}</div><div class="bubble">
-      <div class="meta"><b>${esc(label || role)}</b><span>${now()}</span></div>
+      <div class="meta"><b>${esc(label || role)}</b><span>${now()}</span>
+        <button class="fork-here" type="button" title="从此处分支">⑂</button></div>
       <div class="body"></div></div>`;
     chat.appendChild(row);
+    addMarker(row, role, label);
     scroll(true);
     return row.querySelector(".body");
   }
+
+  /* ── trajectory markers (dot rail; click to jump) ───────────────────────── */
+  const markers = $("#markers");
+  function addMarker(row, role, label) {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "marker " + role;
+    dot.dataset.index = row.dataset.index;
+    dot.title = label || role;
+    dot.addEventListener("click", () => row.scrollIntoView({ block: "center" }));
+    markers.appendChild(dot);
+  }
+  function clearMarkers() {
+    markers.innerHTML = "";
+    state.msgCount = 0;
+  }
+  function syncMarkers() {
+    if (!markers.childElementCount) return;
+    const chatTop = chat.getBoundingClientRect().top + 80;
+    let active = null;
+    chat.querySelectorAll(".msg").forEach((row) => {
+      if (row.getBoundingClientRect().top <= chatTop) active = row.dataset.index;
+    });
+    markers.querySelectorAll(".marker").forEach((dot) => {
+      dot.classList.toggle("active", dot.dataset.index === active);
+    });
+  }
+  chat.addEventListener("scroll", syncMarkers);
 
   function addUser(text) {
     const body = addMessage("user", "你");
@@ -400,21 +434,90 @@
   });
 
   /* ── sessions ──────────────────────────────────────────────────────────── */
+  function sessionRow(item, { archived = false } = {}) {
+    const row = document.createElement("div");
+    row.className = "session-row";
+    const btn = document.createElement("button");
+    btn.className = "session-item" + (item.id === state.sessionId ? " active" : "");
+    btn.innerHTML = `<b>${esc(item.id)}</b><span>${esc(item.updated || "")} · ${item.turns ?? 0} 轮</span>`;
+    btn.addEventListener("click", () => (archived ? sessionAction("unarchive", item.id) : resumeSession(item.id, btn)));
+
+    const acts = document.createElement("div");
+    acts.className = "session-actions";
+    const actions = archived
+      ? [["unarchive", "↩", "恢复"], ["delete", "✕", "删除"]]
+      : [["fork", "⑂", "分支"], ["archive", "⇩", "归档"], ["delete", "✕", "删除"]];
+    actions.forEach(([act, glyph, tip]) => {
+      const a = document.createElement("button");
+      a.type = "button";
+      a.dataset.act = act;
+      a.title = tip;
+      a.textContent = glyph;
+      a.addEventListener("click", (ev) => { ev.stopPropagation(); sessionAction(act, item.id); });
+      acts.appendChild(a);
+    });
+    row.appendChild(btn);
+    row.appendChild(acts);
+    return row;
+  }
+
   async function loadSessions() {
     try {
-      const data = await api("/api/sessions");
+      const [active, archived] = await Promise.all([
+        api("/api/sessions"),
+        api("/api/sessions/archived").catch(() => ({ sessions: [] })),
+      ]);
       const list = $("#session-list");
-      const items = data.sessions || [];
-      if (!items.length) { list.innerHTML = `<div class="placeholder">还没有保存的会话</div>`; return; }
+      const items = active.sessions || [];
       list.innerHTML = "";
-      items.forEach((s) => {
-        const btn = document.createElement("button");
-        btn.className = "session-item";
-        btn.innerHTML = `<b>${esc(s.id)}</b><span>${esc(s.updated || "")} · ${s.turns ?? 0} 轮</span>`;
-        btn.addEventListener("click", () => resumeSession(s.id, btn));
-        list.appendChild(btn);
-      });
+      if (!items.length) list.innerHTML = `<div class="placeholder">还没有保存的会话</div>`;
+      items.forEach((s) => list.appendChild(sessionRow(s)));
+
+      const archivedItems = archived.sessions || [];
+      $("#archived-summary").textContent = `已归档 (${archivedItems.length})`;
+      const archivedList = $("#archived-list");
+      archivedList.innerHTML = "";
+      archivedItems.forEach((s) => archivedList.appendChild(sessionRow(s, { archived: true })));
     } catch { /* best-effort */ }
+  }
+
+  async function sessionAction(act, id) {
+    if (act === "delete") {
+      if (!window.confirm(`删除会话 ${id}？此操作不可撤销。`)) return;
+    }
+    if (state.busy) { toast("任务执行中，先打断再操作会话", "error"); return; }
+    const path = { delete: "/api/session/delete", archive: "/api/session/archive",
+                   unarchive: "/api/session/unarchive", fork: "/api/session/fork" }[act];
+    if (!path) return;
+    try {
+      const r = await api(path, { id });
+      if (!r.ok) { toast("操作失败：" + (r.error || "unknown"), "error"); return; }
+      const label = { delete: "已删除", archive: "已归档", unarchive: "已恢复", fork: "已分支" }[act];
+      toast(`${label}：${act === "fork" ? r.id : id}`, "ok");
+      if (act === "fork" && r.id) resumeSession(r.id, null);
+      else if (act === "delete" && id === state.sessionId) { newChat(); }
+      else loadSessions();
+    } catch (err) { toast("操作失败：" + err.message, "error"); }
+  }
+
+  function newChat() {
+    chat.innerHTML = "";
+    clearMarkers();
+    emptyState();
+    state.sessionId = null;
+    document.querySelectorAll(".session-item").forEach((el) => el.classList.remove("active"));
+    input.focus();
+  }
+
+  function renderTurns(turns) {
+    chat.innerHTML = "";
+    clearMarkers();
+    (turns || []).forEach((t) => {
+      if (t.role === "user") addUser(t.content);
+      else addAssistant(t.content, true);
+    });
+    scroll(true);
+    syncMarkers();
   }
 
   async function resumeSession(id, btn) {
@@ -422,22 +525,55 @@
     try {
       const data = await api("/api/session/resume", { id });
       if (!data.ok) { toast("恢复失败：" + (data.error || "unknown"), "error"); return; }
-      chat.innerHTML = "";
-      (data.turns || []).forEach((t) => {
-        if (t.role === "user") addUser(t.content);
-        else addAssistant(t.content, true);
-      });
+      state.sessionId = id;
+      renderTurns(data.turns || []);
       document.querySelectorAll(".session-item").forEach((el) => el.classList.remove("active"));
-      btn?.classList.add("active");
+      if (btn) btn.classList.add("active");
       closeDrawer();
       toast("已恢复会话 " + id, "ok");
-      scroll(true);
     } catch (err) { toast("恢复失败：" + err.message, "error"); }
   }
+
+  /* Fork at a specific message (hover ⑂ on any row). */
+  async function forkAt(index, total) {
+    if (!state.sessionId) { toast("当前没有可分支的会话（先发一轮对话）", "error"); return; }
+    try {
+      const r = await api("/api/session/fork", { id: state.sessionId, turn: Number(index) });
+      if (!r.ok) { toast("分支失败：" + (r.error || "unknown"), "error"); return; }
+      toast("已从该消息分支：" + r.id, "ok");
+      state.sessionId = r.id;
+      renderTurns((await api("/api/session/resume", { id: r.id })).turns || []);
+      loadSessions();
+    } catch (err) { toast("分支失败：" + err.message, "error"); }
+  }
+  chat.addEventListener("click", (ev) => {
+    const fork = ev.target.closest(".fork-here");
+    if (!fork) return;
+    const row = fork.closest(".msg");
+    if (row) forkAt(row.dataset.index);
+  });
+
+  /* Restore the conversation the user left off in (the "sessions vanished"
+     complaint): prefer the live session, else the newest one with turns. */
+  async function bootstrapSession() {
+    try {
+      const current = await api("/api/session/current");
+      if (current.session_id && (current.turns || []).length) {
+        state.sessionId = current.session_id;
+        renderTurns(current.turns);
+        return;
+      }
+      const data = await api("/api/sessions");
+      const latest = (data.sessions || []).find((s) => (s.turns || 0) > 0);
+      if (latest) {
+        await resumeSession(latest.id, null);
+        toast("已恢复上次会话 " + latest.id, "ok");
+      }
+    } catch { /* stay on the empty state */ }
+  }
+
   $("#new-session").addEventListener("click", () => {
-    chat.innerHTML = "";
-    emptyState();
-    input.focus();
+    newChat();
     closeDrawer();
     toast("已开新对话（会话在下次提问时建立）");
   });
@@ -457,7 +593,7 @@
   /* ── commands ──────────────────────────────────────────────────────────── */
   const COMMANDS = [
     { cmd: "/help", desc: "列出可用命令", run: () => showHelp() },
-    { cmd: "/clear", desc: "清空当前对话显示", run: () => { chat.innerHTML = ""; emptyState(); } },
+    { cmd: "/clear", desc: "清空当前对话显示", run: () => { chat.innerHTML = ""; clearMarkers(); emptyState(); } },
     { cmd: "/plan", desc: "切换到只读 Plan 模式", run: () => setMode("plan") },
     { cmd: "/agent", desc: "切换到交互 Agent 模式", run: () => setMode("agent") },
     { cmd: "/yolo", desc: "切换到自动 YOLO 模式", run: () => setMode("yolo") },
@@ -686,6 +822,7 @@
   emptyState();
   loadStatus();
   loadSessions();
+  bootstrapSession();
   setInterval(loadStatus, 3000);
   setInterval(() => { if (!$("#palette").hidden) return; loadSessions(); }, 15000);
   input.focus();

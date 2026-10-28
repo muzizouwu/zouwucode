@@ -373,6 +373,37 @@ class WebUIServer:
         await writer.drain()
         writer.close()
 
+    def _sessions(self):
+        """Session manager, whichever attribute the app wired."""
+        mgr = getattr(self, "sessions_manager", None)
+        if mgr is None:
+            mgr = getattr(self.engine, "sessions", None)
+        return mgr
+
+    def _session_action(self, body: str, action: str) -> str:
+        """delete / archive / unarchive a session by id (GUI management)."""
+        mgr = self._sessions()
+        if mgr is None:
+            return self._json_response({"ok": False, "error": "sessions unavailable"}, 400)
+        try:
+            sid = (json.loads(body or "{}").get("id") or "").strip()
+        except json.JSONDecodeError:
+            return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+        if not sid:
+            return self._json_response({"ok": False, "error": "missing id"}, 400)
+        if self._chat_busy:
+            return self._json_response(
+                {"ok": False, "error": "another task is running"}, 409)
+        if action == "delete":
+            ok = mgr.delete_session(sid)
+        elif action == "archive":
+            ok = mgr.archive_session(sid)
+        else:
+            ok = mgr.unarchive_session(sid)
+        return self._json_response(
+            {"ok": bool(ok)} if ok else {"ok": False, "error": "session not found"},
+            200 if ok else 404)
+
     async def _route(self, method: str, path: str, body: str) -> str:
         """Route an HTTP request to the appropriate handler."""
         if path == "/" or path == "/index.html":
@@ -606,6 +637,38 @@ class WebUIServer:
                 "turns": [{"role": t.get("role"), "content": t.get("content", "")}
                           for t in turns if t.get("role") in ("user", "assistant")],
             })
+
+        elif path == "/api/sessions/archived" and method == "GET":
+            mgr = self._sessions()
+            return self._json_response({
+                "sessions": mgr.list_archived() if mgr is not None else []})
+
+        elif path == "/api/session/delete" and method == "POST":
+            return self._session_action(body, "delete")
+
+        elif path == "/api/session/archive" and method == "POST":
+            return self._session_action(body, "archive")
+
+        elif path == "/api/session/unarchive" and method == "POST":
+            return self._session_action(body, "unarchive")
+
+        elif path == "/api/session/fork" and method == "POST":
+            mgr = self._sessions()
+            if mgr is None:
+                return self._json_response({"ok": False, "error": "sessions unavailable"}, 400)
+            try:
+                data = json.loads(body or "{}")
+            except json.JSONDecodeError:
+                return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+            sid = (data.get("id") or "").strip()
+            if not sid:
+                return self._json_response({"ok": False, "error": "missing id"}, 400)
+            turn = data.get("turn")
+            forked = mgr.fork_session(sid, at_turn=turn)
+            if forked is None:
+                return self._json_response(
+                    {"ok": False, "error": "session not found"}, 404)
+            return self._json_response({"ok": True, **forked})
 
         elif path == "/api/checkpoints" and method == "GET":
             mgr = getattr(self, "sessions_manager", None)

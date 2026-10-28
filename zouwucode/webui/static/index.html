@@ -53,6 +53,10 @@
       <div id="session-list" class="session-list">
         <div class="placeholder">加载中…</div>
       </div>
+      <details id="archived-box" class="archived-box">
+        <summary id="archived-summary">已归档 (0)</summary>
+        <div id="archived-list" class="session-list"></div>
+      </details>
     </div>
     <div class="side-section side-foot">
       <div class="side-title">快捷键</div>
@@ -68,6 +72,7 @@
 
   <section class="chat-pane">
     <div id="chat" class="chat-log" role="log" aria-live="polite"></div>
+    <div id="markers" class="markers" aria-hidden="true" title="对话轨迹：点击跳转到对应消息"></div>
 
     <form id="composer" class="composer" autocomplete="off">
       <div id="slash-menu" class="slash-menu" hidden></div>

@@ -4,6 +4,22 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.12.0] — 2026-10-28
+
+会话不再"消失"：恢复、归档、删除、分支，加上对话轨迹点导航。
+
+### Added
+- **打开即续上上次对话**：此前 Web/GUI 启动后对话区是空的（用户看到的就是"上次会话消失"）。现在启动先读 `/api/session/current`，为空则自动恢复「最近一个有内容的会话」并提示，左侧列表同时高亮当前会话
+- **会话管理**：每行悬停出现 `⑂ 分支` / `⇩ 归档` / `✕ 删除`（删除二次确认）；新增「已归档」折叠区，可一键恢复或删除。归档是**移动文件**（`sessions/archive/`）而非标记，既可逆也保持活动列表的 glob 开销
+- **会话分支（fork）**：`SessionManager.fork_session(id, at_turn=None)` 复制为新会话（`fork-<原id>-<随机>`），记录 `forked_from`；带 `at_turn` 可截断到某条消息，原会话完全不受影响。每条消息右侧 `⑂` 可从该处直接分支
+- **对话轨迹轨（Trae 式白点）**：对话区右侧一排圆点，用户消息青色、助手紫色、系统灰色；点击把对应消息滚到视口中央，滚动时当前消息的点高亮
+
+### Changed
+- `get_session()` 现在也会在 `sessions/archive/` 中查找，归档会话仍可读取/分支（归档是视图，不是数据丢失）
+
+### Tests
+- 新增 `tests/test_v1120_sessions.py`（18 用例）：归档/恢复归档/删除/分支（整段与截断、原会话不变、未知会话）、服务端 5 条会话路由与运行中任务的 409 守卫、前端契约（启动续接、轨迹轨、会话操作、二次删除确认、归档区）。套件 **699 → 717 全绿**
+
 ## [1.11.1] — 2026-10-28
 
 界面实测后的补丁：窄屏下会话列表原本拿不到。
@@ -536,6 +552,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.12.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.12.0
 [1.11.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.11.1
 [1.11.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.11.0
 [1.10.2]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.10.2

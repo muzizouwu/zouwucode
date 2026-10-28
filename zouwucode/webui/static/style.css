@@ -187,12 +187,58 @@ kbd {
 
 /* ── chat ────────────────────────────────────────────────────────────────── */
 .chat-pane {
+  position: relative;
   display: flex; flex-direction: column; min-height: 0;
   background: linear-gradient(180deg, var(--panel), var(--bg-soft));
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
 }
+
+/* ── conversation trajectory rail (Trae-style dots) ──────────────────────── */
+.markers {
+  position: absolute; right: 3px; top: 14px; bottom: 104px; width: 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  overflow: hidden; padding: 2px 0; z-index: 5;
+}
+.marker {
+  flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%;
+  border: 0; padding: 0; background: var(--text-faint); opacity: .45;
+  cursor: pointer; transition: transform .12s, opacity .12s, background .12s;
+}
+.marker:hover { opacity: 1; transform: scale(1.35); }
+.marker.user { background: var(--accent); }
+.marker.assistant { background: var(--violet); }
+.marker.active { opacity: 1; transform: scale(1.45); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+.fork-here {
+  margin-left: auto; background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; color: var(--text-faint); font-size: 11px; line-height: 1;
+  padding: 1px 6px; cursor: pointer; opacity: 0; transition: opacity .15s;
+}
+.msg:hover .fork-here { opacity: 1; }
+.fork-here:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── session rows + actions + archive ────────────────────────────────────── */
+.session-row { display: flex; align-items: stretch; gap: 4px; }
+.session-row .session-item { flex: 1; min-width: 0; }
+.session-actions { display: flex; gap: 2px; align-items: center; opacity: 0; transition: opacity .15s; }
+.session-row:hover .session-actions, .session-row:focus-within .session-actions { opacity: 1; }
+.session-actions button {
+  width: 22px; height: 22px; display: grid; place-items: center;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 6px; color: var(--text-faint); font-size: 11px; cursor: pointer;
+}
+.session-actions button:hover { color: var(--text); border-color: var(--line-strong); }
+.session-actions button[data-act="delete"]:hover { color: var(--danger); border-color: var(--danger); }
+.archived-box { margin-top: 6px; }
+.archived-box summary {
+  cursor: pointer; font-size: 11px; letter-spacing: .06em; color: var(--text-faint);
+  padding: 2px 0; list-style: none;
+}
+.archived-box summary::before { content: "▸ "; }
+.archived-box[open] summary::before { content: "▾ "; }
+.archived-box .session-list { margin-top: 6px; max-height: 180px; }
 .chat-log {
   flex: 1; overflow-y: auto;
   padding: 20px clamp(14px, 3vw, 34px) 10px;

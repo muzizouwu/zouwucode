@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 699 passed](https://img.shields.io/badge/tests-699%20passed-green)](tests/)
+[![Tests: 717 passed](https://img.shields.io/badge/tests-717%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整合了 Reasonix 的 Cache-First 引擎、DeepSeek-TUI 的多模式工作流、Deep Code 的多智能体编排，以及 Claude Code 的架构设计理念。
@@ -466,6 +466,7 @@ hello_my_zouwucode/              # 多智能体编排模块（复刻自 oh-my-op
 
 ## 近期更新
 
+- **v1.12.0 — 会话生命周期 + 对话轨迹**：打开 Web/GUI 自动续上最近会话（此前看起来"会话消失"）；会话支持恢复 / 归档（可逆）/ 删除（二次确认）/ **分支 fork**（可从任意消息处截断重开）；新增 Trae 式**对话轨迹点导航**（点击跳转、当前消息高亮）。套件 717 全绿。
 - **v1.11.0 — 桌面 GUI + 界面统一重构**：新增 `zouwucode --gui`（原生窗口，pywebview 可选、缺失自动回落浏览器）；Web/GUI 共用全新三栏前端（会话列表 · 对话流 · 运行状态），支持流式思考折叠块、工具卡片、代码复制、审批模态、打断二次确认、命令面板 `Ctrl+K`、深浅主题与响应式布局；前端从 server.py 内嵌的 1500 行字符串拆成 `webui/static/`（HTML/CSS/JS，零 CDN、零构建），server.py 精简约 1400 行；TUI 主题同步换为同一套石墨+青色配色，并移除已失效的 `.message-*` 死样式。
 - **v1.10.0 — 接入 DeepSeek 官方 Harness（dsh）**：新增 `zouwucode harness "<任务>"`——把任务交给 DeepSeek 开源的 Cordis 插件式 harness 执行，支持 `--doctor` 前置检查、DSH_HOME/profile/provider/model/推理强度/patch 层配置、会话续接、`--json` 与 `--verbose` 通知流；SDK 为可选依赖，缺失时给出安装指引而非 traceback。同时提供反向接入：`zouwucode mcp-serve` 可把全部内置工具挂进 dsh 的 MCP 插件。详见 [接入指南](docs/deepseek-harness接入.md)。
 - **v1.9.0 — 检索能力与上下文预算**：新增 `grep` 内容检索工具（ripgrep 优先、纯 Python 兜底，跳过二进制/构建产物，结果上限明确提示），补齐成熟编码 Agent 最常用的"按内容找代码"能力；`read`/`bash`/`glob`/子 Agent 报告统一加输出限额（超限如实告知而非静默截断）；修复 Windows 上的文件保真问题——GBK/UTF-16 编码不再被改写、CRLF 与 LF 不再被互相转换（编辑一行不再产生全文件 diff）。
