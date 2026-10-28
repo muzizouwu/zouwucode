@@ -17,6 +17,24 @@ from .snapshot import WorkspaceSnapshotter
 
 logger = logging.getLogger("zouwucode.session")
 
+_TITLE_MAX = 40
+
+
+def derive_title(turns: list[dict]) -> str:
+    """A readable label from the first real user turn (auto-naming).
+
+    Sessions used to be listed by opaque ids; users could not tell them apart.
+    Collapsing whitespace and capping the length keeps the sidebar tidy for
+    CJK and Latin text alike.
+    """
+    for entry in turns or []:
+        if entry.get("role") != "user":
+            continue
+        text = " ".join(str(entry.get("content") or "").split())
+        if text:
+            return text if len(text) <= _TITLE_MAX else text[: _TITLE_MAX - 1] + "…"
+    return "新会话"
+
 
 class SessionManager:
     """Manages session persistence, resumption, and rollback."""
@@ -26,6 +44,7 @@ class SessionManager:
         self._sessions_dir = Path(config.data_dir) / "sessions"
         self._current_session_id: Optional[str] = None
         self._current_log: list[dict] = []
+        self._current_title: str = ""
         # Workspace rollback (session.rollback_enabled): side-git snapshots
         # under <data_dir>/snapshots/<hash-of-workspace>.git, isolated from
         # the project's own .git.
@@ -143,6 +162,7 @@ class SessionManager:
         """Start a new session."""
         self._current_session_id = session_id or f"session-{uuid.uuid4().hex[:12]}"
         self._current_log = []
+        self._current_title = ""
         self._checkpoints = []
         self._sessions_dir.mkdir(parents=True, exist_ok=True)
         return self._current_session_id
@@ -168,6 +188,7 @@ class SessionManager:
         path = self._sessions_dir / f"{self._current_session_id}.json"
         data = {
             "session_id": self._current_session_id,
+            "title": self._current_title or derive_title(self._current_log),
             # Workspace this session belongs to — lets --resume pick this
             # project's session when data_dir is shared across projects.
             "project_root": str(Path.cwd().resolve()),
@@ -185,6 +206,7 @@ class SessionManager:
             data = json.loads(path.read_text(encoding="utf-8"))
             self._current_session_id = session_id
             self._current_log = data.get("turns", [])
+            self._current_title = data.get("title") or derive_title(self._current_log)
             self._checkpoints = data.get("checkpoints", [])
             return self._current_log
         return None
@@ -198,6 +220,7 @@ class SessionManager:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 sessions.append({
                     "id": data["session_id"],
+                    "title": data.get("title") or derive_title(data.get("turns", [])),
                     "turns": len(data.get("turns", [])),
                     "updated": data.get("updated_at", 0),
                     "project_root": data.get("project_root", ""),
@@ -273,10 +296,33 @@ class SessionManager:
     def _summarize(data: dict) -> dict:
         return {
             "id": data.get("session_id", ""),
+            "title": data.get("title") or derive_title(data.get("turns", [])),
             "turns": len(data.get("turns", [])),
             "updated": data.get("updated_at", 0),
             "project_root": data.get("project_root", ""),
         }
+
+    def rename_session(self, session_id: str, title: str) -> bool:
+        """Rename a session (active or archived). Empty title is rejected."""
+        name = " ".join(str(title or "").split())
+        if not name:
+            return False
+        name = name if len(name) <= _TITLE_MAX else name[: _TITLE_MAX - 1] + "…"
+        for path in (self._sessions_dir / f"{session_id}.json",
+                     self._archive_dir / f"{session_id}.json"):
+            if not path.exists():
+                continue
+            data = self._read_session_file(path)
+            if data is None:
+                return False
+            data["title"] = name
+            data["updated_at"] = time.time()
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+            if session_id == self._current_session_id:
+                self._current_title = name
+            return True
+        return False
 
     def archive_session(self, session_id: str) -> bool:
         """Move a session out of the active list (reversible)."""
@@ -329,6 +375,7 @@ class SessionManager:
         now = time.time()
         forked = {
             "session_id": sid,
+            "title": (data.get("title") or derive_title(turns)) + " · 分支",
             "project_root": data.get("project_root") or str(Path.cwd().resolve()),
             "started_at": turns[0].get("timestamp", now) if turns else now,
             "updated_at": now,

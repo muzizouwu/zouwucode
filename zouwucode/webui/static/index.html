@@ -12,7 +12,9 @@
   <div class="brand">
     <span class="logo" aria-hidden="true"></span>
     <span class="brand-name">ZOUWUCODE</span>
-    <span class="brand-tag">CLI · TUI · GUI · Harness</span>
+    <button id="workspace-btn" class="workspace-btn" title="切换工作空间">
+      <span id="workspace-name">工作空间</span><span class="caret">▾</span>
+    </button>
   </div>
 
   <div class="topbar-mid">
@@ -122,6 +124,19 @@
       <button id="approve-deny" class="ghost">拒绝</button>
       <button id="approve-always" class="ghost">本会话始终允许</button>
       <button id="approve-once" class="primary">允许一次</button>
+    </div>
+  </div>
+</div>
+
+<div id="workspace-modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <h2>切换工作空间</h2>
+    <p class="modal-sub">工具操作将指向新目录，并开始一个新会话。</p>
+    <ul id="workspace-list" class="workspace-list"></ul>
+    <input id="workspace-path" class="text-input" placeholder="或输入绝对路径，例如 G:\projects\demo">
+    <div class="modal-actions">
+      <button id="workspace-cancel" class="ghost">取消</button>
+      <button id="workspace-open" class="primary">打开</button>
     </div>
   </div>
 </div>

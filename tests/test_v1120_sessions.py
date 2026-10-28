@@ -66,8 +66,8 @@ class TestFork:
         mgr = _manager(tmp_path, monkeypatch)
         _seed(mgr)
         forked = mgr.fork_session("s-1", new_id="fork-1")
-        assert forked == {"id": "fork-1", "turns": 2, "updated": forked["updated"],
-                          "project_root": forked["project_root"]}
+        assert forked["id"] == "fork-1" and forked["turns"] == 2
+        assert forked["title"].endswith("· 分支")
         assert mgr.get_session("fork-1")["forked_from"] == "s-1"
 
     def test_fork_can_truncate_at_a_message(self, tmp_path, monkeypatch):

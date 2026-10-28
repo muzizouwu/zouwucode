@@ -4,6 +4,22 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.13.0] — 2026-10-28
+
+会话有了标题、可改名，工作空间可以在界面里切换。
+
+### Added
+- **会话自动命名**：保存时按第一条用户消息生成标题（空白折叠、40 字上限、超出省略号），侧栏显示标题而不是 `session-xxxx`；fork 出来的会话带 `· 分支` 后缀
+- **会话重命名**：`POST /api/session/rename {id,title}` + 行内 `✎`；活动与归档会话都能改，空标题被拒绝。`SessionManager.rename_session()` 同步更新内存中的当前标题
+- **工作空间选择**：顶栏显示当前目录，点击打开面板——列出最近工作空间（来自各会话 `project_root`，只保留仍存在的目录）并可手填绝对路径。
+  - `GET /api/workspaces` / `POST /api/workspace/switch {path}`
+  - `ZOUWUCODEApp.switch_workspace()`：`os.chdir` + 沙箱根改写 + 重载项目记忆 + 开新会话；任务运行中拒绝（409）；非目录/无权限返回 400
+  - 诚实边界：系统提示中的项目上下文仍是启动时冻结的版本，切换后会提示「新会话已开始；系统提示与项目记忆在下一次启动时完全生效」
+
+### Tests
+- 新增 `tests/test_v1130_titles_workspace.py`（27 用例）：标题派生（首条用户消息/空白折叠/截断/回退）、自动命名落盘与重载、fork 后缀、重命名（活动/归档/空名/未知会话）、重命名路由（200/400/404）、工作空间列表与切换路由（200/400/409/无 app）、`switch_workspace`（非目录、真实切换改 cwd+沙箱+新会话、同目录幂等）、前端契约（工作空间面板、重命名、标题展示、Esc 关闭）
+- `tests/test_v1120_sessions.py` 的 fork 断言同步到带标题的结构。套件 **734 → 761 全绿**
+
 ## [1.12.1] — 2026-10-28
 
 让 `--gui` 真的是 GUI，并把 v1.12.0 的会话管理补上单元测试。
@@ -567,6 +583,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.13.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.13.0
 [1.12.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.12.1
 [1.12.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.12.0
 [1.11.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.11.1

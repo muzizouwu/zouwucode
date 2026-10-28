@@ -322,6 +322,7 @@
           }
         }
         if (evt.module) addSystem(`[${evt.module}] ${evt.plan || ""} ${evt.tasks_completed ?? ""}/${evt.tasks_total ?? ""}`);
+        loadSessions();   // first turn persisted → auto-title appears
         scroll();
         return;
       }
@@ -433,20 +434,80 @@
     } catch (err) { toast("切换失败：" + err.message, "error"); }
   });
 
+  /* ── workspace ─────────────────────────────────────────────────────────── */
+  const workspaceName = $("#workspace-name");
+  let workspaceState = { current: "", recent: [] };
+
+  function setWorkspaceLabel(path) {
+    const name = (path || "").split(/[\\/]/).filter(Boolean).pop() || path || "工作空间";
+    workspaceName.textContent = name;
+    $("#workspace-btn").title = path || "切换工作空间";
+  }
+
+  async function loadWorkspace() {
+    try {
+      const data = await api("/api/workspaces");
+      workspaceState = { current: data.current || "", recent: data.recent || [] };
+      setWorkspaceLabel(workspaceState.current);
+    } catch { /* best effort */ }
+  }
+
+  function openWorkspaceModal() {
+    const list = $("#workspace-list");
+    const items = [...new Set([workspaceState.current, ...workspaceState.recent].filter(Boolean))];
+    list.innerHTML = items.length ? "" : `<li>没有最近的工作空间</li>`;
+    items.forEach((p) => {
+      const li = document.createElement("li");
+      li.textContent = p;
+      li.title = p;
+      if (p === workspaceState.current) li.className = "current";
+      li.addEventListener("click", () => switchWorkspace(p));
+      list.appendChild(li);
+    });
+    $("#workspace-path").value = "";
+    $("#workspace-modal").hidden = false;
+    $("#workspace-path").focus();
+  }
+
+  async function switchWorkspace(path) {
+    const target = (path || "").trim();
+    if (!target) { toast("请填写目录路径", "error"); return; }
+    if (state.busy) { toast("任务执行中，先打断再切换", "error"); return; }
+    try {
+      const r = await api("/api/workspace/switch", { path: target });
+      if (!r.ok) { toast("切换失败：" + (r.error || "unknown"), "error"); return; }
+      $("#workspace-modal").hidden = true;
+      setWorkspaceLabel(r.workspace);
+      newChat();
+      if (r.note) addSystem("ℹ️ " + r.note);
+      toast("工作空间：" + r.workspace, "ok");
+      loadSessions();
+      loadWorkspace();
+    } catch (err) { toast("切换失败：" + err.message, "error"); }
+  }
+
+  $("#workspace-btn").addEventListener("click", openWorkspaceModal);
+  $("#workspace-cancel").addEventListener("click", () => { $("#workspace-modal").hidden = true; });
+  $("#workspace-open").addEventListener("click", () => switchWorkspace($("#workspace-path").value));
+  $("#workspace-path").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); switchWorkspace(ev.target.value); }
+  });
+
   /* ── sessions ──────────────────────────────────────────────────────────── */
   function sessionRow(item, { archived = false } = {}) {
     const row = document.createElement("div");
     row.className = "session-row";
     const btn = document.createElement("button");
     btn.className = "session-item" + (item.id === state.sessionId ? " active" : "");
-    btn.innerHTML = `<b>${esc(item.id)}</b><span>${esc(item.updated || "")} · ${item.turns ?? 0} 轮</span>`;
+    btn.title = item.id;
+    btn.innerHTML = `<b>${esc(item.title || item.id)}</b><span>${esc(item.updated || "")} · ${item.turns ?? 0} 轮</span>`;
     btn.addEventListener("click", () => (archived ? sessionAction("unarchive", item.id) : resumeSession(item.id, btn)));
 
     const acts = document.createElement("div");
     acts.className = "session-actions";
     const actions = archived
-      ? [["unarchive", "↩", "恢复"], ["delete", "✕", "删除"]]
-      : [["fork", "⑂", "分支"], ["archive", "⇩", "归档"], ["delete", "✕", "删除"]];
+      ? [["rename", "✎", "重命名"], ["unarchive", "↩", "恢复"], ["delete", "✕", "删除"]]
+      : [["rename", "✎", "重命名"], ["fork", "⑂", "分支"], ["archive", "⇩", "归档"], ["delete", "✕", "删除"]];
     actions.forEach(([act, glyph, tip]) => {
       const a = document.createElement("button");
       a.type = "button";
@@ -486,6 +547,20 @@
       if (!window.confirm(`删除会话 ${id}？此操作不可撤销。`)) return;
     }
     if (state.busy) { toast("任务执行中，先打断再操作会话", "error"); return; }
+    if (act === "rename") {
+      const current = document.querySelector(`.session-item[title="${CSS.escape(id)}"] b`);
+      const next = window.prompt("会话名称", current ? current.textContent : "");
+      if (next === null) return;
+      const title = next.trim();
+      if (!title) { toast("名称不能为空", "error"); return; }
+      try {
+        const r = await api("/api/session/rename", { id, title });
+        if (!r.ok) { toast("重命名失败：" + (r.error || "unknown"), "error"); return; }
+        toast("已重命名：" + title, "ok");
+        loadSessions();
+      } catch (err) { toast("重命名失败：" + err.message, "error"); }
+      return;
+    }
     const path = { delete: "/api/session/delete", archive: "/api/session/archive",
                    unarchive: "/api/session/unarchive", fork: "/api/session/fork" }[act];
     if (!path) return;
@@ -806,6 +881,7 @@
     if (meta && ev.key.toLowerCase() === "j") { ev.preventDefault(); toggleTheme(); return; }
     if (ev.key === "Escape") {
       if (!$("#palette").hidden) { closePalette(); return; }
+      if (!$("#workspace-modal").hidden) { $("#workspace-modal").hidden = true; return; }
       if (!$("#interrupt-confirm").hidden) { $("#interrupt-confirm").hidden = true; return; }
       if (!$("#approval").hidden) { decide("n"); return; }
       if (!slashMenu.hidden) { hideSlash(); return; }
@@ -822,6 +898,7 @@
   emptyState();
   loadStatus();
   loadSessions();
+  loadWorkspace();
   bootstrapSession();
   setInterval(loadStatus, 3000);
   setInterval(() => { if (!$("#palette").hidden) return; loadSessions(); }, 15000);

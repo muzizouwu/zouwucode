@@ -670,6 +670,56 @@ class WebUIServer:
                     {"ok": False, "error": "session not found"}, 404)
             return self._json_response({"ok": True, **forked})
 
+        elif path == "/api/session/rename" and method == "POST":
+            mgr = self._sessions()
+            if mgr is None:
+                return self._json_response({"ok": False, "error": "sessions unavailable"}, 400)
+            try:
+                data = json.loads(body or "{}")
+            except json.JSONDecodeError:
+                return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+            sid = (data.get("id") or "").strip()
+            title = " ".join(str(data.get("title") or "").split())
+            if not sid or not title:
+                return self._json_response(
+                    {"ok": False, "error": "id and title are required"}, 400)
+            ok = mgr.rename_session(sid, title)
+            return self._json_response(
+                {"ok": ok, "id": sid, "title": title} if ok
+                else {"ok": False, "error": "session not found"},
+                200 if ok else 404)
+
+        elif path == "/api/workspaces" and method == "GET":
+            mgr = self._sessions()
+            current = str(Path.cwd().resolve())
+            recent: list[str] = []
+            for entry in (mgr.list_sessions() if mgr else []):
+                root = entry.get("project_root") or ""
+                if root and root not in recent and Path(root).is_dir():
+                    recent.append(root)
+            return self._json_response({
+                "current": current,
+                "recent": recent[:8],
+            })
+
+        elif path == "/api/workspace/switch" and method == "POST":
+            if self._chat_busy:
+                return self._json_response(
+                    {"ok": False, "error": "another task is running"}, 409)
+            app = getattr(self, "app", None)
+            if app is None or not hasattr(app, "switch_workspace"):
+                return self._json_response(
+                    {"ok": False, "error": "workspace switching unavailable"}, 400)
+            try:
+                target = (json.loads(body or "{}").get("path") or "").strip()
+            except json.JSONDecodeError:
+                return self._json_response({"ok": False, "error": "invalid JSON"}, 400)
+            if not target:
+                return self._json_response(
+                    {"ok": False, "error": "path is required"}, 400)
+            result = app.switch_workspace(target)
+            return self._json_response(result, 200 if result.get("ok") else 400)
+
         elif path == "/api/checkpoints" and method == "GET":
             mgr = getattr(self, "sessions_manager", None)
             cps = mgr.list_checkpoints() if mgr and hasattr(mgr, "list_checkpoints") else []

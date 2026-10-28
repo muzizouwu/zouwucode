@@ -234,6 +234,45 @@ class ZOUWUCODEApp:
 
     # ── Session Lifecycle ────────────────────────────────────────────────────
 
+    def switch_workspace(self, path: str) -> dict:
+        """Re-root the agent at another folder (new session + new sandbox scope).
+
+        Mid-process switching cannot re-freeze the engine's system prompt, so
+        this does the honest subset: change cwd, re-scope the sandbox to the new
+        folder, reload that project's memory, and start a fresh session whose
+        turns are recorded against the new ``project_root``. The caller is told
+        what changed so the UI can say "restart for full isolation".
+        """
+        from pathlib import Path as _Path
+
+        try:
+            target = _Path(str(path)).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return {"ok": False, "error": "invalid path"}
+        if not target.is_dir():
+            return {"ok": False, "error": "not a directory"}
+        previous = _Path.cwd().resolve()
+        if target == previous:
+            return {"ok": True, "workspace": str(target), "changed": False,
+                    "session_id": self.sessions.current_session_id}
+
+        import os as _os
+
+        _os.chdir(target)
+        try:
+            self.sandbox.set_workspace(target)
+        except Exception as exc:  # pragma: no cover — sandbox already configured
+            logger.warning("sandbox re-scope failed: %s", exc)
+        try:
+            self.project_memory = ProjectMemory()
+        except Exception as exc:  # pragma: no cover
+            logger.warning("project memory reload failed: %s", exc)
+        self.sessions = SessionManager(self.config)
+        sid = self.sessions.start_session()
+        return {"ok": True, "workspace": str(target), "changed": True,
+                "previous": str(previous), "session_id": sid,
+                "note": "新会话已开始；系统提示与项目记忆在下一次启动时完全生效"}
+
     def initialize_session(self, session_id: Optional[str] = None) -> str:
         """Initialize a session, resuming a previous one when asked.
 
