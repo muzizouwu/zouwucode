@@ -144,6 +144,12 @@ class ZOUWUCODEApp:
                         skills_manager=self.skills,
                     )
                 )
+            except ModuleNotFoundError:
+                # The module ships next to the package; a missing import means
+                # the install predates the packaging fix (or is a stale
+                # editable install). Point at the one-step remedy.
+                print("  [Warning] hello-my-zouwucode 未安装：请重新执行 "
+                      "`pip install -e .`（或升级 zouwucode）后重启。")
             except Exception as e:  # module optional — never block startup
                 print(f"  [Warning] hello-my-zouwucode module failed to load: {e}")
 

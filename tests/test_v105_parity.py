@@ -46,6 +46,19 @@ class TestVersionConsistency:
         assert 'version = "%s"' % zouwucode.__version__ in _read("pyproject.toml")
 
 
+class TestPackaging:
+    def test_hello_module_ships_with_the_package(self):
+        """Stale installs missed it: packages.find listed a loose glob."""
+        src = _read("pyproject.toml")
+        assert '"hello_my_zouwucode"' in src
+        assert '"zouwucode.*"' in src
+        assert '"zouwucode_data' not in src, "运行数据目录不能被当成包安装"
+
+    def test_module_enabled_by_default(self):
+        from zouwucode.config import ZOUWUCODEConfig
+        assert ZOUWUCODEConfig().hello_my_zouwucode.enabled is True
+
+
 class TestCliFlagsHonorConfig:
     def test_mode_and_reasoning_default_none(self):
         src = inspect.getsource(zmain)

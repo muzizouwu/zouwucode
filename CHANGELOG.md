@@ -4,6 +4,21 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.14.2] — 2026-10-28
+
+启动时那行 `hello-my-zouwucode module failed to load` 警告，根因在打包而不是模块本身。
+
+### Fixed
+- **启动警告**：`[Warning] hello-my-zouwucode module failed to load: No module named 'hello_my_zouwucode'`
+  - 旧安装（尤其是 editable install）的 finder 只映射了 `zouwucode` 一个顶层包，`hello_my_zouwucode/` 没有被装进去
+  - 根因是 `[tool.setuptools.packages.find]` 用了宽松的 `include = ["zouwucode*"]`：它把运行数据目录 `zouwucode_data/` 也匹配成了包，而真正要发布的 `hello_my_zouwucode` 是否被包含取决于安装时的目录状态
+  - 现在显式列出 `zouwucode`、`zouwucode.*`、`hello_my_zouwucode`、`hello_my_zouwucode.*`，`zouwucode_data` 不再被安装
+- 模块缺失时的提示改成可操作的中文指引（重新 `pip install -e .` / 升级），不再直接抛原始 ImportError
+
+### Tests
+- `tests/test_v105_parity.py` 新增打包断言：`hello_my_zouwucode` 必须在打包列表里、`zouwucode_data` 不得被当成包；`hello_my_zouwucode.enabled` 默认开启
+- 全量套件 **785 passed / 1 skipped**
+
 ## [1.14.1] — 2026-10-28
 
 GitHub 首页终于像个产品页了：英文落地页 + 中文镜像、真实界面截图与可播放的演示动图。
