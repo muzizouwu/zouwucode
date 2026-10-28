@@ -74,7 +74,8 @@
 
   <section class="chat-pane">
     <div id="chat" class="chat-log" role="log" aria-live="polite"></div>
-    <div id="markers" class="markers" aria-hidden="true" title="对话轨迹：点击跳转到对应消息"></div>
+    <div id="markers" class="markers" role="navigation" aria-label="对话轨迹：悬停预览内容，点击跳转"></div>
+    <div id="marker-tip" class="marker-tip" role="tooltip" hidden></div>
 
     <form id="composer" class="composer" autocomplete="off">
       <div id="slash-menu" class="slash-menu" hidden></div>

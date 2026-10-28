@@ -4,6 +4,23 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.15.0] — 2026-10-29
+
+Trae 同款对话轨迹、DeepSeek 原生看图、用户级技能库，以及 Web UI 回合真正落盘。
+
+### Added
+- **对话轨迹悬停预览**：右侧白点悬停（或键盘 Tab 聚焦）显示「作者 + 消息正文预览」（折叠空白、最多 180 字），点击仍跳转到对应消息；滚动/缩放时自动收起。容器不再是 `aria-hidden`，键盘可见焦点描边
+- **DeepSeek 原生视觉**：V4.1 Flash 起 `deepseek-flash` 原生多模态，`DeepSeekProvider.supports_vision` 按模型名放行（`flash` / `vision` / `v4` / `vl` / `omni`）；图片以标准 OpenAI 兼容 `image_url` + `data:` URL 内联。自定义文本端点仍退化为「路径清单 + 工具读取」
+- **用户级技能库**：除项目内 `.zouwucode/skills/`，还会扫描 `~/.zouwucode/skills/`；同名技能项目级优先，`/skill` 与 `--skill` 均可加载
+
+### Fixed
+- **Web UI 对话没有落盘**：`/api/chat` 与 `/api/chat/stream` 完成后从未调用 `SessionManager.log_turn`，浏览器刷新/重启只能靠预置会话，侧栏轮数永远是 0。现在成功回合会写入 user/assistant 两条（图片 base64 不落盘，只留文本与附件路径）；落盘在 `done` 事件之后执行，不拖慢响应
+- **附件合计上限**：新增 32 MB 总大小上限（前后端一致），避免 5×8 MB 内联后突破 DeepSeek 48 MiB 请求体限制
+
+### Tests
+- 新增 `tests/test_v1150_markers.py`（轨迹点 DOM / 悬停预览 / 键盘 / 样式契约）与 `tests/test_v1150_ecosystem.py`（DeepSeek 视觉判定、用户级技能合并与遮蔽、附件总量、Web 回合落盘及图片剥离）
+- 全量套件 **806 passed / 1 skipped**；另跑 `compileall`、MCP `initialize` 握手、81 个模块导入、Web UI 实机悬停验证
+
 ## [1.14.2] — 2026-10-28
 
 启动时那行 `hello-my-zouwucode module failed to load` 警告，根因在打包而不是模块本身。

@@ -17,6 +17,7 @@
 
   const MAX_ATTACH = 5;
   const MAX_ATTACH_BYTES = 8 * 1024 * 1024;
+  const MAX_ATTACH_TOTAL = 32 * 1024 * 1024;  // matches the server-side cap
 
   const state = {
     busy: false,
@@ -144,17 +145,58 @@
 
   /* ── trajectory markers (dot rail; click to jump) ───────────────────────── */
   const markers = $("#markers");
+  const markerTip = $("#marker-tip");
+
+  function markerLabel(row) {
+    if (row.classList.contains("user")) return "你";
+    if (row.classList.contains("system")) return "系统";
+    if (row.classList.contains("module")) return "模块";
+    if (row.querySelector(".tool-card")) return "工具";
+    return "ZOUWUCODE";
+  }
+
+  function markerPreview(row) {
+    const body = row.querySelector(".body");
+    const text = (body?.innerText || "").replace(/\s+/g, " ").trim();
+    return text.length > 180 ? text.slice(0, 179) + "…" : text;
+  }
+
+  function showMarkerTip(dot, row) {
+    const head = document.createElement("b");
+    head.textContent = markerLabel(row);
+    const text = document.createElement("span");
+    text.textContent = markerPreview(row) || "（空消息）";
+    markerTip.replaceChildren(head, text);
+    markerTip.hidden = false;
+    const rect = dot.getBoundingClientRect();
+    const top = Math.max(12, Math.min(
+      rect.top + rect.height / 2 - markerTip.offsetHeight / 2,
+      window.innerHeight - markerTip.offsetHeight - 12,
+    ));
+    markerTip.style.top = top + "px";
+    markerTip.style.left = Math.max(12, rect.left - markerTip.offsetWidth - 14) + "px";
+  }
+
+  function hideMarkerTip() {
+    markerTip.hidden = true;
+  }
+
   function addMarker(row, role, label) {
     const dot = document.createElement("button");
     dot.type = "button";
     dot.className = "marker " + role;
     dot.dataset.index = row.dataset.index;
-    dot.title = label || role;
+    dot.setAttribute("aria-label", (label || role) + "：点击跳转到该消息");
     dot.addEventListener("click", () => row.scrollIntoView({ block: "center" }));
+    dot.addEventListener("mouseenter", () => showMarkerTip(dot, row));
+    dot.addEventListener("focus", () => showMarkerTip(dot, row));
+    dot.addEventListener("mouseleave", hideMarkerTip);
+    dot.addEventListener("blur", hideMarkerTip);
     markers.appendChild(dot);
   }
   function clearMarkers() {
     markers.innerHTML = "";
+    hideMarkerTip();
     state.msgCount = 0;
   }
   function syncMarkers() {
@@ -168,7 +210,8 @@
       dot.classList.toggle("active", dot.dataset.index === active);
     });
   }
-  chat.addEventListener("scroll", syncMarkers);
+  chat.addEventListener("scroll", () => { hideMarkerTip(); syncMarkers(); });
+  window.addEventListener("resize", hideMarkerTip);
 
   function addUser(text, files = []) {
     const body = addMessage("user", "你");
@@ -254,6 +297,11 @@
     }
     if (file.size > MAX_ATTACH_BYTES) {
       toast(`${file.name} 超过 8 MB，已跳过`, "error");
+      return;
+    }
+    const total = state.attachments.reduce((sum, a) => sum + a.size, 0);
+    if (total + file.size > MAX_ATTACH_TOTAL) {
+      toast("附件合计超过 32 MB，已跳过 " + file.name, "error");
       return;
     }
     try {

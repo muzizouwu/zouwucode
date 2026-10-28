@@ -9,7 +9,7 @@
 [![Version](https://img.shields.io/github/v/tag/muzizouwu/zouwucode?label=version&color=blue)](https://github.com/muzizouwu/zouwucode/releases)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 785 passed](https://img.shields.io/badge/tests-785%20passed-green)](tests/)
+[![Tests: 806 passed](https://img.shields.io/badge/tests-806%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 <img src="docs/assets/demo.gif" alt="ZOUWUCODE Web UI: welcome screen, English session, Chinese session" width="820">
@@ -36,7 +36,7 @@ a native desktop window.
 | **Four interfaces** | CLI (`zouwucode`), TUI (`--tui`), Web UI (`--web`), desktop GUI (`--gui`, pywebview; falls back to the browser). All share one zero-CDN, zero-build frontend. |
 | **Three modes** | Plan (read-only), Agent (interactive approval per tool call), YOLO (autonomous). |
 | **12 built-in tools** | read, write, edit, ls, glob, grep, bash, git, web_search, web_fetch, repo_map, python_exec (persistent REPL). |
-| **Attachments** | Drop, paste, or pick images/files in the chat (≤5, ≤8 MB each). Uploads are written to `.zouwucode/uploads/` and named in the prompt, so even a text-only model can act on them; vision models also get the image inlined. |
+| **Attachments** | Drop, paste, or pick images/files in the chat (≤5, ≤8 MB each, ≤32 MB total). Uploads are written to `.zouwucode/uploads/` and named in the prompt, so any model can act on them; vision models (`deepseek-flash`, GPT-4o, Qwen-VL…) also get the image inlined. |
 | **Sub-agents** | `task` tool delegates work to isolated sub-agents (own engine/cache, tool allow-list, timeout, cascading interrupt), optionally in separate git worktrees. |
 | **Devin-style dev mode** | `zouwucode dev <issue>`: issue → isolated worktree → implement → verify → Draft PR, with planning, layered checks, an independent read-only review, and CI polling. |
 | **DeepSeek Harness** | `zouwucode harness "<task>"` hands a task to DeepSeek's official harness (dsh); SDK is optional, with `--doctor`, `--json`, and a friendly fallback. |
@@ -116,7 +116,7 @@ python -m zouwucode --web   # if the console script is not on PATH
 | `/cache` `/context` `/compress` `/usage` | Cache stats, context window, compression, cost |
 | `/sessions` `/resume <id>` `/rewind [n]` | Session list, resume, roll back files |
 | `/memory` `/goal` `/decide <text>` | Project memory |
-| `/rules` `/skill list` | Project rules, skills |
+| `/rules` `/skill list` | Project rules (`AGENTS.md` too), project + user-level skills |
 | `/agents` `/oracle <q>` | Sub-agent status, second-opinion review |
 | `/share` `/msg` `/inbox` `/peers` | Export session, cross-session messaging |
 | `/hello-ultrawork <task>` | Full autonomous pipeline (11 specialist agents) |
@@ -205,7 +205,7 @@ zouwucode/
 ## Testing
 
 ```bash
-python -m pytest -q          # full suite: 783 passed, 1 skipped
+python -m pytest -q          # full suite: 806 passed, 1 skipped
 python -m pytest tests/ -v   # verbose
 ```
 

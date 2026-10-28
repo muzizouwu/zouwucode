@@ -93,6 +93,9 @@ class SkillsManager:
     def __init__(self, project_root: Optional[Path] = None):
         self._project_root = (project_root or Path.cwd()).resolve()
         self._skills_dir = self._project_root / ".zouwucode" / "skills"
+        # User-level skills (~/.zouwucode/skills) are shared by every project,
+        # matching how other agents ship reusable "skills" libraries.
+        self._global_dir = Path.home() / ".zouwucode" / "skills"
         self._loaded: dict[str, str] = {}  # skill_name -> content
 
     # ── Discovery ────────────────────────────────────────────────────────────
@@ -101,15 +104,24 @@ class SkillsManager:
     def skills_dir(self) -> Path:
         return self._skills_dir
 
+    @property
+    def global_dir(self) -> Path:
+        return self._global_dir
+
+    def _search_dirs(self) -> list[Path]:
+        """Project skills first (they shadow global ones), then user-level."""
+        return [self._skills_dir, self._global_dir]
+
     def list_available(self) -> list[str]:
-        """Return all .md filenames (without extension) in the skills dir."""
-        if not self._skills_dir.exists():
-            return []
-        return sorted(
-            f.stem
-            for f in self._skills_dir.iterdir()
-            if f.suffix == ".md" and f.is_file()
-        )
+        """Return every available skill name from project + user directories."""
+        names: dict[str, None] = {}
+        for directory in self._search_dirs():
+            if not directory.exists():
+                continue
+            for f in sorted(directory.iterdir()):
+                if f.suffix == ".md" and f.is_file():
+                    names.setdefault(f.stem, None)
+        return sorted(names)
 
     def list_loaded(self) -> list[str]:
         """Return names of currently loaded skills."""
@@ -118,9 +130,13 @@ class SkillsManager:
     # ── Load / Unload ────────────────────────────────────────────────────────
 
     def load(self, name: str) -> str:
-        """Load a skill by name (without .md extension). Returns content."""
-        path = self._skills_dir / f"{name}.md"
-        if not path.exists():
+        """Load a skill by name (project first, then user-level). Returns content."""
+        path = next(
+            (d / f"{name}.md" for d in self._search_dirs()
+             if (d / f"{name}.md").is_file()),
+            None,
+        )
+        if path is None:
             raise FileNotFoundError(
                 f"Skill '{name}' not found. Available: {', '.join(self.list_available()) or '(none)'}"
             )
@@ -153,6 +169,7 @@ class SkillsManager:
         loaded = self.list_loaded()
         lines = [
             f"Skills directory: {self._skills_dir}",
+            f"User skills: {self._global_dir}",
             f"Available: {', '.join(available) or '(none)'}",
             f"Loaded ({len(loaded)}): {', '.join(loaded) or '(none)'}",
         ]

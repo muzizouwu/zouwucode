@@ -9,7 +9,7 @@
 [![Version](https://img.shields.io/github/v/tag/muzizouwu/zouwucode?label=version&color=blue)](https://github.com/muzizouwu/zouwucode/releases)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 785 passed](https://img.shields.io/badge/tests-785%20passed-green)](tests/)
+[![Tests: 806 passed](https://img.shields.io/badge/tests-806%20passed-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 <img src="docs/assets/demo.gif" alt="ZOUWUCODE Web UI 演示：欢迎页、英文会话、中文会话" width="820">
@@ -31,9 +31,9 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | 特性 | 说明 |
 |------|------|
 | **Cache-First 引擎** | Append-only 对话循环，DeepSeek 缓存命中率 90%+，成本降至约 1/5 |
-| **三种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面） |
+| **四种界面** | CLI（终端交互）、TUI（Textual 图形界面）、Web UI（浏览器界面）、桌面 GUI（原生窗口） |
 | **桌面 GUI** | `zouwucode --gui`：原生窗口（pywebview），与 Web 共用同一套精美前端；未装依赖自动回落浏览器，端口占用直接报错 |
-| **附件发送** | 对话框支持回形针 / 拖拽 / 粘贴添加图片与文件（≤5 个、单个 ≤8 MB）：落盘到 `.zouwucode/uploads/` 并告知模型路径，纯文本模型也能用工具处理；多模态模型额外内联图片 |
+| **附件发送** | 对话框支持回形针 / 拖拽 / 粘贴添加图片与文件（≤5 个、单个 ≤8 MB、合计 ≤32 MB）：落盘到 `.zouwucode/uploads/` 并告知模型路径；`deepseek-flash` 等多模态模型还会直接内联图片 |
 | **三种模式** | Plan（只读）、Agent（交互审批）、YOLO（自动执行） |
 | **完整工具集** | 文件读写、内容检索（grep 正则搜索）、Shell 执行、Git 操作、Web 搜索、python_exec 持久 REPL — 12 个内置工具 |
 | **模型路由 / oracle** | 便宜模型干活、更强模型只读复核（`/oracle`、`oracle` 工具）；主会话缓存不受影响 |
@@ -41,7 +41,7 @@ ZOUWUCODE 是一款基于 DeepSeek 深度优化的终端 AI 编程 Agent，整�
 | **子代理 worktree 隔离** | 可选：每个子 Agent 在独立 git worktree（`dev/sub-<id>`）里干活，并行改文件互不冲突 |
 | **项目记忆** | 跨会话持久化，保存目标、决策、状态、摘要 |
 | **项目规则** | `.zouwucode/rules.md` 定义项目专属规则，自动注入系统提示词 |
-| **技能系统** | `.zouwucode/skills/` 可插拔知识包，`/skill` 命令动态加载/卸载 |
+| **技能系统** | `.zouwucode/skills/` 项目级 + `~/.zouwucode/skills/` 用户级可插拔知识包（同名项目技能优先），`/skill` 命令动态加载/卸载 |
 | **推理强度** | 三档可调：low（快速确定）、medium（均衡思考）、max（深度推理） |
 | **对话压缩** | 三级压缩策略（lossless / balanced / aggressive） |
 | **上下文窗口** | 三层管理（Hot / Warm / Cold），自动滑动归档 |

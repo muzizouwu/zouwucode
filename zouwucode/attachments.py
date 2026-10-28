@@ -3,9 +3,9 @@
 Why this exists: chat boxes are expected to accept images/files, but a coding
 agent's value comes from *paths it can act on*. So every attachment is written
 into the workspace first (``.zouwucode/uploads/``), and the prompt tells the
-model where it landed. Vision-capable providers additionally get the image
-inline as a ``data:`` URL; text-only providers (e.g. DeepSeek) still get the
-file path instead of a silently dropped upload.
+model where it landed. Vision-capable providers (``deepseek-flash``, GPT-4o,
+Qwen-VL…) additionally get the image inline as a ``data:`` URL; text-only
+endpoints still get the file path instead of a silently dropped upload.
 """
 
 import base64
@@ -17,6 +17,9 @@ from typing import Iterable
 
 MAX_FILES = 5
 MAX_BYTES = 8 * 1024 * 1024          # 8 MiB per file
+# DeepSeek rejects request bodies over 48 MiB; base64 inflates by ~4/3, so
+# cap the raw total well below that (the prompt still carries text + tools).
+MAX_TOTAL_BYTES = 32 * 1024 * 1024   # 32 MiB across all files
 UPLOAD_DIR = Path(".zouwucode") / "uploads"
 IMAGE_MIME = {
     "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif",
@@ -66,6 +69,7 @@ def save_attachments(
     except OSError as exc:
         return [], [f"无法创建上传目录：{exc}"]
 
+    total = 0
     for index, item in enumerate(entries, start=1):
         if not isinstance(item, dict):
             errors.append("附件格式无效，已跳过")
@@ -83,12 +87,17 @@ def save_attachments(
         if len(raw) > MAX_BYTES:
             errors.append(f"{name}: 超过 {MAX_BYTES // (1024 * 1024)} MB，已跳过")
             continue
+        if total + len(raw) > MAX_TOTAL_BYTES:
+            errors.append(
+                f"{name}: 附件合计超过 {MAX_TOTAL_BYTES // (1024 * 1024)} MB，已跳过")
+            continue
         target = root / filename_for(name, index)
         try:
             target.write_bytes(raw)
         except OSError as exc:
             errors.append(f"{name}: 写入失败（{exc}），已跳过")
             continue
+        total += len(raw)
         try:
             relative = target.relative_to(Path(workspace).resolve()).as_posix()
         except ValueError:

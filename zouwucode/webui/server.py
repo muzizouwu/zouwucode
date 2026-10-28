@@ -130,12 +130,40 @@ class WebUIServer:
         except Exception as _exc:
             logger.debug("swallowed %s: %s", type(_exc).__name__, _exc)
 
+    @staticmethod
+    def _plain_text(content) -> str:
+        """Text-only form of a user turn (inline image bytes are not logged)."""
+        if isinstance(content, list):
+            return "\n".join(
+                str(part.get("text", "")) for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            ).strip()
+        return str(content or "")
+
+    def _log_exchange(self, user_content, assistant_text: str) -> None:
+        """Persist the turn so resume/sidebar see Web UI conversations.
+
+        Web turns used to bypass SessionManager entirely: the transcript in the
+        browser was the only copy, so a restart lost the conversation and
+        /api/sessions showed zero turns. Inline images are stripped to keep the
+        JSON small; the attachments themselves stay in the workspace.
+        """
+        mgr = self._sessions()
+        if mgr is None or not getattr(mgr, "current_session_id", None):
+            return
+        try:
+            mgr.log_turn({"role": "user", "content": self._plain_text(user_content)})
+            if assistant_text:
+                mgr.log_turn({"role": "assistant", "content": assistant_text})
+        except Exception as exc:  # logging must never break a finished turn
+            logger.debug("session log failed: %s", describe_exc(exc))
+
     def _user_content(self, message: str, attachments) -> tuple[object, dict]:
         """Persist uploads and build the user turn's content.
 
-        Uploads land in the workspace first, so text-only providers (DeepSeek)
-        can still act on them through tools. Vision-capable providers get the
-        images inline as data URLs as well.
+        Uploads land in the workspace first, so text-only endpoints can still
+        act on them through tools. Vision-capable providers (``deepseek-flash``
+        and other multimodal models) get the images inline as data URLs too.
         """
         text = str(message or "")
         saved, errors = save_attachments(attachments, Path.cwd())
@@ -324,6 +352,9 @@ class WebUIServer:
                 "cache_hit": response.cache_hit,
                 "stats": f"Cache: {self.engine.stats.hit_rate * 100:.0f}% | Cost: ${self.engine.stats.total_cost:.4f}",
             })
+            # Persist after "done" reaches the browser: log_turn snapshots the
+            # workspace, which must not delay the visible end of the turn.
+            self._log_exchange(user_content, response.content)
         except TaskInterrupted as e:
             # User interrupted this turn — tell the client clearly (with
             # recovery options) instead of reporting a generic error.
@@ -501,6 +532,7 @@ class WebUIServer:
                     messages=messages,
                     tools=self.tools.get_schemas(),
                 )
+                self._log_exchange(user_content, response.content)
 
                 return self._json_response({
                     "content": response.content,

@@ -235,10 +235,30 @@ kbd {
   border: 0; padding: 0; background: var(--text-faint); opacity: .45;
   cursor: pointer; transition: transform .12s, opacity .12s, background .12s;
 }
-.marker:hover { opacity: 1; transform: scale(1.35); }
+.marker:hover, .marker:focus-visible { opacity: 1; transform: scale(1.6); }
+.marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .marker.user { background: var(--accent); }
 .marker.assistant { background: var(--violet); }
 .marker.active { opacity: 1; transform: scale(1.45); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* hover preview for the trajectory rail (Trae-style) */
+.marker-tip {
+  position: fixed; z-index: 45; max-width: 300px;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 8px 11px;
+  background: var(--elev);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  font-size: 12px; line-height: 1.55;
+  pointer-events: none;
+}
+.marker-tip[hidden] { display: none; }
+.marker-tip b {
+  font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-faint); font-weight: 600;
+}
+.marker-tip span { color: var(--text-dim); overflow-wrap: anywhere; }
 
 .fork-here {
   margin-left: auto; background: transparent; border: 1px solid var(--line);

@@ -30,6 +30,18 @@ class DeepSeekProvider(BaseProvider):
         self._frozen_system_prompt: Optional[str] = None
         self._frozen_tool_schemas: Optional[list[dict]] = None
 
+    @property
+    def supports_vision(self) -> bool:
+        """``deepseek-flash`` (V4.1) is natively multimodal.
+
+        Images use the standard OpenAI-compatible ``image_url`` block with a
+        ``data:`` URL — exactly the shape the attachment layer already builds.
+        Third-party "deepseek-compatible" endpoints may be text-only, so
+        unknown model names stay conservative (path-only uploads).
+        """
+        name = (self.model or "").lower()
+        return any(tag in name for tag in ("flash", "vision", "v4", "vl", "omni"))
+
     def freeze_system_prompt(self, prompt: str) -> None:
         """Freeze the system prompt for the entire session."""
         self._frozen_system_prompt = prompt
