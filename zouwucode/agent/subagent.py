@@ -19,16 +19,15 @@ The SubAgentManager is the main agent's entry point:
 
 import asyncio
 import logging
-import os
 import time
 import uuid
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from ..config import ZOUWUCODEConfig
 from ..engine.loop import EngineLoop, TaskInterrupted, TurnContext
 from ..engine.providers.base import BaseProvider, ModelResponse, ToolResult
-from ..config import ZOUWUCODEConfig
 from ..errors import describe_exc
 from .coordinator import AgentCoordinator
 
@@ -148,7 +147,7 @@ class SubAgent:
         # copies the Context per task, so the ContextVar set here is visible
         # to every tool call this sub-agent makes and no other's. Without it
         # parallel sub-agents serialize on one REPL and leak globals.
-        from ..tools.code_exec_tool import set_exec_session, reset_exec_session
+        from ..tools.code_exec_tool import reset_exec_session, set_exec_session
         token = set_exec_session(self.id)
         messages = [
             {"role": "system", "content": self.instructions},
@@ -257,10 +256,10 @@ class SubAgentManager:
                                   branch_prefix=prefix)
             ws = await wtm.create(f"sub-{agent.id}", f"{prefix}/sub-{agent.id}")
 
-            from ..sandbox.permission import PermissionManager
-            from ..tools.registry import ToolRegistry
             from ..agent.coordinator import AgentCoordinator
             from ..runtime import create_builtin_tools
+            from ..sandbox.permission import PermissionManager
+            from ..tools.registry import ToolRegistry
 
             sandbox = PermissionManager(self.config.sandbox)
             sandbox.set_workspace(ws.path)

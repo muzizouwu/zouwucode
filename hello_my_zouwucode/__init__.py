@@ -10,6 +10,8 @@ Replicates the Sisyphus / Atlas / Prometheus orchestration system:
 """
 
 from .agents import AGENTS, AgentDef, AgentMode, get_agent, list_agents
+from .atlas import Atlas, OrchestrationResult
+from .boulder import BoulderState, make_todo
 from .categories import (
     CATEGORY_DEFAULTS,
     CATEGORY_NAMES,
@@ -19,11 +21,9 @@ from .categories import (
     list_categories,
 )
 from .intent_gate import Intent, IntentGate, IntentResult, intent_label
-from .boulder import BoulderState, make_todo
 from .notepad import NOTEPAD_FILES, Notepad
-from .planner import Planner
-from .atlas import Atlas, OrchestrationResult
 from .orchestrator import SisyphusOrchestrator, detect_ultrawork
+from .planner import Planner
 
 __all__ = [
     "AGENTS",

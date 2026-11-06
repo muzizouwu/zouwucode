@@ -233,7 +233,7 @@ def dev_main(argv: list[str]) -> int:
         return 0
 
     if args.worker:
-        rc = asyncio.run(run_worker(config, once=args.once))
+        _rc = asyncio.run(run_worker(config, once=args.once))
         return 0
 
     if args.watch is not None:

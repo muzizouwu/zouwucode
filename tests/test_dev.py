@@ -15,14 +15,18 @@ import pytest
 
 from zouwucode.config import ZOUWUCODEConfig
 from zouwucode.dev.github import (
-    GitHubClient, GitHubError, parse_issue_url, parse_repo_slug,
+    GitHubClient,
+    GitHubError,
+    parse_issue_url,
+    parse_repo_slug,
 )
-from zouwucode.dev.workspace import (
-    WorktreeManager, WorkspaceError, validate_branch,
-)
+from zouwucode.dev.pipeline import DevPipeline
 from zouwucode.dev.queue import DevQueue
-from zouwucode.dev.pipeline import DevPipeline, DevResult
-
+from zouwucode.dev.workspace import (
+    WorkspaceError,
+    WorktreeManager,
+    validate_branch,
+)
 
 # ── URL / ref parsing ────────────────────────────────────────────────────────
 
@@ -393,8 +397,7 @@ class ToolResult_stub:
 
 # ── Multi-layer verification (pure detectors + report) ───────────────────────
 
-from zouwucode.dev import verifiers
-from zouwucode.dev import reviewer
+from zouwucode.dev import reviewer, verifiers
 
 
 class TestVerifierDetectors:

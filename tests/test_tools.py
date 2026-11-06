@@ -1,10 +1,11 @@
 """Tests for the tools module."""
 
-import pytest
 import tempfile
 from pathlib import Path
 
-from zouwucode.tools.file_tools import ReadTool, WriteTool, EditTool, LsTool, GlobTool
+import pytest
+
+from zouwucode.tools.file_tools import EditTool, GlobTool, LsTool, ReadTool, WriteTool
 from zouwucode.tools.registry import ToolRegistry
 
 
@@ -139,6 +140,7 @@ class TestWebToolErrorText:
 
     def test_describe_exc_fills_empty_httpx_timeout(self):
         import httpx
+
         from zouwucode.tools.web_tools import _describe_exc
         text = _describe_exc(httpx.ConnectTimeout(""))
         assert "ConnectTimeout" in text
@@ -153,6 +155,7 @@ class TestWebToolErrorText:
     def test_search_failure_error_is_nonempty(self):
         """A fully-failed search must return a non-empty actionable error."""
         import asyncio
+
         from zouwucode.tools import web_tools
         from zouwucode.tools.web_tools import WebSearchTool
 
@@ -190,6 +193,7 @@ class TestShellPlatform:
 
     def test_spec_declares_host_platform(self):
         import sys
+
         from zouwucode.tools.shell_tools import ShellTool
         desc = ShellTool().get_spec().description
         if sys.platform == "win32":

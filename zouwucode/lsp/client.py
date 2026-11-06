@@ -12,9 +12,8 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from urllib.parse import unquote, urlparse
 from typing import Optional
-
+from urllib.parse import unquote, urlparse
 
 # Map file extensions to LSP servers
 LSP_SERVERS = {

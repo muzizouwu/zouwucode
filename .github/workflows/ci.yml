@@ -6,19 +6,40 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff>=0.6.0"
+
+      - name: ruff check
+        run: ruff check .
+
   test:
     name: Python ${{ matrix.python-version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.12", "3.13"]
         os: [ubuntu-latest, windows-latest]
 
     env:
       # UTF-8 mode: avoids cp437 UnicodeEncodeError on CJK console output
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
+      # Deterministic engine across runners: the dedicated grep job below
+      # exercises the ripgrep path explicitly.
+      ZOUWUCODE_DISABLE_RG: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -38,3 +59,65 @@ jobs:
 
       - name: Smoke test (no network required)
         run: python scripts/smoke_test.py
+
+  grep-engines:
+    name: Grep engines (python + ripgrep)
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install (with tui + dev extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[tui,dev]"
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Python engine (ripgrep disabled)
+        env:
+          ZOUWUCODE_DISABLE_RG: "1"
+        run: python -m pytest tests/test_health_fixes.py tests/test_v190_search_context.py -q
+
+      - name: ripgrep engine (ripgrep on PATH)
+        run: |
+          rg --version
+          python -m pytest tests/test_health_fixes.py tests/test_v190_search_context.py -q
+
+  install-smoke:
+    name: Clean venv install + wheel
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install into a clean venv (base extras only)
+        run: |
+          python -m venv "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/smoke/bin/python" -m pip install .
+
+      - name: CLI starts without the tui extra
+        run: |
+          "$RUNNER_TEMP/smoke/bin/zouwucode" --version
+          "$RUNNER_TEMP/smoke/bin/zouwucode" --help
+          "$RUNNER_TEMP/smoke/bin/python" -c "import zouwucode; print(zouwucode.__version__)"
+
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps -w dist
+
+      - name: Verify wheel contents
+        run: |
+          python -c "import glob, sys, zipfile; w = glob.glob('dist/*.whl')[0]; z = zipfile.ZipFile(w); names = z.namelist(); need = ['zouwucode/__init__.py', 'zouwucode/__main__.py', 'zouwucode/webui/static/app.js', 'zouwucode/webui/static/index.html']; missing = [n for n in need if n not in names]; print(w, len(names), 'files'); print('missing:', missing) if missing else None; sys.exit(1 if missing else 0"

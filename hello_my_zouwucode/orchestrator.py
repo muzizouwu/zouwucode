@@ -18,13 +18,13 @@ from typing import Callable, Optional
 
 from zouwucode.config import ZOUWUCODEConfig
 from zouwucode.engine.loop import EngineLoop
-from .agents import AgentDef, compose_worker_system, get_agent
-from .categories import get_category, CategorySpec
-from .intent_gate import IntentGate, Intent, intent_label
-from .boulder import BoulderState
-from .planner import Planner
-from .atlas import Atlas, OrchestrationResult
 
+from .agents import AgentDef, compose_worker_system, get_agent
+from .atlas import Atlas, OrchestrationResult
+from .boulder import BoulderState
+from .categories import CategorySpec, get_category
+from .intent_gate import Intent, IntentGate, intent_label
+from .planner import Planner
 
 # Event callback: (event_type, message, payload)
 EventCallback = Callable[[str, str, dict], None]

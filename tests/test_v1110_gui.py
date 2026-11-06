@@ -9,8 +9,6 @@ rules were dead code).
 
 import sys
 
-import pytest
-
 from zouwucode import gui as gui_mod
 from zouwucode.webui import server
 
@@ -67,6 +65,7 @@ class TestLauncher:
 class TestCliWiring:
     def test_gui_flag_is_documented(self):
         import inspect
+
         from zouwucode import __main__ as entry
 
         src = inspect.getsource(entry.main)
@@ -90,6 +89,7 @@ class TestTuiTheme:
     @staticmethod
     def _css():
         from pathlib import Path
+
         import zouwucode.tui as tui_pkg
         return (Path(tui_pkg.__file__).parent / "styles.tcss").read_text(encoding="utf-8")
 

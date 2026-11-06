@@ -16,7 +16,6 @@ import re
 
 from ..tokens import estimate_messages
 
-
 # ── Patterns for identifying compressible content ────────────────────────────
 
 # Tool result patterns that are safe to compress

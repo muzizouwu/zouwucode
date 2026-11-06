@@ -17,8 +17,8 @@ import re
 import shutil
 from pathlib import Path
 
-from .base import BaseTool, ToolResult, ToolSpec
 from ..errors import describe_exc
+from .base import BaseTool, ToolResult, ToolSpec
 
 logger = logging.getLogger("zouwucode.tools.search")
 
@@ -154,7 +154,9 @@ class GrepTool(BaseTool):
             return ToolResult(success=False, output="", error=f"Path not found: {path}")
 
         limit = max(1, min(int(max_results or _DEFAULT_MAX_RESULTS), _MAX_RESULTS_CAP))
-        rg = shutil.which("rg")
+        # An explicit switch keeps the two engines testable in CI (a runner
+        # may or may not have rg installed; behaviour must be identical).
+        rg = None if os.environ.get("ZOUWUCODE_DISABLE_RG") else shutil.which("rg")
         if rg:
             matches, error = await self._search_ripgrep(
                 rg, pattern, root, include, ignore_case, files_only, limit)

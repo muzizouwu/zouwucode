@@ -95,23 +95,26 @@ python -m zouwucode --web
 |------|------|------|--------|
 | `--config` | `-c` | 配置文件路径 | — |
 | `--version` | `-v` | 显示版本号 | — |
-| `--mode` | `-m` | 工作模式：plan/agent/yolo | agent |
-| `--model` | — | 指定模型名称 | deepseek-flash |
-| `--provider` | — | LLM 提供商 | deepseek |
+| `--mode` | `-m` | 工作模式：plan/agent/yolo | 配置值，否则 agent |
+| `--model` | — | 指定模型名称 | 配置中的默认模型（deepseek-flash） |
+| `--provider` | — | LLM 提供商 | 配置中的 `default_provider` |
 | `--api-key` | — | API Key | — |
-| `--tui` | — | 启动 Textual TUI | — |
+| `--tui` | — | 启动 Textual TUI（需安装 `[tui]` extra） | — |
 | `--web` | — | 启动浏览器 UI | — |
+| `--gui` | — | 启动桌面 GUI（需要 pywebview，未安装时回退到浏览器） | — |
 | `--port` | — | Web UI 端口 | 8080 |
 | `--init` | — | 初始化项目记忆 | — |
 | `--forget` | — | 清除项目记忆 | — |
 | `--goal` | — | 设置持久目标 | — |
-| `--compress` | — | 压缩级别：lossless/balanced/aggressive/off | balanced |
-| `--max-tokens` | — | 最大上下文 token 数 | 1048576 |
-| `--keep-turns` | — | 保留最近对话轮次 | 50 |
-| `--reasoning` | — | 推理强度：low/medium/max | medium |
+| `--compress` | — | 压缩级别：lossless/balanced/aggressive/off | off（除非同时给出 `--max-tokens`/`--keep-turns`） |
+| `--max-tokens` | — | 估算提示词超过该 token 数时开始压缩（隐含 `--compress balanced`） | — |
+| `--keep-turns` | — | 保留最近对话轮次不压缩 | 50 |
+| `--reasoning` | — | 推理强度：low/medium/max | 配置值，否则 medium |
 | `--skill` | — | 预加载技能（可多次使用，如 `--skill python-dev --skill react`） | — |
+| `--resume` | — | 恢复当前工作区最近的会话 | — |
+| `--session` | — | 恢复指定会话 ID（见 `/sessions`） | — |
 | `--init-config` | — | 生成默认配置文件 | — |
-| `--show-config` | — | 显示当前配置 | — |
+| `--show-config` | — | 显示当前配置（API Key 已打码） | — |
 
 ### 示例
 
@@ -160,12 +163,16 @@ zouwucode
 CLI 模式是默认的交互式终端模式。启动后进入命令行提示符：
 
 ```
-╔══════════════════════════════════════════════════╗
-║               Z O U W U C O D E                 ║
-║         DeepSeek-native AI Coding Agent         ║
-║               Version 1.0.0                     ║
-╚══════════════════════════════════════════════════╝
+  ================================================================
+  ZOUWUCODE v1.15.0  |  Mode: AGENT  |  Reasoning: MEDIUM  |  Tools: N
+  ================================================================
 
+  Type /help for commands, Ctrl+C to exit
+```
+
+（版本号取自 `zouwucode.__version__`；`N` 是当前注册的工具数，随配置与扩展变化。）
+
+```
   Commands: /help, /plan, /agent, /yolo, /exit, /cache, /sessions, /mode, /memory, /goal, /compress, /reasoning, /context, /decide, /clear, /hello-ultrawork, /hello-start-work, /hello-status, /hello-agents, /hello-categories
   Shortcuts: Ctrl+S=Cycle Mode  Ctrl+R=Reasoning  Ctrl+L=Clear
 

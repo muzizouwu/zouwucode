@@ -14,7 +14,7 @@ import inspect
 from zouwucode.agent.coordinator import AgentCoordinator
 from zouwucode.config import ZOUWUCODEConfig
 from zouwucode.engine.providers.base import ToolCall
-from zouwucode.tools.base import ToolSpec, ToolResult
+from zouwucode.tools.base import ToolResult, ToolSpec
 from zouwucode.tools.registry import ToolRegistry
 
 

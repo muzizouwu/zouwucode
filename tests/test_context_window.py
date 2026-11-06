@@ -1,8 +1,9 @@
 """Tests for the ContextWindow module."""
 
 import pytest
-from zouwucode.context.sliding_window import ContextWindow
+
 from zouwucode.context.compressor import DialogueCompressor
+from zouwucode.context.sliding_window import ContextWindow
 
 
 class TestContextWindow:

@@ -10,9 +10,15 @@ import os
 import time
 from pathlib import Path
 
-import pytest
-
-from zouwucode.config import ZOUWUCODEConfig
+from hello_my_zouwucode.agents import (
+    AGENTS,
+    AgentMode,
+    agent_inventory_table,
+    get_agent,
+    list_agents,
+)
+from hello_my_zouwucode.atlas import Atlas, OrchestrationResult
+from hello_my_zouwucode.boulder import BoulderState, make_todo
 from hello_my_zouwucode.categories import (
     CATEGORY_DEFAULTS,
     CATEGORY_NAMES,
@@ -21,19 +27,10 @@ from hello_my_zouwucode.categories import (
     list_categories,
 )
 from hello_my_zouwucode.intent_gate import Intent, IntentGate, intent_label, intent_routing_prompt
-from hello_my_zouwucode.agents import (
-    AGENTS,
-    AgentMode,
-    agent_inventory_table,
-    get_agent,
-    list_agents,
-)
-from hello_my_zouwucode.boulder import BoulderState, make_todo
 from hello_my_zouwucode.notepad import NOTEPAD_FILES, Notepad
-from hello_my_zouwucode.planner import Planner, _slugify
-from hello_my_zouwucode.atlas import Atlas, OrchestrationResult
 from hello_my_zouwucode.orchestrator import SisyphusOrchestrator, detect_ultrawork
-
+from hello_my_zouwucode.planner import Planner, _slugify
+from zouwucode.config import ZOUWUCODEConfig
 
 # ── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -391,7 +388,7 @@ class TestOrchestrator:
         assert result1.tasks_completed == 2
 
         # Second run: boulder exists → RESUME mode, no-op with progress intact
-        result2 = await orch.start_work(session_id="sess-2")
+        _result2 = await orch.start_work(session_id="sess-2")
         assert orch.boulder.session_ids == ["sess-1", "sess-2"]
         assert orch.boulder.progress == {"completed": 2, "total": 2}
 

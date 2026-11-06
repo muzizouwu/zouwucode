@@ -4,9 +4,9 @@ Stores project state as JSON files in .zouwucode/ directory within the
 project root, so it travels with the project and survives reboots.
 """
 
+import hashlib
 import json
 import time
-import hashlib
 from pathlib import Path
 from typing import Any, Optional
 

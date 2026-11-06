@@ -109,7 +109,7 @@ class TestCostModel:
 
     def test_unknown_model_falls_back(self, monkeypatch):
         self._pin(monkeypatch, True)
-        from zouwucode.engine.cache import CacheStats, DEFAULT_PRICING
+        from zouwucode.engine.cache import DEFAULT_PRICING, CacheStats
         s = CacheStats(model="some-local-llm")
         s.record_turn(True, {"prompt_tokens": 1_000_000,
                              "prompt_cache_hit_tokens": 0, "completion_tokens": 0})

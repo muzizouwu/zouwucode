@@ -6,8 +6,8 @@ from typing import Optional
 import httpx
 from bs4 import BeautifulSoup
 
-from .base import BaseTool, ToolSpec, ToolResult
 from ..errors import describe_exc as _describe_exc
+from .base import BaseTool, ToolResult, ToolSpec
 
 
 async def _check_network(sandbox) -> Optional[str]:

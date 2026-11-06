@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from zouwucode.engine.loop import EngineLoop
+
 from .agents import compose_worker_system, get_agent
 from .boulder import BoulderState
 from .categories import get_category

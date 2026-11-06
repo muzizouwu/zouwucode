@@ -35,7 +35,7 @@ async def main():
 
     # 1. LsTool (the `ls` command) — the user's question
     try:
-        from zouwucode.tools.file_tools import LsTool, GlobTool, ReadTool
+        from zouwucode.tools.file_tools import GlobTool, LsTool, ReadTool
         ls = LsTool()
         res = await ls.execute(path=str(ROOT))
         report("LsTool lists project root", res.success and "zouwucode" in res.output, f"(output chars={len(res.output)})")
@@ -60,8 +60,8 @@ async def main():
 
     # 3. Permission sandbox
     try:
-        from zouwucode.sandbox.permission import PermissionManager, DANGEROUS_PATTERNS
         from zouwucode.config import SandboxConfig
+        from zouwucode.sandbox.permission import DANGEROUS_PATTERNS, PermissionManager
         pm = PermissionManager(SandboxConfig(enabled=True))
         ok_rm = await pm.check_command("rm -rf /")
         ok_ls = await pm.check_command("ls -la")
@@ -107,8 +107,8 @@ async def main():
 
     # 6. SessionManager
     try:
-        from zouwucode.session.manager import SessionManager
         from zouwucode.config import ZOUWUCODEConfig
+        from zouwucode.session.manager import SessionManager
         cfg = ZOUWUCODEConfig()
         cfg.data_dir = str(tmp_path / "data")
         sm = SessionManager(cfg)
@@ -123,7 +123,7 @@ async def main():
 
     # 7. hello-my-zouwucode IntentGate
     try:
-        from hello_my_zouwucode.intent_gate import IntentGate, Intent
+        from hello_my_zouwucode.intent_gate import Intent, IntentGate
         ig = IntentGate()
         r1 = ig.classify("写一个Python脚本来处理数据")
         r2 = ig.classify("帮我修复这个 bug")
@@ -136,7 +136,7 @@ async def main():
 
     # 8. PrefixCache (cache-first engine)
     try:
-        from zouwucode.engine.cache import PrefixCache, CacheStats
+        from zouwucode.engine.cache import CacheStats, PrefixCache
         pc = PrefixCache(max_prefix_tokens=1000)
         pc.freeze([{"role": "system", "content": "You are ZOUWUCODE"}])
         pc.append({"role": "user", "content": "你好" * 100})

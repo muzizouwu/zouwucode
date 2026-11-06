@@ -1,5 +1,5 @@
 """Skills system — pluggable knowledge packs for ZOUWUCODE."""
 
-from .manager import SkillsManager, RuleLoader
+from .manager import RuleLoader, SkillsManager
 
 __all__ = ["SkillsManager", "RuleLoader"]

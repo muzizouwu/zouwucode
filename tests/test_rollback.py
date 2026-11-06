@@ -13,9 +13,7 @@ Covered:
 - SessionManager wires the config knob and snapshots per turn
 """
 
-import subprocess
 
-import pytest
 
 from zouwucode.config import ZOUWUCODEConfig
 from zouwucode.session.manager import SessionManager

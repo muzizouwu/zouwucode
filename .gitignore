@@ -13,13 +13,19 @@ version.txt
 .coverage
 htmlcov/
 
-# ── Runtime data (sessions / project memory / workspace skills) ──
+# ── Runtime data (sessions / project memory) ────────────
 zouwucode_data/
 messages.db
 shares/
 .hello-my-zouwucode/
 .omo/
-.zouwucode/
+# Keep .zouwucode/rules.md and .zouwucode/skills/*.md in version control so
+# project rules and skills can be shared; ignore only runtime state.
+.zouwucode/memory/
+.zouwucode/uploads/
+.zouwucode/sessions/
+.zouwucode/snapshots/
+.zouwucode/*.log
 .zouwucode_worktrees/
 
 # ── Secrets & local config ──────────────────────────────

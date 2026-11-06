@@ -134,7 +134,7 @@ class _Sessions:
         self.current_session_id = "s-1"
         self.turns = []
 
-    def log_turn(self, entry):
+    def log_turn(self, entry, snapshot=True):
         self.turns.append(entry)
 
 

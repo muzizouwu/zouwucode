@@ -19,8 +19,8 @@ import types
 import pytest
 
 from zouwucode.config import HarnessConfig, ProviderConfig, ZOUWUCODEConfig
-from zouwucode.harness import deepseek as ds
 from zouwucode.harness import cli as cli_mod
+from zouwucode.harness import deepseek as ds
 from zouwucode.harness.cli import harness_main
 
 

@@ -9,13 +9,12 @@ Usage:
     python build.py --clean  # Clean build artifacts
 """
 
+import argparse
 import os
-import sys
 import shutil
 import subprocess
-import argparse
+import sys
 from pathlib import Path
-
 
 PROJECT_ROOT = Path(__file__).parent.resolve()
 DIST_DIR = PROJECT_ROOT / "dist"
@@ -90,33 +89,33 @@ def build():
 
     # Create version file
     with open(PROJECT_ROOT / "version.txt", "w") as f:
-        f.write(f"VSVersionInfo(\n")
-        f.write(f"  ffi=FixedFileInfo(\n")
+        f.write("VSVersionInfo(\n")
+        f.write("  ffi=FixedFileInfo(\n")
         f.write(f"    filevers=({VERSION.replace('.', ',')},0),\n")
         f.write(f"    prodvers=({VERSION.replace('.', ',')},0),\n")
-        f.write(f"    mask=0x3f,\n")
-        f.write(f"    flags=0x0,\n")
-        f.write(f"    OS=0x40004,\n")
-        f.write(f"    fileType=0x1,\n")
-        f.write(f"    subtype=0x0,\n")
-        f.write(f"    date=(0,0)\n")
-        f.write(f"  ),\n")
-        f.write(f"  kids=[\n")
-        f.write(f"    StringFileInfo([\n")
-        f.write(f"      StringTable(\n")
-        f.write(f"        '080404b0',\n")
-        f.write(f"        [StringStruct('CompanyName', '走戊工作室 (Zouwu Studio)'),\n")
-        f.write(f"         StringStruct('FileDescription', 'ZOUWUCODE - AI Coding Agent'),\n")
+        f.write("    mask=0x3f,\n")
+        f.write("    flags=0x0,\n")
+        f.write("    OS=0x40004,\n")
+        f.write("    fileType=0x1,\n")
+        f.write("    subtype=0x0,\n")
+        f.write("    date=(0,0)\n")
+        f.write("  ),\n")
+        f.write("  kids=[\n")
+        f.write("    StringFileInfo([\n")
+        f.write("      StringTable(\n")
+        f.write("        '080404b0',\n")
+        f.write("        [StringStruct('CompanyName', '走戊工作室 (Zouwu Studio)'),\n")
+        f.write("         StringStruct('FileDescription', 'ZOUWUCODE - AI Coding Agent'),\n")
         f.write(f"         StringStruct('FileVersion', '{VERSION}'),\n")
         f.write(f"         StringStruct('InternalName', '{APP_NAME}'),\n")
-        f.write(f"         StringStruct('LegalCopyright', 'MIT License'),\n")
+        f.write("         StringStruct('LegalCopyright', 'MIT License'),\n")
         f.write(f"         StringStruct('OriginalFilename', '{APP_NAME}.exe'),\n")
         f.write(f"         StringStruct('ProductName', '{APP_NAME}'),\n")
         f.write(f"         StringStruct('ProductVersion', '{VERSION}')])\n")
-        f.write(f"    ]),\n")
-        f.write(f"    VarFileInfo([VarStruct('Translation', [2052, 1200])])\n")
-        f.write(f"  ]\n")
-        f.write(f")\n")
+        f.write("    ]),\n")
+        f.write("    VarFileInfo([VarStruct('Translation', [2052, 1200])])\n")
+        f.write("  ]\n")
+        f.write(")\n")
 
     print(f"  Running: {' '.join(cmd)}\n")
     subprocess.check_call(cmd)
@@ -125,7 +124,7 @@ def build():
     exe_path = DIST_DIR / f"{APP_NAME}.exe"
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
-        print(f"\n  ✓ Build complete!")
+        print("\n  ✓ Build complete!")
         print(f"  📦 {exe_path}")
         print(f"  📏 Size: {size_mb:.1f} MB")
         print(f"\n  Run: {exe_path} --help")

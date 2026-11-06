@@ -8,11 +8,11 @@ Modules:
 - cli       : `zouwucode dev` subcommand routing
 """
 
+from .cli import dev_main
 from .github import GitHubClient, GitHubError, parse_issue_url, parse_repo_slug
-from .workspace import WorktreeManager, Workspace, WorkspaceError, validate_branch
 from .pipeline import DevPipeline, DevResult
 from .queue import DevQueue
-from .cli import dev_main
+from .workspace import Workspace, WorkspaceError, WorktreeManager, validate_branch
 
 __all__ = [
     "GitHubClient", "GitHubError", "parse_issue_url", "parse_repo_slug",

@@ -17,9 +17,6 @@ Pinned defects / new contracts:
 
 import asyncio
 from datetime import datetime, timezone
-from pathlib import Path
-
-import pytest
 
 from zouwucode.config import ZOUWUCODEConfig
 from zouwucode.engine.cache import CacheStats, is_peak_hour
@@ -32,7 +29,6 @@ from zouwucode.engine.providers.base import (
 )
 from zouwucode.skills.manager import RuleLoader
 from zouwucode.tools.file_tools import EditTool, WriteTool
-
 
 # ── 1/2. DeepSeek reasoning-mode payload ─────────────────────────────────────
 
@@ -275,7 +271,7 @@ class _FakeManager:
 
 class TestTaskReportBudget:
     def test_long_reports_are_budgeted_and_saved(self, tmp_path):
-        from zouwucode.tools.agent_tools import TaskTool, _MAX_TASK_REPORT_CHARS
+        from zouwucode.tools.agent_tools import _MAX_TASK_REPORT_CHARS, TaskTool
         agents = [_FakeAgent("x" * 5000, aid=f"sub-{i}") for i in range(3)]
         tool = TaskTool(_FakeManager(agents, tmp_path))
         res = asyncio.run(tool.execute(tasks=[{"task": "t"}]))

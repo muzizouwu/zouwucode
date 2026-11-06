@@ -1,8 +1,9 @@
 """Tests for the context management module."""
 
-import pytest
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from zouwucode.context.memory import MemoryManager
 from zouwucode.context.topics import TopicManager

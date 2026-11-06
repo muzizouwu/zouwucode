@@ -13,22 +13,24 @@ import asyncio
 import json
 import time
 import traceback
+from pathlib import Path
 
-from ..engine.loop import EngineLoop, TaskInterrupted
+from ..agent.coordinator import AgentCoordinator
 from ..attachments import attachment_note, image_parts, save_attachments
+from ..config import ZOUWUCODEConfig
+from ..engine.loop import EngineLoop, TaskInterrupted
 from ..errors import describe_exc
 from ..tools.registry import ToolRegistry
-from ..agent.coordinator import AgentCoordinator
-from ..config import ZOUWUCODEConfig
-
-
-from pathlib import Path
 
 # ── Static GUI assets ──────────────────────────────────────────────────────
 # The GUI ships as plain files (HTML/CSS/JS) so it works fully offline: no
 # CDN, no build step, no framework. Only files directly under static/ are
 # reachable, which keeps this HTTP layer from becoming a file reader.
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+# Attachments are capped at 32 MB raw in attachments.py; base64 inflates that
+# to ~43 MB. 64 MB leaves headroom for JSON framing without letting a local
+# page push the process into unbounded memory growth.
+MAX_REQUEST_BYTES = 64 * 1024 * 1024
 _CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -140,7 +142,8 @@ class WebUIServer:
             ).strip()
         return str(content or "")
 
-    def _log_exchange(self, user_content, assistant_text: str) -> None:
+    def _log_exchange(self, user_content, assistant_text: str,
+                      snapshot: bool = True) -> None:
         """Persist the turn so resume/sidebar see Web UI conversations.
 
         Web turns used to bypass SessionManager entirely: the transcript in the
@@ -154,7 +157,11 @@ class WebUIServer:
         try:
             mgr.log_turn({"role": "user", "content": self._plain_text(user_content)})
             if assistant_text:
-                mgr.log_turn({"role": "assistant", "content": assistant_text})
+                # A reply that ran no tools cannot have changed the workspace:
+                # skipping its snapshot avoids a needless `git add -A` scan
+                # without altering rollback semantics (HEAD is unchanged).
+                mgr.log_turn({"role": "assistant", "content": assistant_text},
+                             snapshot=snapshot)
         except Exception as exc:  # logging must never break a finished turn
             logger.debug("session log failed: %s", describe_exc(exc))
 
@@ -287,7 +294,9 @@ class WebUIServer:
                 return
 
         # Uploads → workspace files (plus inline images for vision models).
-        user_content, attach_info = self._user_content(message, attachments)
+        # base64 decoding + disk writes are blocking: keep them off the loop.
+        user_content, attach_info = await asyncio.to_thread(
+            self._user_content, message, attachments)
         if attach_info["saved"] or attach_info["errors"]:
             await self._sse_send(writer, {"type": "attachments", **attach_info})
 
@@ -354,7 +363,10 @@ class WebUIServer:
             })
             # Persist after "done" reaches the browser: log_turn snapshots the
             # workspace, which must not delay the visible end of the turn.
-            self._log_exchange(user_content, response.content)
+            # Still off the loop: snapshotting shells out to git.
+            await asyncio.to_thread(
+                self._log_exchange, user_content, response.content,
+                bool(self._tool_buffer))
         except TaskInterrupted as e:
             # User interrupted this turn — tell the client clearly (with
             # recovery options) instead of reporting a generic error.
@@ -371,6 +383,26 @@ class WebUIServer:
             self.engine.on_content_delta = None
             writer.close()
 
+    async def _reject_too_large(self, writer: asyncio.StreamWriter) -> None:
+        """Answer 413 instead of buffering an unbounded request body."""
+        limit_mb = MAX_REQUEST_BYTES // (1024 * 1024)
+        payload = json.dumps(
+            {"error": f"请求体过大，上限 {limit_mb} MB"},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        try:
+            writer.write(
+                "HTTP/1.1 413 Payload Too Large\r\n"
+                "Content-Type: application/json; charset=utf-8\r\n"
+                f"Content-Length: {len(payload)}\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Connection: close\r\n\r\n".encode("utf-8") + payload
+            )
+            await writer.drain()
+        except Exception as exc:  # client may have already gone away
+            logger.debug("413 response not delivered: %s", describe_exc(exc))
+        writer.close()
+
     async def handle_request(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Handle an HTTP request."""
         # Read the full request. The body may arrive in a later packet than
@@ -382,6 +414,9 @@ class WebUIServer:
                 if not chunk:
                     break
                 request_data += chunk
+                if len(request_data) > MAX_REQUEST_BYTES:
+                    await self._reject_too_large(writer)
+                    return
                 if b"\r\n\r\n" in request_data:
                     head, _, _ = request_data.partition(b"\r\n\r\n")
                     clen = 0
@@ -391,6 +426,9 @@ class WebUIServer:
                                 clen = int(line.split(":", 1)[1].strip())
                             except ValueError:
                                 clen = 0
+                    if clen > MAX_REQUEST_BYTES:
+                        await self._reject_too_large(writer)
+                        return
                     if len(request_data) >= len(head) + 4 + clen:
                         break
         except (asyncio.TimeoutError, Exception):
@@ -521,7 +559,8 @@ class WebUIServer:
             self._chat_busy = True
             try:
                 project_ctx = self.coordinator.project_memory.get_full_context() if hasattr(self.coordinator, 'project_memory') else ""
-                user_content, attach_info = self._user_content(message, attachments)
+                user_content, attach_info = await asyncio.to_thread(
+                    self._user_content, message, attachments)
 
                 messages = []
                 if project_ctx:
@@ -532,7 +571,9 @@ class WebUIServer:
                     messages=messages,
                     tools=self.tools.get_schemas(),
                 )
-                self._log_exchange(user_content, response.content)
+                await asyncio.to_thread(
+                    self._log_exchange, user_content, response.content,
+                    bool(self._tool_buffer))
 
                 return self._json_response({
                     "content": response.content,
@@ -1052,7 +1093,7 @@ class WebUIServer:
         )
         addr = self._server.sockets[0].getsockname()
         print(f"\n  🌐 ZOUWUCODE Web UI: http://{addr[0]}:{addr[1]}")
-        print(f"  Press Ctrl+C to stop\n")
+        print("  Press Ctrl+C to stop\n")
 
         async with self._server:
             await self._server.serve_forever()

@@ -1,13 +1,10 @@
 """Tests for the TUI module — Textual application and CLI app."""
 
-import pytest
-from pathlib import Path
 
 from rich.text import Text
 
-from zouwucode.tui.textual_app import (
-    ZOUWUCODETUI, _style, run_tui, _restore_terminal)
 from zouwucode.tui.app import ZOUWUCODEApp
+from zouwucode.tui.textual_app import ZOUWUCODETUI, _restore_terminal, _style
 
 
 async def _pause_until(pilot, predicate, tries: int = 12) -> bool:
@@ -218,7 +215,7 @@ class TestZOUWUCODETUI:
 
     def test_style_integration(self):
         """Test that _style produces styled Text for the app's display."""
-        app = ZOUWUCODETUI()
+        ZOUWUCODETUI()
         # User message style
         user_msg = _style("Hello", "bold blue")
         assert isinstance(user_msg, Text)
@@ -263,7 +260,7 @@ class TestZOUWUCODETUI:
         app = ZOUWUCODETUI()
 
         async def run():
-            async with app.run_test(size=(120, 40)) as pilot:
+            async with app.run_test(size=(120, 40)) as _pilot:
                 await asyncio.sleep(0.2)
                 app._on_thinking_delta("line one\nline two\npartial")
                 assert app._thinking_buf == "partial", "不完整行应留在缓冲区"

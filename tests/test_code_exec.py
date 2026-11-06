@@ -2,8 +2,6 @@
 
 import asyncio
 
-import pytest
-
 from zouwucode.tools.code_exec_tool import PythonExecTool
 
 
@@ -87,8 +85,7 @@ class TestPythonExec:
     def test_parallel_sessions_isolated(self):
         """Different ContextVar sessions get independent REPLs: globals do
         not leak between concurrent workers (mirrors parallel sub-agents)."""
-        from zouwucode.tools.code_exec_tool import (
-            set_exec_session, reset_exec_session)
+        from zouwucode.tools.code_exec_tool import reset_exec_session, set_exec_session
 
         async def scenario(tool):
             async def worker(name):

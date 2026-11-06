@@ -5,9 +5,10 @@ logger = logging.getLogger("zouwucode.config")
 
 
 import json
-import yaml
 from pathlib import Path
 from typing import Optional
+
+import yaml
 from pydantic import BaseModel, Field
 
 

@@ -11,9 +11,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from .base import BaseTool, ToolSpec, ToolResult
-from ._encoding import PS_UTF8_PREFIX, decode_console, utf8_env
 from ..errors import describe_exc
+from ._encoding import PS_UTF8_PREFIX, decode_console, utf8_env
+from .base import BaseTool, ToolResult, ToolSpec
 
 # POSIX-isms that Windows PowerShell 5.x cannot parse ('&&' is a hard
 # syntax error there). When we spot these on Windows we prefer a real

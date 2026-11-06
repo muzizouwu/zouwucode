@@ -1,10 +1,9 @@
 """Tests for the config module."""
 
-import pytest
 import tempfile
 from pathlib import Path
 
-from zouwucode.config import ZOUWUCODEConfig, ProviderConfig, CacheConfig, SandboxConfig
+from zouwucode.config import CacheConfig, ProviderConfig, SandboxConfig, ZOUWUCODEConfig
 
 
 class TestZOUWUCODEConfig:

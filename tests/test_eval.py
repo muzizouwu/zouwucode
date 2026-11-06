@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 
 from zouwucode.config import ZOUWUCODEConfig
+from zouwucode.engine.providers.base import BaseProvider, ModelResponse
 from zouwucode.eval import EvalTask, load_tasks, run_checks, run_task
 from zouwucode.eval.runner import TaskResult
-from zouwucode.engine.providers.base import BaseProvider, ModelResponse
 
 TASKS_DIR = Path(__file__).resolve().parent.parent / "zouwucode" / "eval" / "tasks"
 
@@ -143,11 +143,11 @@ class TestRunTask:
                 return ModelResponse(content="done thinking")
 
         def factory(config, workspace):
+            from zouwucode.agent.coordinator import AgentCoordinator
             from zouwucode.engine.loop import EngineLoop
             from zouwucode.runtime import create_builtin_tools
-            from zouwucode.tools.registry import ToolRegistry
             from zouwucode.sandbox.permission import PermissionManager
-            from zouwucode.agent.coordinator import AgentCoordinator
+            from zouwucode.tools.registry import ToolRegistry
             sandbox = PermissionManager(config.sandbox)
             sandbox.set_workspace(workspace)
             tools = ToolRegistry()

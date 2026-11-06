@@ -13,34 +13,32 @@ logger = logging.getLogger("zouwucode.tui.app")
 
 
 import asyncio
-import os
+import signal
 import sys
 import time
-import signal
 from pathlib import Path
 from typing import Optional
 
 from .. import __version__
-from ..config import ZOUWUCODEConfig
-from ..logging_setup import setup_logging
-from ..engine.loop import EngineLoop, TaskInterrupted
-from ..runtime import (create_provider, create_builtin_tools,
-                       create_subagents_and_extensions)
-from ..tools.oracle_tool import ORACLE_SYSTEM
-from ..tools.registry import ToolRegistry
 from ..agent.coordinator import AgentCoordinator
-from ..extensions import ExtensionContext
+from ..config import ZOUWUCODEConfig
+from ..context.compressor import DialogueCompressor
 from ..context.memory import MemoryManager
+from ..context.sliding_window import ContextWindow
 from ..context.topics import TopicManager
 from ..context.transcript import TranscriptManager
-from ..context.compressor import DialogueCompressor
-from ..context.sliding_window import ContextWindow
+from ..engine.loop import EngineLoop, TaskInterrupted
+from ..extensions import ExtensionContext
+from ..logging_setup import setup_logging
+from ..messaging import MessageBus, format_inbox, format_peers
+from ..project_memory import ProjectMemory
+from ..runtime import create_builtin_tools, create_provider, create_subagents_and_extensions
 from ..sandbox.permission import PermissionManager
 from ..session.manager import SessionManager
 from ..share import export_session
-from ..messaging import MessageBus, format_inbox, format_peers
-from ..project_memory import ProjectMemory
 from ..skills import RuleLoader, SkillsManager
+from ..tools.oracle_tool import ORACLE_SYSTEM
+from ..tools.registry import ToolRegistry
 from ..webui import WebUIServer
 
 
@@ -552,7 +550,7 @@ Rules:
         # opencode-style "→ Read file …" tool trace (was TUI/Web only).
         self.engine.on_tool_event = self._on_tool_event
 
-        session_id = self.initialize_session()
+        self.initialize_session()
 
         try:
             await self._interactive_loop()
@@ -652,7 +650,7 @@ Rules:
         print(f"\n  {'=' * (width - 2)}")
         print(f"  ZOUWUCODE v{self.APP_VERSION}  |  Mode: {mode_tag}  |  Reasoning: {self.config.reasoning_intensity.upper()}{skills_tag}  |  Tools: {len(self.tools.get_names())}")
         print(f"  {'=' * (width - 2)}")
-        print(f"  Type /help for commands, Ctrl+C to exit\n")
+        print("  Type /help for commands, Ctrl+C to exit\n")
 
     @property
     def _prompt(self) -> str:
@@ -881,7 +879,7 @@ Rules:
             if arg:
                 self.project_memory.add_decision("Decision", arg)
                 self.project_memory.save_all()
-                print(f"  Decision recorded.")
+                print("  Decision recorded.")
             else:
                 print("  Usage: /decide <decision description>")
         elif command == "/sessions":
@@ -957,7 +955,7 @@ Rules:
             else:
                 if self.rule_loader.exists():
                     content = self.rule_loader.load()
-                    print(f"  ── Project Rules (.zouwucode/rules.md) ──")
+                    print("  ── Project Rules (.zouwucode/rules.md) ──")
                     print(f"  {content[:2000]}{'...' if len(content) > 2000 else ''}")
                 else:
                     print("  No project rules. Create .zouwucode/rules.md or use /rules edit")
@@ -1037,7 +1035,7 @@ Rules:
     async def run_web(self, port: int = 8080) -> None:
         """Start the browser-based web UI."""
         self.initialize_session()
-        print(f"\n  Starting ZOUWUCODE Web UI...")
+        print("\n  Starting ZOUWUCODE Web UI...")
 
         server = WebUIServer(
             engine=self.engine,

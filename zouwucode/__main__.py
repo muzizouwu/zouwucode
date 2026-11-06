@@ -1,10 +1,20 @@
 """Entry point for ZOUWUCODE — CLI, TUI, and Web UI launcher."""
 
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
 from .tui.app import ZOUWUCODEApp
+
+logger = logging.getLogger("zouwucode.cli")
+
+
+def _mask_secret(value: str, keep: int = 4) -> str:
+    """Mask an API key for display: ``sk-a…wxyz`` instead of the full secret."""
+    if len(value) <= keep * 2:
+        return "***"
+    return f"{value[:keep]}…{value[-keep:]}"
 
 
 def main():
@@ -139,7 +149,7 @@ def main():
             cfg.save(path)
         created = config_path if config_path else Path.cwd() / "config.yaml"
         print(f"  Default config created at: {created}")
-        print(f"  Edit the file to add your API keys.")
+        print("  Edit the file to add your API keys.")
         sys.exit(0)
 
     # ── Handle --init (project memory) ──────────────────────────────────────
@@ -152,7 +162,7 @@ def main():
         pm.set_state("created_at", __import__("time").time())
         pm.save_all()
         print(f"  ✓ Project memory initialized: {pm._memory_dir}")
-        print(f"  This directory now tracks project state across sessions.")
+        print("  This directory now tracks project state across sessions.")
         if args.goal:
             pm.set_goal(args.goal)
             print(f"  ✓ Goal set: {args.goal}")
@@ -167,19 +177,37 @@ def main():
             shutil.rmtree(pm._memory_dir)
             print(f"  ✓ Project memory cleared: {pm._memory_dir}")
         else:
-            print(f"  No project memory found in this directory.")
+            print("  No project memory found in this directory.")
         sys.exit(0)
 
     # ── Handle --show-config ────────────────────────────────────────────────
     if args.show_config:
-        from .config import ZOUWUCODEConfig
         import yaml
+
+        from .config import ZOUWUCODEConfig
         cfg = ZOUWUCODEConfig.load(config_path)
-        print(yaml.dump(cfg.model_dump(), default_flow_style=False))
+        data = cfg.model_dump()
+        # Never echo a live key into a terminal, screenshot or pasted log.
+        for provider in (data.get("providers") or {}).values():
+            if isinstance(provider, dict) and provider.get("api_key"):
+                provider["api_key"] = _mask_secret(str(provider["api_key"]))
+        print(yaml.dump(data, default_flow_style=False))
         sys.exit(0)
 
     # ── Create app ──────────────────────────────────────────────────────────
-    app = ZOUWUCODEApp(config_path, skill_names=args.skills, provider=args.provider)
+    try:
+        app = ZOUWUCODEApp(config_path, skill_names=args.skills, provider=args.provider)
+    except Exception as exc:  # noqa: BLE001 - startup must explain, not traceback
+        from .errors import describe_exc
+        print("启动失败：无法加载配置或初始化应用。", file=sys.stderr)
+        print(f"  原因：{describe_exc(exc)}", file=sys.stderr)
+        print("  排查：检查配置文件语法（可用 `zouwucode --init-config` 重新生成），"
+              "或用 `--config <路径>` 指定正确文件。", file=sys.stderr)
+        import os
+        if os.environ.get("ZOUWUCODE_DEBUG"):
+            import traceback
+            traceback.print_exc()
+        sys.exit(2)
 
     # Apply CLI overrides
     if args.mode:
@@ -220,6 +248,18 @@ def main():
     # Set reasoning intensity
     if args.reasoning:
         app.set_reasoning_intensity(args.reasoning)
+
+    # Early, actionable hint instead of an opaque 401 on the first turn.
+    try:
+        prov = (getattr(app.config, "providers", {}) or {}).get(
+            getattr(app.config, "default_provider", ""))
+        if not str(getattr(prov, "api_key", "") or "").strip():
+            print("[提示] 未检测到模型 API Key，第一轮对话会返回 401。", file=sys.stderr)
+            print("  修复方式：编辑 config.yaml 的 providers.<name>.api_key，"
+                  "或运行 `zouwucode --init-config` 生成配置后填入，"
+                  "或启动时加 `--api-key sk-...`。", file=sys.stderr)
+    except Exception as exc:  # config layout is not guaranteed; never block launch
+        logger.debug("API key pre-check failed: %s", exc)
 
     # Set goal if provided
     if args.goal:

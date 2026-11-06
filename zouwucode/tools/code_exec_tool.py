@@ -33,9 +33,9 @@ import re
 import sys
 from typing import Optional
 
-from .base import BaseTool, ToolSpec, ToolResult
-from ._encoding import decode_console, utf8_env
 from ..errors import describe_exc
+from ._encoding import decode_console, utf8_env
+from .base import BaseTool, ToolResult, ToolSpec
 
 _MAX_OUTPUT = 30_000
 _DEFAULT_TIMEOUT = 60.0

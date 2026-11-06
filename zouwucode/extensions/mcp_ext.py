@@ -11,8 +11,8 @@ the normal tool registry and sandbox/coordinator flow.
 import logging
 from typing import Optional
 
-from ..tools.base import BaseTool, ToolResult, ToolSpec
 from ..errors import describe_exc
+from ..tools.base import BaseTool, ToolResult, ToolSpec
 from .host import Extension, ExtensionContext
 
 logger = logging.getLogger("zouwucode.extensions.mcp")

@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 
 from ..tokens import estimate_tokens
 
-
 # Official DeepSeek V4 pricing, USD per 1M tokens, PEAK rates:
 #   (input_cache_miss, input_cache_hit, output)
 # Off-peak rates are exactly half of peak. Peak hours are 01:00-04:00 and

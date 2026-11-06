@@ -1,9 +1,9 @@
 """Tests for the ProjectMemory module."""
 
-import pytest
 import tempfile
-import time
 from pathlib import Path
+
+import pytest
 
 from zouwucode.project_memory import ProjectMemory
 

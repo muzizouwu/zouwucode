@@ -8,11 +8,11 @@ Inspired by Claude Code's context management architecture:
 5. ContextWindow — sliding window for ultra-long contexts
 """
 
+from .compressor import CompressionResult, DialogueCompressor
 from .memory import MemoryManager
+from .sliding_window import ContextWindow
 from .topics import TopicManager
 from .transcript import TranscriptManager
-from .compressor import DialogueCompressor, CompressionResult
-from .sliding_window import ContextWindow
 
 __all__ = [
     "MemoryManager",

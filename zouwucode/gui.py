@@ -20,7 +20,6 @@ import sys
 import threading
 import time
 import webbrowser
-from typing import Optional
 
 logger = logging.getLogger("zouwucode.gui")
 

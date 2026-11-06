@@ -63,6 +63,7 @@ class TestDomContract:
 class TestApiContract:
     def test_every_api_call_is_routed(self):
         import inspect
+
         from zouwucode.webui.server import WebUIServer
 
         src = inspect.getsource(WebUIServer)
@@ -165,8 +166,8 @@ class TestSSEHandlerProtocol:
     """Functional test of the SSE streaming chat handler protocol."""
 
     def _make_server(self, show_thinking=True):
-        from zouwucode.webui.server import WebUIServer
         from zouwucode.config import ZOUWUCODEConfig
+        from zouwucode.webui.server import WebUIServer
         config = ZOUWUCODEConfig()
         config.show_thinking = show_thinking
         engine = _FakeEngine()

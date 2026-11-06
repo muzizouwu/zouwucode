@@ -6,6 +6,7 @@ the project's own .git), inspired by DeepSeek-TUI's approach.
 
 import json
 import logging
+import os
 import time
 import uuid
 from pathlib import Path
@@ -167,8 +168,14 @@ class SessionManager:
         self._sessions_dir.mkdir(parents=True, exist_ok=True)
         return self._current_session_id
 
-    def log_turn(self, entry: dict) -> None:
-        """Log a single turn to the current session."""
+    def log_turn(self, entry: dict, snapshot: bool = True) -> None:
+        """Log a single turn to the current session.
+
+        ``snapshot=False`` is for turns that provably did not touch the
+        workspace (a chat reply with no tool calls): the checkpoint still
+        points at the previous HEAD, so /rewind and /rollback stay correct,
+        but the per-turn ``git add -A`` scan is skipped.
+        """
         entry["timestamp"] = time.time()
         self._current_log.append(entry)
         if self.config.session.save_enabled:
@@ -176,8 +183,9 @@ class SessionManager:
             # /rollback n undoes the last n turns, and the checkpoint binds
             # this snapshot to the current message index for /rewind.
             if self._snapshotter is not None:
-                role = entry.get("role", "turn")
-                self._snapshotter.snapshot("turn: %s" % role)
+                if snapshot:
+                    role = entry.get("role", "turn")
+                    self._snapshotter.snapshot("turn: %s" % role)
                 self.record_checkpoint(len(self._current_log))
             self._save_session()
 
@@ -197,19 +205,61 @@ class SessionManager:
             "turns": self._current_log,
             "checkpoints": self._checkpoints,
         }
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Atomic write: a crash mid-write used to truncate the whole transcript.
+        # The previous file rotates to .bak (a rename, so no extra copying) and
+        # load_session falls back to it when the main file is unreadable.
+        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            tmp.write_text(payload, encoding="utf-8")
+            if path.exists():
+                os.replace(path, path.with_name(path.name + ".bak"))
+            os.replace(tmp, path)
+        except OSError as exc:
+            logger.warning("session save failed for %s: %s", path.name, describe_exc(exc))
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise
+
+    @staticmethod
+    def _read_session_file(path: Path) -> Optional[dict]:
+        """Parse one session file; ``None`` when missing or unreadable."""
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            logger.warning("session file %s is unreadable: %s",
+                           path.name, describe_exc(exc))
+            return None
+        return data if isinstance(data, dict) else None
 
     def load_session(self, session_id: str) -> Optional[list[dict]]:
-        """Load a previous session."""
+        """Load a previous session, recovering from ``.bak`` when needed."""
         path = self._sessions_dir / f"{session_id}.json"
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            self._current_session_id = session_id
-            self._current_log = data.get("turns", [])
-            self._current_title = data.get("title") or derive_title(self._current_log)
-            self._checkpoints = data.get("checkpoints", [])
-            return self._current_log
-        return None
+        data = self._read_session_file(path)
+        if data is None and path.exists():
+            # Quarantine first: repeated --resume must not keep hitting the
+            # same broken file, and the next save must not rotate it into .bak.
+            try:
+                path.replace(path.with_name(
+                    f"{path.name}.corrupt-{int(time.time())}"))
+            except OSError:
+                pass
+        if data is None:
+            backup = path.with_name(path.name + ".bak")
+            data = self._read_session_file(backup)
+            if data is not None:
+                logger.warning("recovered session %s from %s", session_id, backup.name)
+        if data is None:
+            return None
+        self._current_session_id = session_id
+        self._current_log = data.get("turns", [])
+        self._current_title = data.get("title") or derive_title(self._current_log)
+        self._checkpoints = data.get("checkpoints", [])
+        return self._current_log
 
     def list_sessions(self) -> list[dict]:
         """List all available sessions, most recently updated first."""
@@ -269,10 +319,13 @@ class SessionManager:
         return replayed
 
     def delete_session(self, session_id: str) -> bool:
-        """Delete a session."""
+        """Delete a session (including its ``.bak`` copy)."""
         path = self._sessions_dir / f"{session_id}.json"
         if path.exists():
             path.unlink()
+            backup = path.with_name(path.name + ".bak")
+            if backup.exists():
+                backup.unlink()
             return True
         return False
 
@@ -331,6 +384,9 @@ class SessionManager:
             return False
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         src.replace(self._archive_dir / src.name)
+        backup = src.with_name(src.name + ".bak")
+        if backup.exists():
+            backup.replace(self._archive_dir / backup.name)
         return True
 
     def unarchive_session(self, session_id: str) -> bool:
@@ -389,14 +445,12 @@ class SessionManager:
         return self._summarize(forked)
 
     def get_session(self, session_id: str) -> Optional[dict]:
-        """Get full session data (archived sessions included)."""
-        for path in (self._sessions_dir / f"{session_id}.json",
-                     self._archive_dir / f"{session_id}.json"):
-            if path.exists():
-                try:
-                    return json.loads(path.read_text(encoding="utf-8"))
-                except Exception as exc:
-                    logger.warning("unreadable session %s: %s", session_id,
-                                   describe_exc(exc))
-                    return None
+        """Get full session data (archived sessions and ``.bak`` included)."""
+        for base in (self._sessions_dir, self._archive_dir):
+            path = base / f"{session_id}.json"
+            data = self._read_session_file(path)
+            if data is None:
+                data = self._read_session_file(path.with_name(path.name + ".bak"))
+            if data is not None:
+                return data
         return None

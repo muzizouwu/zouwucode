@@ -1,7 +1,8 @@
 """Tests for the DialogueCompressor module."""
 
 import pytest
-from zouwucode.context.compressor import DialogueCompressor, CompressionResult
+
+from zouwucode.context.compressor import DialogueCompressor
 
 
 class TestDialogueCompressor:

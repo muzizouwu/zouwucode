@@ -110,8 +110,8 @@ class TestNoSilentSwallow:
 class TestSwallowIsObservable:
     def test_repo_map_injection_failure_is_logged(self, tmp_path, monkeypatch, caplog):
         monkeypatch.chdir(tmp_path)
-        from zouwucode.tui.app import ZOUWUCODEApp
         import zouwucode.repo_map as rm
+        from zouwucode.tui.app import ZOUWUCODEApp
 
         app = ZOUWUCODEApp()
         app.config.context.repo_map_enabled = True

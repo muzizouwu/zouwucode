@@ -4,8 +4,8 @@ import difflib
 from pathlib import Path
 from typing import Optional
 
-from .base import BaseTool, ToolSpec, ToolResult
 from ..errors import describe_exc
+from .base import BaseTool, ToolResult, ToolSpec
 
 # Tool output is fed back to the model and rendered in every frontend, so a
 # huge diff must not flood the turn. 4k chars covers typical edits comfortably.

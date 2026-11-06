@@ -1,10 +1,7 @@
 """v1.13.0 — session titles (auto + rename) and workspace switching."""
 
 import asyncio
-import inspect
 import json
-
-import pytest
 
 from zouwucode.config import ZOUWUCODEConfig
 from zouwucode.session.manager import SessionManager, derive_title
@@ -227,6 +224,7 @@ class TestAppSwitchWorkspace:
     def test_switches_cwd_scope_and_session(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         from pathlib import Path
+
         from zouwucode.tui.app import ZOUWUCODEApp
 
         app = ZOUWUCODEApp()

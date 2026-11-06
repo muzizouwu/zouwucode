@@ -26,7 +26,8 @@ class TestHookRunner:
 
     def test_pre_tool_json_block(self):
         # Write the emitting script to a temp file to dodge shell quoting.
-        import tempfile, os
+        import os
+        import tempfile
         script = ("import json\n"
                   "print(json.dumps({'block': True, 'reason': 'no touching prod'}))\n")
         fd, path = tempfile.mkstemp(suffix=".py")

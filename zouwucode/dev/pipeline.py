@@ -24,18 +24,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from ..agent.coordinator import AgentCoordinator
 from ..config import ZOUWUCODEConfig
 from ..engine.loop import EngineLoop, TaskInterrupted, TurnLimitExceeded
-from ..runtime import (create_provider, create_builtin_tools,
-                       build_agent_engine)
-from ..tools.registry import ToolRegistry
-from ..sandbox.permission import PermissionManager
-from ..agent.coordinator import AgentCoordinator
 from ..project_memory import ProjectMemory
+from ..runtime import build_agent_engine, create_builtin_tools, create_provider
+from ..sandbox.permission import PermissionManager
+from ..tools.registry import ToolRegistry
+from . import reviewer, verifiers
 from .github import GitHubClient, GitHubError
-from .workspace import WorktreeManager, WorkspaceError, validate_branch
-from . import verifiers
-from . import reviewer
+from .workspace import WorkspaceError, WorktreeManager, validate_branch
 
 logger = logging.getLogger("zouwucode.dev.pipeline")
 

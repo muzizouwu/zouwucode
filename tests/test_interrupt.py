@@ -13,7 +13,6 @@ import asyncio
 import pytest
 
 from zouwucode.config import ZOUWUCODEConfig
-from zouwucode.engine.cache import PrefixCache
 from zouwucode.engine.loop import EngineLoop, TaskInterrupted, TurnLimitExceeded
 from zouwucode.engine.providers.base import (
     BaseProvider,
@@ -262,7 +261,6 @@ class TestConsecutiveInterrupts:
         asyncio.run(scenario())
 
         # Second run: fast provider, no interrupt — must finish cleanly.
-        from zouwucode.engine.loop import EngineLoop as _EL
 
         class _FastProvider(BaseProvider):
             def __init__(self):
@@ -353,6 +351,7 @@ class TestTUIInterruptWiring:
     def test_escape_falls_back_to_focus_when_idle(self):
         """空闲时 Esc 应保持原行为（聚焦输入框），而非报错。"""
         import inspect
+
         from zouwucode.tui.textual_app import ZOUWUCODETUI
 
         src = inspect.getsource(ZOUWUCODETUI.action_interrupt)
@@ -367,6 +366,7 @@ class TestTUIInterruptWiring:
 
     def test_confirm_screen_has_confirm_and_cancel(self):
         import inspect
+
         from zouwucode.tui.textual_app import InterruptConfirmScreen
 
         src = inspect.getsource(InterruptConfirmScreen)
@@ -377,6 +377,7 @@ class TestTUIInterruptWiring:
     def test_tui_handles_task_interrupted_in_message_flow(self):
         """_handle_message 必须有 TaskInterrupted 分支（源码级检查）。"""
         import inspect
+
         from zouwucode.tui.textual_app import ZOUWUCODETUI
 
         src = inspect.getsource(ZOUWUCODETUI._handle_message)
@@ -451,6 +452,7 @@ class TestWebUIInterruptWiring:
 
     def test_interrupt_route_registered(self):
         import inspect
+
         from zouwucode.webui.server import WebUIServer
 
         src = inspect.getsource(WebUIServer)
@@ -458,6 +460,7 @@ class TestWebUIInterruptWiring:
 
     def test_sse_interrupted_event(self):
         import inspect
+
         from zouwucode.webui.server import WebUIServer
 
         _, js = self._assets()

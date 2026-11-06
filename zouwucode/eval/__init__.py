@@ -28,7 +28,7 @@ Checks are deterministic and cheap — the LLM only does the work, never
 the grading. Run via `zouwucode eval`.
 """
 
-from .runner import EvalTask, TaskResult, run_task, load_tasks
 from .checks import run_checks
+from .runner import EvalTask, TaskResult, load_tasks, run_task
 
 __all__ = ["EvalTask", "TaskResult", "run_task", "load_tasks", "run_checks"]

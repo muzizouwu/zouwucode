@@ -8,8 +8,8 @@ never run tools or touch the workspace. It runs on the provider named by
 while a single high-stakes decision is escalated.
 """
 
-from .base import BaseTool, ToolSpec, ToolResult
 from ..errors import describe_exc
+from .base import BaseTool, ToolResult, ToolSpec
 
 ORACLE_SYSTEM = (
     "You are the ORACLE: a senior engineer consulted for a second opinion. "

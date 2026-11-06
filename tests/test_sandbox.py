@@ -1,10 +1,11 @@
 """Tests for the sandbox/permission module."""
 
-import pytest
 from pathlib import Path
 
-from zouwucode.sandbox.permission import PermissionManager
+import pytest
+
 from zouwucode.config import SandboxConfig
+from zouwucode.sandbox.permission import PermissionManager
 
 
 class TestPermissionManager:

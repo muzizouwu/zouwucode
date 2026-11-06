@@ -50,11 +50,11 @@ def _make_repo(tmp_path):
 
 
 def _stack(workspace, tmp_path, isolated):
-    from zouwucode.engine.loop import EngineLoop
-    from zouwucode.tools.registry import ToolRegistry
-    from zouwucode.sandbox.permission import PermissionManager
     from zouwucode.agent.coordinator import AgentCoordinator
     from zouwucode.agent.subagent import SubAgentManager
+    from zouwucode.engine.loop import EngineLoop
+    from zouwucode.sandbox.permission import PermissionManager
+    from zouwucode.tools.registry import ToolRegistry
 
     cfg = ZOUWUCODEConfig()
     cfg.data_dir = str(tmp_path / "data")
@@ -120,6 +120,7 @@ class TestWorktreeIsolation:
 class TestWiring:
     def test_runtime_accepts_workspace_root(self):
         import inspect
+
         from zouwucode.runtime import create_subagents_and_extensions
         params = inspect.signature(create_subagents_and_extensions).parameters
         assert "workspace_root" in params

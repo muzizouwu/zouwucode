@@ -12,11 +12,10 @@
 import asyncio
 from pathlib import Path
 
-from zouwucode.config import ZOUWUCODEConfig, ProviderConfig
-from zouwucode.runtime import (create_provider_for, ProviderRouter,
-                               create_subagents_and_extensions)
+from zouwucode.config import ProviderConfig, ZOUWUCODEConfig
 from zouwucode.engine.providers.base import BaseProvider, ModelResponse
-from zouwucode.tools.oracle_tool import OracleTool, ORACLE_SYSTEM
+from zouwucode.runtime import ProviderRouter, create_provider_for, create_subagents_and_extensions
+from zouwucode.tools.oracle_tool import ORACLE_SYSTEM, OracleTool
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -113,10 +112,9 @@ class TestOracleTool:
 
 class TestWiring:
     def _stack(self, enabled, oracle_key=""):
+        from zouwucode.agent.coordinator import AgentCoordinator
         from zouwucode.engine.loop import EngineLoop
         from zouwucode.tools.registry import ToolRegistry
-        from zouwucode.sandbox.permission import PermissionManager
-        from zouwucode.agent.coordinator import AgentCoordinator
 
         cfg = ZOUWUCODEConfig()
         cfg.router.enabled = enabled
@@ -126,7 +124,6 @@ class TestWiring:
                                                        api_type="deepseek")
         provider = _FakeProvider()
         engine = EngineLoop(cfg, provider)
-        sandbox = PermissionManager(cfg.sandbox)
         tools = ToolRegistry()
         coord = AgentCoordinator(cfg, engine, tools)
         engine.set_tool_executor(coord.execute_tool)

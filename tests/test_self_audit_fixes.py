@@ -227,7 +227,7 @@ class TestSessionSummary:
 
 class TestWebTlsOptOut:
     def test_verify_default_on_and_env_opt_out(self, monkeypatch):
-        from zouwucode.tools.web_tools import _tls_verify, _tls_hint
+        from zouwucode.tools.web_tools import _tls_hint, _tls_verify
         monkeypatch.delenv("ZOUWUCODE_TLS_INSECURE", raising=False)
         assert _tls_verify() is True
         monkeypatch.setenv("ZOUWUCODE_TLS_INSECURE", "1")

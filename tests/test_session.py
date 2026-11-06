@@ -1,11 +1,11 @@
 """Tests for the session management module."""
 
-import pytest
 import tempfile
-from pathlib import Path
 
-from zouwucode.session.manager import SessionManager
+import pytest
+
 from zouwucode.config import ZOUWUCODEConfig
+from zouwucode.session.manager import SessionManager
 
 
 class TestSessionManager:

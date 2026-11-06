@@ -5,10 +5,9 @@ new tools. These tests use fakes — they never need a real language server.
 """
 
 import asyncio
-from pathlib import Path
 
+from zouwucode.extensions.lsp_ext import LspDefinitionTool, LspExtension, LspHoverTool
 from zouwucode.lsp.client import LSPClient
-from zouwucode.extensions.lsp_ext import LspHoverTool, LspDefinitionTool, LspExtension
 
 
 class TestFormatting:
@@ -78,8 +77,8 @@ class TestLspTools:
 
 class TestExtensionRegistration:
     def test_enabled_contributes_three_tools(self):
-        from zouwucode.extensions.host import ExtensionContext
         from zouwucode.config import ZOUWUCODEConfig
+        from zouwucode.extensions.host import ExtensionContext
         ext = LspExtension(enabled=True)
         try:
             asyncio.run(ext.start(ExtensionContext(config=ZOUWUCODEConfig())))
@@ -89,8 +88,8 @@ class TestExtensionRegistration:
             asyncio.run(ext.stop())
 
     def test_disabled_contributes_nothing(self):
-        from zouwucode.extensions.host import ExtensionContext
         from zouwucode.config import ZOUWUCODEConfig
+        from zouwucode.extensions.host import ExtensionContext
         ext = LspExtension(enabled=False)
         asyncio.run(ext.start(ExtensionContext(config=ZOUWUCODEConfig())))
         assert ext.get_tools() == []

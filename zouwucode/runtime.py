@@ -9,18 +9,18 @@ factory and the builtin tool list, which had already started to drift.
 Anything that must be identical across the three UIs belongs here.
 """
 
-from .config import ZOUWUCODEConfig, ProviderConfig
+from .config import ProviderConfig, ZOUWUCODEConfig
 from .engine.providers.base import BaseProvider
 from .engine.providers.deepseek import DeepSeekProvider
 from .engine.providers.openai import OpenAIProvider
 from .tools.base import BaseTool
-from .tools.file_tools import ReadTool, WriteTool, EditTool, LsTool, GlobTool
+from .tools.code_exec_tool import PythonExecTool
+from .tools.file_tools import EditTool, GlobTool, LsTool, ReadTool, WriteTool
+from .tools.git_tools import GitTool
+from .tools.repo_map_tool import RepoMapTool
 from .tools.search_tools import GrepTool
 from .tools.shell_tools import ShellTool
-from .tools.git_tools import GitTool
-from .tools.web_tools import WebSearchTool, WebFetchTool
-from .tools.code_exec_tool import PythonExecTool
-from .tools.repo_map_tool import RepoMapTool
+from .tools.web_tools import WebFetchTool, WebSearchTool
 
 
 def ensure_provider_config(config: ZOUWUCODEConfig, provider_key: str) -> ProviderConfig:
@@ -162,8 +162,8 @@ def create_subagents_and_extensions(config, provider, coordinator, engine, tools
     Returns (subagent_manager, extension_host, router).
     """
     from .agent.subagent import SubAgentManager
-    from .tools.agent_tools import TaskTool
     from .extensions import ExtensionHost, LspExtension, McpExtension
+    from .tools.agent_tools import TaskTool
     from .tools.oracle_tool import OracleTool
 
     # Model routing: sub-agents may run on a cheaper "worker" provider, and an
@@ -194,12 +194,13 @@ def build_agent_engine(config: ZOUWUCODEConfig, sandbox_root, *,
     safety wiring (yolo mode, sandbox rooted at the given directory,
     sub-agent task tool). Returns (engine, tools).
     """
-    from .engine.loop import EngineLoop
-    from .tools.registry import ToolRegistry
-    from .sandbox.permission import PermissionManager
+    from pathlib import Path
+
     from .agent.coordinator import AgentCoordinator
     from .agent.subagent import SubAgentManager
-    from pathlib import Path
+    from .engine.loop import EngineLoop
+    from .sandbox.permission import PermissionManager
+    from .tools.registry import ToolRegistry
 
     provider = create_provider(config)
     engine = EngineLoop(config, provider)

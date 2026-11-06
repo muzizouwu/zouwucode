@@ -126,6 +126,21 @@ class TestGrepOutputContract:
         assert single.success
         assert "util.py:1:" in single.output
 
+    def test_disable_rg_env_skips_ripgrep(self, tmp_path, monkeypatch):
+        """CI's "no ripgrep" leg uses this switch — the Python engine must win."""
+        from zouwucode.tools import search_tools
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "util.py").write_text("VALUE = 42\n", encoding="utf-8")
+        monkeypatch.setenv("ZOUWUCODE_DISABLE_RG", "1")
+        looked_up = []
+        real_which = search_tools.shutil.which
+        monkeypatch.setattr(search_tools.shutil, "which",
+                            lambda name: looked_up.append(name) or real_which(name))
+        r = asyncio.run(search_tools.GrepTool().execute(
+            pattern="VALUE", path=str(tmp_path)))
+        assert r.success and "src/util.py:1:" in r.output
+        assert "rg" not in looked_up
+
 
 class TestInstaller:
     def test_installer_uses_module_entrypoint(self):

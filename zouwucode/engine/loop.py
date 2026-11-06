@@ -16,21 +16,20 @@ import logging
 import threading
 import time
 from collections import Counter, deque
-from typing import Optional, Callable, Awaitable
+from typing import Awaitable, Callable, Optional
 
 import httpx
 
-from .cache import PrefixCache, CacheStats
+from ..config import ZOUWUCODEConfig
+from ..tokens import estimate_messages
+from .cache import CacheStats, PrefixCache
 from .providers.base import (
     BaseProvider,
     ModelResponse,
     ProviderAPIError,
     ToolCall,
     ToolResult,
-    Message,
 )
-from ..config import ZOUWUCODEConfig
-from ..tokens import estimate_messages
 
 logger = logging.getLogger("zouwucode.engine")
 

@@ -13,7 +13,6 @@ from typing import Optional
 
 from ..config import SandboxConfig
 
-
 # ── Dangerous command patterns (Claude Code-inspired) ────────────────────────
 DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     (r'(rm|del|remove|unlink)\s+(-rf?\s+)?[/\\]', "Root filesystem deletion"),

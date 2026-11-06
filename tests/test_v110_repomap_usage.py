@@ -10,8 +10,8 @@ import asyncio
 from pathlib import Path
 
 from zouwucode.config import ZOUWUCODEConfig
-from zouwucode.repo_map import build_repo_map, _extract_defs, repo_map_enabled
 from zouwucode.engine.cache import CacheStats
+from zouwucode.repo_map import _extract_defs, build_repo_map, repo_map_enabled
 
 ROOT = Path(__file__).resolve().parent.parent
 

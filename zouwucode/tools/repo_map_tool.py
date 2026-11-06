@@ -1,11 +1,10 @@
 """repo_map tool — on-demand, ranked codebase overview (Aider-style)."""
 
 from pathlib import Path
-from typing import Optional
 
-from .base import BaseTool, ToolSpec, ToolResult
 from ..errors import describe_exc
 from ..repo_map import build_repo_map
+from .base import BaseTool, ToolResult, ToolSpec
 
 
 class RepoMapTool(BaseTool):

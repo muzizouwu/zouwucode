@@ -5,11 +5,7 @@ Completes three-frontend parity: the browser now streams the assistant BODY
 CLI/TUI could already do via --resume/--session.
 """
 
-import asyncio
 from pathlib import Path
-
-from zouwucode.config import ZOUWUCODEConfig
-from zouwucode.session.manager import SessionManager
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -82,7 +78,7 @@ class TestResumeFunctional:
         from zouwucode.tui.app import ZOUWUCODEApp
         app = ZOUWUCODEApp()
         # create and persist a session with two turns
-        sid = app.sessions.start_session("saved-1")
+        app.sessions.start_session("saved-1")
         app.sessions.log_turn({"role": "user", "content": "hello"})
         app.sessions.log_turn({"role": "assistant", "content": "hi there"})
 

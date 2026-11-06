@@ -9,7 +9,7 @@
 [![Version](https://img.shields.io/github/v/tag/muzizouwu/zouwucode?label=version&color=blue)](https://github.com/muzizouwu/zouwucode/releases)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 806 passed](https://img.shields.io/badge/tests-806%20passed-green)](tests/)
+[![Tests: pytest](https://img.shields.io/badge/tests-pytest-green)](tests/)
 [![CI](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml/badge.svg)](https://github.com/muzizouwu/zouwucode/actions/workflows/ci.yml)
 
 <img src="docs/assets/demo.gif" alt="ZOUWUCODE Web UI: welcome screen, English session, Chinese session" width="820">

@@ -6,8 +6,6 @@ Pick any point in a session, then restore the workspace (code), the turn log
 
 from pathlib import Path
 
-import pytest
-
 from zouwucode.config import ZOUWUCODEConfig
 from zouwucode.session.manager import SessionManager
 

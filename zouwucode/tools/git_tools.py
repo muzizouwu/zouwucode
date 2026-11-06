@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from .base import BaseTool, ToolSpec, ToolResult
-from ._encoding import decode_console
 from ..errors import describe_exc
+from ._encoding import decode_console
+from .base import BaseTool, ToolResult, ToolSpec
 
 
 class GitTool(BaseTool):

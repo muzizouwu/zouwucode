@@ -18,37 +18,36 @@ logger = logging.getLogger("zouwucode.tui.textual_app")
 import sys
 import time
 from pathlib import Path
-from typing import Optional, ClassVar
+from typing import ClassVar, Optional
 
-from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, Input, RichLog, Static, Label, Button
-from textual.reactive import reactive
-from textual.binding import Binding
-from textual.screen import Screen, ModalScreen
-from textual import events
 from rich.text import Text
+from textual import events
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Container, Horizontal, Vertical
+from textual.reactive import reactive
+from textual.screen import ModalScreen
+from textual.widgets import Button, Input, Label, RichLog, Static
 
-from ..config import ZOUWUCODEConfig
-from ..logging_setup import setup_logging
-from ..engine.loop import EngineLoop, TaskInterrupted
-from ..runtime import (create_provider, create_builtin_tools,
-                        create_subagents_and_extensions)
-from ..tools.oracle_tool import ORACLE_SYSTEM
-from ..tools.registry import ToolRegistry
 from ..agent.coordinator import AgentCoordinator
+from ..config import ZOUWUCODEConfig
+from ..context.compressor import DialogueCompressor
 from ..context.memory import MemoryManager
+from ..context.sliding_window import ContextWindow
 from ..context.topics import TopicManager
 from ..context.transcript import TranscriptManager
-from ..context.compressor import DialogueCompressor
-from ..context.sliding_window import ContextWindow
+from ..engine.loop import EngineLoop, TaskInterrupted
+from ..extensions import ExtensionContext
+from ..logging_setup import setup_logging
+from ..messaging import MessageBus, format_inbox, format_peers
+from ..project_memory import ProjectMemory
+from ..runtime import create_builtin_tools, create_provider, create_subagents_and_extensions
 from ..sandbox.permission import PermissionManager
 from ..session.manager import SessionManager
 from ..share import export_session
-from ..messaging import MessageBus, format_inbox, format_peers
-from ..project_memory import ProjectMemory
 from ..skills import RuleLoader, SkillsManager
-from ..extensions import ExtensionContext
+from ..tools.oracle_tool import ORACLE_SYSTEM
+from ..tools.registry import ToolRegistry
 
 
 # ── ANSI style helpers for RichLog messages ─────────────────────────────────
@@ -627,7 +626,7 @@ class ZOUWUCODETUI(App):
         # Show user message (opencode-style ┃ frame)
         # Jump to the bottom for the user's own message — then stay glued
         # to the end while the reply streams (sticky log handles the rest).
-        chat.write(_style(f"\n  ┃ You", "bold blue"), scroll_end=True)
+        chat.write(_style("\n  ┃ You", "bold blue"), scroll_end=True)
         chat.write(_style(f"  ┃ {message}", "blue"), scroll_end=True)
 
         # Modules may intercept messages ("ultrawork ..." / "ulw ..." prefix)
@@ -686,7 +685,7 @@ class ZOUWUCODETUI(App):
 
             # Show assistant response — only if it was NOT streamed live
             if response.content and not self._content_started:
-                chat.write(_style(f"\n  ┃ assistant", "bold green"))
+                chat.write(_style("\n  ┃ assistant", "bold green"))
                 chat.write(f"  ┃ {response.content}")
 
             # Show cache status
@@ -1026,7 +1025,7 @@ class ZOUWUCODETUI(App):
                     chat.write("  No active goal. Use /goal set <your goal>")
 
         elif command == "/compress":
-            chat.write(_style(f"  Compression:", "bold cyan"))
+            chat.write(_style("  Compression:", "bold cyan"))
             chat.write(f"    Level: {self.compressor_level}")
             chat.write(f"    Max tokens: {self.max_context_tokens}")
             chat.write(f"    Keep turns: {self.keep_turns}")
@@ -1136,7 +1135,7 @@ class ZOUWUCODETUI(App):
                         subprocess.Popen(["open", str(path)])
                     else:
                         subprocess.Popen(["xdg-open", str(path)])
-                    chat.write(_style(f"  Opened rules file in editor", "green"))
+                    chat.write(_style("  Opened rules file in editor", "green"))
                 except Exception:
                     chat.write(_style(f"  Rules file: {path}", "cyan"))
             else:
@@ -1238,7 +1237,7 @@ class ZOUWUCODETUI(App):
         to stop at the next safe point. When idle, falls back to the
         original Esc behaviour of focusing the input box.
         """
-        chat = self.query_one("#chat-view", RichLog)
+        self.query_one("#chat-view", RichLog)
 
         # Idle → keep the original Esc behaviour: focus the input box.
         if not self._processing or not self.engine.is_running:
@@ -1483,7 +1482,7 @@ def run_tui(config_path: Optional[Path] = None,
     app._resume_session = resume_session
     try:
         app.run()
-    except BaseException as exc:  # noqa: BLE001 — record then re-raise
+    except BaseException:  # noqa: BLE001 — record then re-raise
         # Textual writes tracebacks to stderr, which is invisible once the
         # console is restored — mirror the crash to the rotating log file so
         # "the TUI vanished mid-task" is actually diagnosable.

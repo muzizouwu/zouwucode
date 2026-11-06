@@ -2,22 +2,19 @@
 and the extension layer (MCP/LSP reserved integration space)."""
 
 import asyncio
-import json
 
 import pytest
 
+from zouwucode.agent.coordinator import AgentCoordinator
+from zouwucode.agent.subagent import AgentStatus, SubAgentManager
 from zouwucode.config import ZOUWUCODEConfig
-from zouwucode.engine.loop import EngineLoop, TaskInterrupted
+from zouwucode.engine.loop import EngineLoop
 from zouwucode.engine.providers.base import (
     BaseProvider,
     ModelResponse,
     ToolCall,
-    ToolResult,
 )
-from zouwucode.agent.coordinator import AgentCoordinator
-from zouwucode.agent.subagent import AgentStatus, SubAgentManager
 from zouwucode.tools.agent_tools import TaskTool
-
 
 # ── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -166,7 +163,6 @@ class TestToolWhitelist:
     def test_whitelisted_tool_allowed(self):
         manager = _manager()
         agent = manager.create("reader", "sys", tools=["read"])
-        import zouwucode.engine.loop as loop_mod
 
         async def scenario():
             result = await agent.engine._tool_executor(
@@ -402,8 +398,8 @@ class TestTaskTool:
 
 class TestExtensionHost:
     def test_inactive_by_default(self):
-        from zouwucode.extensions import ExtensionHost, ExtensionContext
         from zouwucode.config import ZOUWUCODEConfig as Cfg
+        from zouwucode.extensions import ExtensionContext, ExtensionHost
 
         host = ExtensionHost()
         host.register(__import__("zouwucode.extensions", fromlist=["McpExtension"]).McpExtension([]))
@@ -415,7 +411,7 @@ class TestExtensionHost:
         assert len(host.status_summary()) == 2
 
     def test_lsp_extension_enabled_registers_diagnostics_tool(self):
-        from zouwucode.extensions import ExtensionHost, ExtensionContext, LspExtension
+        from zouwucode.extensions import ExtensionContext, ExtensionHost, LspExtension
 
         host = ExtensionHost()
         host.register(LspExtension(enabled=True))
@@ -427,7 +423,7 @@ class TestExtensionHost:
         assert tools[0].get_name() == "check_diagnostics"
 
     def test_register_after_start_rejected(self):
-        from zouwucode.extensions import ExtensionHost, ExtensionContext
+        from zouwucode.extensions import ExtensionContext, ExtensionHost
 
         host = ExtensionHost()
         asyncio.run(host.start(ExtensionContext(config=ZOUWUCODEConfig())))
@@ -435,7 +431,7 @@ class TestExtensionHost:
             host.register(_DummyExtension())
 
     def test_bad_extension_start_does_not_break_host(self):
-        from zouwucode.extensions import ExtensionHost, ExtensionContext
+        from zouwucode.extensions import ExtensionContext, ExtensionHost
 
         host = ExtensionHost()
         host.register(_DummyExtension())

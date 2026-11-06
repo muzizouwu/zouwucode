@@ -1,17 +1,19 @@
 """Tests for the engine module."""
 
 import asyncio
+
 import pytest
-from zouwucode.engine.cache import PrefixCache, CacheStats
+
+from zouwucode.config import ZOUWUCODEConfig
+from zouwucode.engine.cache import CacheStats, PrefixCache
 from zouwucode.engine.loop import EngineLoop, TurnLimitExceeded
 from zouwucode.engine.providers.base import (
     BaseProvider,
     Message,
+    ModelResponse,
     ToolCall,
     ToolResult,
-    ModelResponse,
 )
-from zouwucode.config import ZOUWUCODEConfig
 
 
 class TestPrefixCache:
