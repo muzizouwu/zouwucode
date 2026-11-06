@@ -120,4 +120,4 @@ jobs:
 
       - name: Verify wheel contents
         run: |
-          python -c "import glob, sys, zipfile; w = glob.glob('dist/*.whl')[0]; z = zipfile.ZipFile(w); names = z.namelist(); need = ['zouwucode/__init__.py', 'zouwucode/__main__.py', 'zouwucode/webui/static/app.js', 'zouwucode/webui/static/index.html']; missing = [n for n in need if n not in names]; print(w, len(names), 'files'); print('missing:', missing) if missing else None; sys.exit(1 if missing else 0"
+          python -c "import glob, sys, zipfile; w = glob.glob('dist/*.whl')[0]; z = zipfile.ZipFile(w); names = z.namelist(); need = ['zouwucode/__init__.py', 'zouwucode/__main__.py', 'zouwucode/webui/static/index.html', 'zouwucode/webui/static/app.js', 'zouwucode/webui/static/app-core.js', 'zouwucode/webui/static/app-chat.js', 'zouwucode/webui/static/app-panels.js']; missing = [n for n in need if n not in names]; print(w, len(names), 'files'); print('missing:', missing) if missing else None; sys.exit(1 if missing else 0)"
