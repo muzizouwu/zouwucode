@@ -58,6 +58,33 @@ def _shorten(line: str) -> str:
     return line
 
 
+def _normalize_rel_path(text: str, single_name: str = "") -> str:
+    """Normalize grep output to the documented ``path:line:text`` contract.
+
+    ripgrep emits ``.\\src\\util.py:12:…`` on Windows and ``./src/util.py:12:``
+    on POSIX; both must read ``src/util.py:12:``. When the search target is a
+    single file ripgrep omits the filename, so ``single_name`` puts it back —
+    that keeps the Python fallback and ripgrep interchangeable.
+
+    Only the path part is rewritten: matched text may legitimately contain
+    backslashes (e.g. searching for Windows paths), so it is left untouched.
+    """
+    path, sep, rest = text.partition(":")
+    if sep:
+        if single_name and path.isdigit():
+            return _normalize_rel_path(f"{single_name}:{text}")
+        path = path.replace("\\", "/")
+        while path.startswith("./"):
+            path = path[2:]
+        return f"{path}{sep}{rest}"
+
+    # Files-only output: the whole line is a path.
+    path = text.replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+
+
 class GrepTool(BaseTool):
     """Search file CONTENTS with a regular expression."""
 
@@ -209,10 +236,10 @@ class GrepTool(BaseTool):
             return [], stderr.decode("utf-8", errors="replace").strip() or "ripgrep error"
 
         lines = stdout.decode("utf-8", errors="replace").splitlines()
+        single = root.name if root.is_file() and not files_only else ""
         out: list[str] = []
         for line in lines:
-            rel = line[2:] if line.startswith("./") else line
-            out.append(_shorten(rel))
+            out.append(_shorten(_normalize_rel_path(line, single)))
             if len(out) >= limit:
                 break
         return out, None
@@ -283,8 +310,8 @@ class GrepTool(BaseTool):
     @staticmethod
     def _relative(file_path: Path, root: Path) -> str:
         if root.is_file():
-            return root.name
+            return _normalize_rel_path(root.name)
         try:
-            return str(file_path.relative_to(root)).replace(os.sep, "/")
+            return _normalize_rel_path(str(file_path.relative_to(root)))
         except ValueError:
-            return str(file_path)
+            return _normalize_rel_path(str(file_path))

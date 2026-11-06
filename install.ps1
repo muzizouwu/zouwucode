@@ -31,10 +31,16 @@ $ProfileScript = @"
 # ZOUWUCODE Quick Launch
 # Added by install.ps1 on $(Get-Date)
 function z {
-    python "$ZOUWUCODE_DIR\zouwucode\__main__.py" @args
+    `$prev = `$env:PYTHONPATH
+    `$env:PYTHONPATH = "$ZOUWUCODE_DIR;" + `$env:PYTHONPATH
+    try { python -m zouwucode @args }
+    finally { `$env:PYTHONPATH = `$prev }
 }
 function zouwucode {
-    python "$ZOUWUCODE_DIR\zouwucode\__main__.py" @args
+    `$prev = `$env:PYTHONPATH
+    `$env:PYTHONPATH = "$ZOUWUCODE_DIR;" + `$env:PYTHONPATH
+    try { python -m zouwucode @args }
+    finally { `$env:PYTHONPATH = `$prev }
 }
 "@
 
@@ -65,7 +71,10 @@ $ScriptContent = @"
 # Place this script in a PATH directory to use "z" from anywhere
 
 `$ZOUWUCODE_DIR = "$ZOUWUCODE_DIR"
-python "`$ZOUWUCODE_DIR\zouwucode\__main__.py" @args
+`$prev = `$env:PYTHONPATH
+`$env:PYTHONPATH = "`$ZOUWUCODE_DIR;" + `$env:PYTHONPATH
+try { python -m zouwucode @args }
+finally { `$env:PYTHONPATH = `$prev }
 "@
 
 Set-Content -Path $ScriptPath -Value $ScriptContent -Encoding UTF8

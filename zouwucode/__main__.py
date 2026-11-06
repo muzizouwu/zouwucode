@@ -229,20 +229,24 @@ def main():
     # ── Launch ──────────────────────────────────────────────────────────────
     if args.tui:
         # ── Textual TUI mode ────────────────────────────────────────────────
-        from .tui.textual_app import run_tui
+        # Imported via the package so a missing optional ``textual`` extra
+        # yields a readable hint instead of an ImportError traceback.
+        from .tui import run_tui
         resume = args.session or ("__latest__" if args.resume else None)
         # Same overrides the CLI path applies — previously dropped for TUI.
-        run_tui(config_path, skill_names=args.skills, resume_session=resume,
-                overrides={
-                    "provider": args.provider,
-                    "mode": args.mode,
-                    "model": args.model,
-                    "api_key": args.api_key,
-                    "reasoning": args.reasoning,
-                    "compress": args.compress,
-                    "max_tokens": args.max_tokens,
-                    "keep_turns": args.keep_turns,
-                })
+        code = run_tui(config_path, skill_names=args.skills, resume_session=resume,
+                       overrides={
+                           "provider": args.provider,
+                           "mode": args.mode,
+                           "model": args.model,
+                           "api_key": args.api_key,
+                           "reasoning": args.reasoning,
+                           "compress": args.compress,
+                           "max_tokens": args.max_tokens,
+                           "keep_turns": args.keep_turns,
+                       })
+        if code:
+            sys.exit(code)
     elif args.gui:
         # ── Desktop GUI (same frontend as --web, native window) ─────────────
         from .gui import launch_gui
