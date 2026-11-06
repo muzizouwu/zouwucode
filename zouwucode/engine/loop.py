@@ -16,13 +16,14 @@ import logging
 import threading
 import time
 from collections import Counter, deque
-from typing import Awaitable, Callable, Optional
+from typing import Callable, Optional
 
 import httpx
 
 from ..config import ZOUWUCODEConfig
 from ..tokens import estimate_messages
 from .cache import CacheStats, PrefixCache
+from .interrupts import InterruptMixin
 from .providers.base import (
     BaseProvider,
     ModelResponse,
@@ -31,70 +32,22 @@ from .providers.base import (
     ToolResult,
 )
 
+# Turn-level types live in turns.py; re-exported here so existing imports
+# (``from zouwucode.engine.loop import TurnContext, TaskInterrupted``) are
+# unchanged.
+from .turns import (  # noqa: F401  (re-exported for backwards compatibility)
+    _ROUND_EXTENSION_NUDGE,
+    _STUCK_NUDGE,
+    TaskInterrupted,
+    ToolExecutor,
+    TurnContext,
+    TurnLimitExceeded,
+)
+
 logger = logging.getLogger("zouwucode.engine")
 
 
-class TurnLimitExceeded(RuntimeError):
-    """Raised when the engine loop hits a safety limit (rounds / timeout /
-    consecutive tool errors) — prevents infinite tool-call loops."""
-
-
-class TaskInterrupted(RuntimeError):
-    """Raised when the user interrupts the running task.
-
-    Distinct from TurnLimitExceeded so callers can tell "user cancelled"
-    apart from "safety limit tripped" and offer recovery options."""
-
-
-class TurnContext:
-    """Context for a single turn in the engine loop."""
-
-    def __init__(
-        self,
-        messages: list[dict],
-        tools: Optional[list[dict]] = None,
-        mode: str = "agent",
-    ):
-        self.messages = messages
-        self.tools = tools or []
-        self.mode = mode  # plan | agent | yolo
-        self.response: Optional[ModelResponse] = None
-        self.tool_results: list[ToolResult] = []
-        self.start_time = time.time()
-        self.duration: float = 0.0
-
-
-# Type alias for the tool execution callback
-ToolExecutor = Callable[[ToolCall, TurnContext], Awaitable[ToolResult]]
-
-# Injected once when the stuck detector sees the model repeat an identical
-# action+result inside the sliding window. Phrased as information, not a
-# prohibition — the model decides how to change strategy.
-_STUCK_NUDGE = (
-    "⚠️ Stuck check: you have repeated the identical action with the "
-    "identical result several times in a row. Repeating it again will not "
-    "change anything. Either (a) change your approach — different tool, "
-    "different arguments, or inspect a different file; (b) re-read the "
-    "original task and re-plan the next concrete step; or (c) stop and "
-    "summarize what you have achieved so far and what blocks the rest."
-)
-
-# Injected when the tool-round budget is exhausted but the model is still
-# making progress (tools succeeding, no stuck verdict). Instead of killing a
-# legitimate multi-step task mid-flight, we hand it a fresh budget with an
-# instruction to either converge now or work efficiently — a genuine runaway
-# still trips the hard cap once extensions run out (plus stuck / consecutive-
-# error / total-timeout / cost breakers, which are unaffected).
-_ROUND_EXTENSION_NUDGE = (
-    "ℹ️ You have used up the planned tool-round budget for this task. You are "
-    "being given a little more room. If the task is nearly done, wrap up now: "
-    "stop calling tools and give your final answer. If real work remains, "
-    "keep going but be efficient — batch independent steps, avoid redundant "
-    "reads, and don't repeat actions that already succeeded."
-)
-
-
-class EngineLoop:
+class EngineLoop(InterruptMixin):
     """The main append-only, cache-first agent loop.
 
     Usage:
@@ -142,126 +95,6 @@ class EngineLoop:
         # Optional cascade hook: invoked when this engine is interrupted —
         # used by SubAgentManager to stop all running sub-agents too.
         self.on_interrupt: Optional[Callable[[], None]] = None
-
-    # ── Interrupt API ────────────────────────────────────────────────────────
-
-    def request_interrupt(self, reason: str = "") -> bool:
-        """Request interruption of the currently running task.
-
-        Safe to call from any thread or async context. Returns False if no
-        task is running (nothing to interrupt). The interruption takes
-        effect at the next safe point: LLM stream chunk, round boundary,
-        or before a tool executes.
-        """
-        if not self._running:
-            logger.info("Interrupt ignored — no task is currently running.")
-            return False
-        self._interrupt_reason = reason or "user requested"
-        self._interrupt_event.set()
-        logger.warning("Interrupt requested | reason=%s", self._interrupt_reason)
-        # Cascade: let interested parties (e.g. sub-agent manager) stop too.
-        if self.on_interrupt is not None:
-            try:
-                self.on_interrupt()
-            except Exception as exc:  # never let the cascade break the stop
-                logger.error("Interrupt cascade hook failed: %s", exc)
-        return True
-
-    @property
-    def is_running(self) -> bool:
-        """True while a task is being executed by run()."""
-        return self._running
-
-    def _check_interrupt(self, where: str) -> None:
-        """Raise TaskInterrupted if an interrupt was requested."""
-        if self._interrupt_event.is_set():
-            raise TaskInterrupted(
-                f"Task interrupted by user ({self._interrupt_reason}) — {where}"
-            )
-
-    async def _interrupt_poller(self) -> None:
-        """Poll the interrupt event inside the event loop.
-
-        A loop-internal task (not a thread-pool waiter) so cancellation is
-        always clean — a blocked run_in_executor thread would leak and stall
-        loop shutdown forever.
-        """
-        while not self._interrupt_event.is_set():
-            await asyncio.sleep(0.1)
-
-    async def _run_interruptible(self, coro, timeout: float):
-        """Await *coro* but wake promptly when an interrupt is requested.
-
-        Races the coroutine against a poller of the interrupt event (~0.1s
-        latency). Also enforces *timeout*. Raises TaskInterrupted or
-        asyncio.TimeoutError; the losing task is cancelled in both cases.
-        """
-        stream_task = asyncio.ensure_future(coro)
-        poll_task = asyncio.ensure_future(self._interrupt_poller())
-        # Track the stream task so an abrupt unwind (KeyboardInterrupt /
-        # CancelledError arriving at the outer await) can be cleaned up.
-        self._current_stream_task = stream_task
-        try:
-            done, pending = await asyncio.wait(
-                {stream_task, poll_task},
-                timeout=timeout,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        finally:
-            if self._current_stream_task is stream_task:
-                self._current_stream_task = None
-        # Whatever lost the race gets cancelled.
-        for task in pending:
-            task.cancel()
-        if stream_task not in done:
-            # Timed out or interrupted before the stream finished.
-            if self._interrupt_event.is_set():
-                raise TaskInterrupted(
-                    f"Task interrupted by user ({self._interrupt_reason}) "
-                    f"— during LLM request"
-                )
-            raise asyncio.TimeoutError()
-        return stream_task.result()
-
-    def cancel_pending_io(self) -> None:
-        """Cancel the in-flight LLM stream task, if any.
-
-        Used when run() is unwound abruptly (KeyboardInterrupt /
-        CancelledError from the UI layer) so no orphaned HTTP stream keeps
-        running in the background.
-        """
-        task = getattr(self, "_current_stream_task", None)
-        if task is not None and not task.done():
-            task.cancel()
-            logger.warning("Cancelled pending LLM stream task.")
-
-    def _cleanup_interrupted_prefix(
-        self,
-        assistant_appended: bool,
-        response: Optional[ModelResponse],
-        context: "TurnContext",
-    ) -> None:
-        """Keep the conversation prefix API-valid after an interruption.
-
-        If the assistant message (with tool_calls) was already appended,
-        every tool call must be answered by a tool result — fill in
-        synthetic "[interrupted]" results for the calls that never ran.
-        """
-        if assistant_appended and response is not None and response.tool_calls:
-            executed_ids = {r.tool_call_id for r in context.tool_results}
-            pending = [tc for tc in response.tool_calls if tc.id not in executed_ids]
-            for tc in pending:
-                self.cache.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": "[interrupted by user — tool not executed]",
-                })
-            if pending:
-                logger.warning(
-                    "Interrupt cleanup — %d pending tool call(s) answered "
-                    "with synthetic interrupted results.",
-                    len(pending),
-                )
 
     def set_tool_executor(self, executor: ToolExecutor) -> None:
         """Set the callback for executing tool calls."""
