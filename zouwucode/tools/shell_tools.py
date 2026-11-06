@@ -149,10 +149,18 @@ class ShellTool(BaseTool):
         if self.sandbox:
             allowed = await self.sandbox.check_command(command)
             if not allowed:
+                reason = ""
+                explain = getattr(self.sandbox, "block_reason", None)
+                if callable(explain):
+                    try:
+                        reason = explain(command)
+                    except Exception:  # noqa: BLE001 — explanation is optional
+                        reason = ""
+                detail = f" ({reason})" if reason else ""
                 return ToolResult(
                     success=False,
                     output="",
-                    error=f"Command blocked by sandbox: {command}",
+                    error=f"Command blocked by sandbox{detail}: {command}",
                 )
 
         try:

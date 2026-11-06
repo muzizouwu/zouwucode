@@ -97,6 +97,8 @@ def launch_gui(app, port: int = 8080, *, block: bool = True) -> int:
         print(f"  Could not launch a browser automatically. Open {url} manually.")
     print("  Native window unavailable; install it with: "
           "pip install \"zouwucode[gui]\"  (Ctrl+C to stop)")
+    print("  Closing the browser tab does NOT stop the server — press Ctrl+C "
+          "in this terminal to exit.")
     if block:
         try:
             while True:

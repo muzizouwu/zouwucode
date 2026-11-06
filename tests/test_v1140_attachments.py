@@ -9,11 +9,15 @@ the same rules.
 import asyncio
 import base64
 import json
+import os
 import re
+import time
 
 from zouwucode.attachments import (
     MAX_BYTES,
     MAX_FILES,
+    RETENTION_DAYS,
+    _unique_target,
     attachment_note,
     filename_for,
     image_parts,
@@ -59,6 +63,28 @@ class TestSaveAttachments:
         assert "/" not in first and "\\" not in first and ".." not in first
         assert first.endswith(".png")
         assert first != second
+
+    def test_same_name_and_second_does_not_overwrite(self, tmp_path):
+        root = tmp_path / ".zouwucode" / "uploads"
+        root.mkdir(parents=True)
+        first = _unique_target(root, "shot.png", 1)
+        first.write_bytes(b"a")
+        second = _unique_target(root, "shot.png", 1)
+        assert second != first
+        assert not second.exists()
+
+    def test_prunes_uploads_older_than_retention(self, tmp_path):
+        root = tmp_path / ".zouwucode" / "uploads"
+        root.mkdir(parents=True)
+        old = root / "old.txt"
+        old.write_text("old")
+        past = time.time() - (RETENTION_DAYS + 1) * 86400
+        os.utime(old, (past, past))
+        saved, errors = save_attachments(
+            [{"name": "new.txt", "mime": "text/plain", "data": _b64(b"x")}],
+            tmp_path)
+        assert errors == [] and len(saved) == 1
+        assert not old.exists()
 
     def test_rejects_more_than_max_files(self, tmp_path):
         items = [

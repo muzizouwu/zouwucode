@@ -60,6 +60,26 @@ class TestPermissionManager:
         assert await manager.check_command("sudo rm -rf /")
 
     @pytest.mark.asyncio
+    async def test_block_split_recursive_force_flags(self, manager):
+        """`rm -r -f` / `--recursive --force` must not slip past the -rf regex."""
+        for cmd in (
+            "rm -r -f ./build",
+            "rm -f -r ./build",
+            "rm --recursive --force ./build",
+            "rm -Rf ./build",
+            "rm -fr ./build",
+        ):
+            assert not await manager.check_command(cmd), cmd
+        # Recursive alone or force alone stays available.
+        assert await manager.check_command("rm -r ./build")
+        assert await manager.check_command("rm -f file.txt")
+
+    def test_block_reason_explains_rejection(self, manager):
+        assert "Recursive forced deletion" in manager.block_reason("rm -r -f ./x")
+        assert manager.block_reason("sudo ls") == "Privilege escalation"
+        assert manager.block_reason("ls -la") == ""
+
+    @pytest.mark.asyncio
     async def test_file_access(self, manager):
         manager.set_workspace(Path("/workspace"))
         assert await manager.check_file_access("/workspace/project/file.py", "r")

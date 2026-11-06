@@ -20,6 +20,9 @@ MAX_BYTES = 8 * 1024 * 1024          # 8 MiB per file
 # DeepSeek rejects request bodies over 48 MiB; base64 inflates by ~4/3, so
 # cap the raw total well below that (the prompt still carries text + tools).
 MAX_TOTAL_BYTES = 32 * 1024 * 1024   # 32 MiB across all files
+# Uploads are transient working copies, not user data: prune anything older
+# than this on the next upload so the directory cannot grow without bound.
+RETENTION_DAYS = 7
 UPLOAD_DIR = Path(".zouwucode") / "uploads"
 IMAGE_MIME = {
     "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif",
@@ -33,6 +36,33 @@ def filename_for(name: str, index: int) -> str:
     suffix = Path(stem).suffix[:12]
     base = _SAFE.sub("_", Path(stem).stem)[:48].strip("_") or "file"
     return f"{time.strftime('%Y%m%d-%H%M%S')}-{index}-{base}{suffix}"
+
+
+def _unique_target(root: Path, name: str, index: int) -> Path:
+    """Pick a target path that does not overwrite a same-second upload."""
+    target = root / filename_for(name, index)
+    if not target.exists():
+        return target
+    stem, suffix = target.stem, target.suffix
+    n = 2
+    while (root / f"{stem}-{n}{suffix}").exists():
+        n += 1
+    return root / f"{stem}-{n}{suffix}"
+
+
+def _prune_uploads(root: Path) -> None:
+    """Delete uploads older than ``RETENTION_DAYS`` (best effort)."""
+    cutoff = time.time() - RETENTION_DAYS * 86400
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink()
+        except OSError:
+            continue
 
 
 def _decode(data: str) -> bytes:
@@ -68,6 +98,7 @@ def save_attachments(
         root.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return [], [f"无法创建上传目录：{exc}"]
+    _prune_uploads(root)
 
     total = 0
     for index, item in enumerate(entries, start=1):
@@ -91,7 +122,7 @@ def save_attachments(
             errors.append(
                 f"{name}: 附件合计超过 {MAX_TOTAL_BYTES // (1024 * 1024)} MB，已跳过")
             continue
-        target = root / filename_for(name, index)
+        target = _unique_target(root, name, index)
         try:
             target.write_bytes(raw)
         except OSError as exc:

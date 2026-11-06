@@ -199,7 +199,7 @@ Web UI 界面包括：
 - **模式切换栏**：Agent / Plan / YOLO 三个按钮
 - **聊天区域**：显示消息历史，支持用户消息、助手回复、思考过程
 - **输入框**：底部输入区域，Enter 发送 / Shift+Enter 换行
-- **附件**：回形针按钮、拖拽或粘贴添加图片与文件（≤5 个、单个 ≤8 MB、合计 ≤32 MB）；附件保存到 `.zouwucode/uploads/`，纯文本端点也能用工具读取，`deepseek-flash` 等多模态模型同时收到内联图片
+- **附件**：回形针按钮、拖拽或粘贴添加图片与文件（≤5 个、单个 ≤8 MB、合计 ≤32 MB）；附件保存到 `.zouwucode/uploads/`，纯文本端点也能用工具读取，`deepseek-flash` 等多模态模型同时收到内联图片。上传目录会在每次上传时清理 7 天前的旧文件（`RETENTION_DAYS`），同名同秒的文件自动追加 `-2`/`-3` 后缀，不会互相覆盖。
 - **状态栏**：显示缓存命中率、成本统计
 
 API 端点：
@@ -1426,6 +1426,7 @@ zouwucode --web                # 浏览器界面（同一个前端）
 
 - 桌面 GUI 与 Web 共用 `zouwucode/webui/static/`（同一份 HTML/CSS/JS），零 CDN、零构建、离线可用。
 - 未安装 `pywebview` 时自动回落到系统浏览器并提示安装命令；端口被占用直接报错退出（码 2）。
+- 回落浏览器的模式下，**关闭浏览器标签页不会结束进程**：服务端继续在终端里运行，需要在该终端按 `Ctrl+C` 退出（启动时也会打印这条提示）。
 - 三栏布局：会话列表 / 对话流 / 运行状态；流式思考折叠块、工具卡片、代码块一键复制、审批模态框、打断二次确认。
 - 快捷键：`Enter` 发送、`Shift+Enter` 换行、`Esc` 打断（需确认）、`Ctrl+K` 命令面板、`Ctrl+L` 清空、`Ctrl+J` 切主题。
 - 斜杠命令：`/help /clear /plan /agent /yolo /thinking /theme /sessions /usage /context /oracle /resume /rewind /msg /share /memory /decide /goal /compress /agents /inbox /peers`。
