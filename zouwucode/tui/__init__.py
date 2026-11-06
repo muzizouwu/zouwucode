@@ -12,7 +12,7 @@ install (``pip install zouwucode``) still runs ``--version``, the CLI and
 
 import sys
 
-from .app import ZOUWUCODEApp
+from ..application import ZOUWUCODEApp
 
 _TEXTUAL_HINT = (
     "Textual TUI 需要额外依赖，当前环境未安装 textual。\n"

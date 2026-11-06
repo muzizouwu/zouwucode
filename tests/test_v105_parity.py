@@ -192,17 +192,17 @@ class TestWebParity:
         assert '"max_context_tokens": 1048576,' not in self.src
 
     def test_app_passes_subagent_manager(self):
-        assert "subagent_manager=self.subagent_manager" in _read("zouwucode/tui/app.py")
+        assert "subagent_manager=self.subagent_manager" in _read("zouwucode/application.py")
 
 
 class TestCliInteractivity:
     def test_tool_event_wired(self):
-        src = _read("zouwucode/tui/app.py")
+        src = _read("zouwucode/application.py")
         assert "self.engine.on_tool_event = self._on_tool_event" in src
         assert "def _on_tool_event" in src
 
     def test_ctrl_c_interrupts_running_task(self):
-        src = _read("zouwucode/tui/app.py")
+        src = _read("zouwucode/application.py")
         sig = src[src.index("def _signal_handler"):]
         assert 'request_interrupt(reason="CLI Ctrl+C")' in sig[:600]
         assert "is_running" in sig[:600]
@@ -213,7 +213,7 @@ class TestSharedWiring:
         assert "def create_subagents_and_extensions" in _read("zouwucode/runtime.py")
 
     def test_both_frontends_use_factory(self):
-        for rel in ("zouwucode/tui/app.py", "zouwucode/tui/textual_app.py"):
+        for rel in ("zouwucode/application.py", "zouwucode/tui/textual_app.py"):
             src = _read(rel)
             assert "create_subagents_and_extensions(" in src
             assert "self.subagent_manager = SubAgentManager(" not in src

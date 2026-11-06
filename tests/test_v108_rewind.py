@@ -127,7 +127,7 @@ class TestAppWiring:
         assert not any(m.get("content") == "q2" for m in app.engine.cache.get_prefix())
 
     def test_three_frontends_expose_rewind(self):
-        for rel in ("zouwucode/tui/app.py", "zouwucode/tui/textual_app.py"):
+        for rel in ("zouwucode/application.py", "zouwucode/tui/textual_app.py"):
             src = _read(rel)
             assert "def rewind_to" in src
             assert 'command == "/rewind"' in src

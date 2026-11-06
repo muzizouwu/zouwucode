@@ -91,7 +91,7 @@ class TestAppWiring:
 
 class TestFrontendWiring:
     def test_cli_and_tui_commands(self):
-        for rel in ("zouwucode/tui/app.py", "zouwucode/tui/textual_app.py"):
+        for rel in ("zouwucode/application.py", "zouwucode/tui/textual_app.py"):
             src = (ROOT / rel).read_text(encoding="utf-8")
             for needle in ('command == "/share"', 'command == "/msg"',
                            'command == "/inbox"', 'command == "/peers"'):

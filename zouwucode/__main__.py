@@ -5,7 +5,7 @@ import logging
 import sys
 from pathlib import Path
 
-from .tui.app import ZOUWUCODEApp
+from .application import ZOUWUCODEApp
 
 logger = logging.getLogger("zouwucode.cli")
 

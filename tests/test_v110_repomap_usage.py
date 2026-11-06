@@ -102,7 +102,7 @@ class TestUsageSummary:
 
 class TestUsageWiring:
     def test_cli_and_tui_have_usage(self):
-        assert 'command == "/usage"' in _read("zouwucode/tui/app.py")
+        assert 'command == "/usage"' in _read("zouwucode/application.py")
         assert 'command == "/usage"' in _read("zouwucode/tui/textual_app.py")
 
     def test_web_endpoint_and_command(self):
@@ -113,5 +113,5 @@ class TestUsageWiring:
         assert '{ cmd: "/usage"' in js and '"/api/usage"' in js
 
     def test_repo_map_injectable_into_prompt(self):
-        for rel in ("zouwucode/tui/app.py", "zouwucode/tui/textual_app.py"):
+        for rel in ("zouwucode/application.py", "zouwucode/tui/textual_app.py"):
             assert "build_repo_map(" in _read(rel)

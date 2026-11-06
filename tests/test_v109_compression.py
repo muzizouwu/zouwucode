@@ -90,7 +90,7 @@ class TestFileContentSummary:
 
 class TestNoMidConversationSystem:
     def test_project_memory_uses_user_role(self):
-        for rel in ("zouwucode/tui/app.py", "zouwucode/tui/textual_app.py"):
+        for rel in ("zouwucode/application.py", "zouwucode/tui/textual_app.py"):
             src = _read(rel)
             assert '"role": "user", "content": "[project memory]' in src
             assert '"role": "system", "content": project_c' not in src

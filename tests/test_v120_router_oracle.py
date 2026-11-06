@@ -147,7 +147,7 @@ class TestWiring:
         assert "oracle" not in tools.get_names()
 
     def test_three_frontends_expose_oracle(self):
-        for rel in ("zouwucode/tui/app.py", "zouwucode/tui/textual_app.py"):
+        for rel in ("zouwucode/application.py", "zouwucode/tui/textual_app.py"):
             src = (ROOT / rel).read_text(encoding="utf-8")
             assert 'command == "/oracle"' in src, rel
         web = (ROOT / "zouwucode/webui/server.py").read_text(encoding="utf-8")

@@ -53,7 +53,7 @@ class TestWebResume:
                            ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
 
     def test_app_method_exists(self):
-        assert "def resume_session(self, session_id" in _read("zouwucode/tui/app.py")
+        assert "def resume_session(self, session_id" in _read("zouwucode/application.py")
 
     def test_endpoints_present(self):
         assert '"/api/session/current"' in self.src
@@ -62,7 +62,7 @@ class TestWebResume:
     def test_app_is_wired_into_server(self):
         assert "app=None," in self.src
         assert "self.app = app" in self.src
-        assert "app=self," in _read("zouwucode/tui/app.py")
+        assert "app=self," in _read("zouwucode/application.py")
 
     def test_js_resume_command(self):
         assert '{ cmd: "/resume"' in self.js

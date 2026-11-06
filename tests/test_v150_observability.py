@@ -120,7 +120,7 @@ class TestSwallowIsObservable:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(rm, "build_repo_map", _boom)
-        with caplog.at_level(logging.DEBUG, logger="zouwucode.tui.app"):
+        with caplog.at_level(logging.DEBUG, logger="zouwucode.application"):
             app._build_system_prompt()          # must not raise
         assert any("swallowed" in r.getMessage() for r in caplog.records), \
             "swallowed error was not logged"

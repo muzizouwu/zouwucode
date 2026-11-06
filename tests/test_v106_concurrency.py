@@ -131,7 +131,7 @@ class TestCoordinatorErrorText:
 
 class TestCliStreaming:
     def test_body_streaming_wired(self):
-        src = _read("zouwucode/tui/app.py")
+        src = _read("zouwucode/application.py")
         assert "def _stream_content" in src
         assert src.count("on_content_delta = self._stream_content") == 2
         # guard against double-printing the streamed body
