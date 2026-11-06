@@ -164,7 +164,7 @@ CLI 模式是默认的交互式终端模式。启动后进入命令行提示符�
 
 ```
   ================================================================
-  ZOUWUCODE v1.15.0  |  Mode: AGENT  |  Reasoning: MEDIUM  |  Tools: N
+  ZOUWUCODE v1.16.0  |  Mode: AGENT  |  Reasoning: MEDIUM  |  Tools: N
   ================================================================
 
   Type /help for commands, Ctrl+C to exit

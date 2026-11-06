@@ -4,6 +4,46 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 
+## [1.16.0] — 2026-11-07
+
+一次全面「项目体检」后的整备发布：可用性与健壮性修复、测试与 CI 补齐、巨型文件拆分，以及两处需要留意的行为收紧。
+
+### ⚠ 行为收紧（升级前请确认）
+- **递归强制删除一律拒绝**：`rm -r -f`、`rm -rf`、`rm -fr`、`rm -Rf`、`--recursive --force`，以及 `del` / `remove` / `unlink` 的同类组合，现在都被沙箱判为危险命令。之前「拆开写」的 `rm -r -f` 能绕过检测，本次已封堵；被拒时错误信息会带上具体原因。确需批量删除请拆成单文件操作，或改在沙箱外手动执行
+- **附件保留 7 天**：`.zouwucode/uploads/` 是临时工作副本，超过 7 天的上传文件会在下一次上传时被清理。需要长期保留的资料请把文件移出该目录
+
+### Added
+- **Web UI 请求体上限**：`/api/*` 在读取请求体前先校验长度，超过 64 MB 直接返回 `413 Payload Too Large`，不再无界缓冲
+- **沙箱拒绝原因**：新增 `PermissionManager.block_reason(cmd)`，返回具体原因（零宽字符注入 / 递归强制删除 / 特权提升 / 黑名单 / 白名单）；shell 工具的报错现在会附上 `(原因)`
+- **会话文件容错**：会话写入改为临时文件 + 原子替换（`.bak` 备份）；损坏的 JSON 转存为 `.corrupt-<时间戳>` 后返回空会话，不再让 Web UI 起不来
+- **附件同名去重**：同一秒上传同名文件追加 `-2`、`-3` 后缀，不再互相覆盖
+- **文档索引**：新增 `docs/README.md`；完整技术规格归档为 `docs/ZOUWUCODE_完整技术规格文档.md`
+
+### Changed
+- **grep 双引擎输出统一**：Python 与 ripgrep 共用同一个 `_normalize_rel_path()`，Windows 反斜杠统一为正斜杠、剥掉 `.\` 前缀，单文件搜索补文件名前缀；两条引擎现在给出同一种格式，`ZOUWUCODE_DISABLE_RG=1` 可强制走 Python 引擎
+- **同步 IO 移出事件循环**：git 快照、会话写入、附件 base64 解码改走 `asyncio.to_thread`，长请求不再卡住其他 API；git 快照增加节流，避免每轮重复扫描
+- **`textual` 改为惰性可选依赖**：基础安装（无 `tui` extra）下 `--version`、CLI、`--web` 都能正常启动，只有 `--tui` 会提示 `pip install "zouwucode[tui]"`，不再抛 ImportError 堆栈
+- **`install.ps1` 改用 `python -m zouwucode`**：不依赖 PATH 里的入口脚本，安装后即可运行
+- **启动期错误给中文可操作提示**；未配置 API Key 时在启动阶段就引导，而不是等第一次请求失败
+- **`--show-config`**：重复项去重，`api_key` 一律打码
+- **巨型文件拆分（行为不变，旧导入路径保留兼容）**：
+  - `engine/loop.py` → `engine/turns.py`（turn 类型与常量）+ `engine/interrupts.py`（中断处理）
+  - `webui/server.py` → `webui/routes.py`（`RoutesMixin` 承载路由），`server.py` 只保留传输与分发
+  - `tui/textual_app.py` → `tui/widgets.py`（日志组件与弹窗）+ `tui/terminal.py`（终端恢复）
+  - `webui/static/app.js` → `app-core.js` / `app-chat.js` / `app-panels.js`，`app.js` 仅负责启动
+  - `tui/app.py` → `zouwucode/application.py`（CLI/TUI/Web 共用核心），`tui/app.py` 保留兼容 shim
+- **依赖清单单一来源**：`requirements.txt` 不再重复维护，改为 `-e .[dev]`，依赖与版本以 `pyproject.toml` 为准
+- **CI 扩容**：新增 ruff（E9/F/I）lint、干净 venv 安装冒烟（无 `tui` extra 启动 `--version` / `--help`）、Python 与 ripgrep 双 grep 环境、wheel 内容校验，并加入 Python 3.13 测试行；`.gitignore` 只忽略运行态（memory/uploads/sessions），保留 `.zouwucode/rules.md` 与 `skills/`
+- **文档与实现对齐**：`USAGE.md` 参数表以 `--help` 为准，修正 `--compress` 默认值与 banner 版本
+
+### Fixed
+- **安装元数据过期**：editable 安装的元数据版本与 `zouwucode.__version__` 不一致，`pip show` 显示旧版本；刷新元数据并新增断言，两者必须始终相同
+
+### Tests
+- 新增 `tests/test_health_fixes.py`（13 用例：无 `textual` 启动、grep 双引擎输出、安装元数据版本）与 `tests/test_batch2_hardening.py`（11 用例：请求体 413、原子写与 `.bak`、损坏会话兜底、快照节流）
+- 补充 Web UI handler 级用例，以及 session fork / archive / rewind、损坏 JSON、grep 双引擎、无 `textual` 启动等此前缺失的覆盖
+- 全量套件 **837 passed**；另跑 `ruff check` 与 wheel 安装冒烟
+
 ## [1.15.0] — 2026-10-29
 
 Trae 同款对话轨迹、DeepSeek 原生看图、用户级技能库，以及 Web UI 回合真正落盘。
@@ -649,6 +689,7 @@ LSP 加深：从"只有诊断"到"能看定义、能查类型"。
 
 - 初始原型：CLI/TUI/Web 三端、Cache-First 引擎、工具系统
 
+[1.16.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.16.0
 [1.13.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.13.0
 [1.12.1]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.12.1
 [1.12.0]: https://github.com/muzizouwu/zouwucode/releases/tag/v1.12.0
