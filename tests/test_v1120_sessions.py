@@ -107,8 +107,11 @@ class TestDelete:
 class TestServerRoutes:
     @staticmethod
     def _src():
+        # Route handlers live in RoutesMixin (webui/routes.py) and are
+        # inherited by WebUIServer; inspect both halves of the HTTP surface.
+        from zouwucode.webui.routes import RoutesMixin
         from zouwucode.webui.server import WebUIServer
-        return inspect.getsource(WebUIServer)
+        return inspect.getsource(WebUIServer) + inspect.getsource(RoutesMixin)
 
     def test_all_session_routes_registered(self):
         src = self._src()
