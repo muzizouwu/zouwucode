@@ -435,7 +435,8 @@ class TestWebUIInterruptWiring:
     def _assets():
         from zouwucode.webui import server
         return (server.read_static("index.html")[0],
-                server.read_static("app.js")[0])
+                "\n".join(server.read_static(n)[0] for n in
+                          ("app-core.js", "app-chat.js", "app-panels.js", "app.js")))
 
     def test_interrupt_button_in_html(self):
         index, js = self._assets()

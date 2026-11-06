@@ -152,5 +152,6 @@ class TestWiring:
             assert 'command == "/oracle"' in src, rel
         web = (ROOT / "zouwucode/webui/server.py").read_text(encoding="utf-8")
         assert '"/api/oracle"' in web
-        js = (ROOT / "zouwucode/webui/static/app.js").read_text(encoding="utf-8")
+        js = "\n".join((ROOT / "zouwucode/webui/static" / n).read_text(encoding="utf-8")
+                       for n in ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
         assert '{ cmd: "/oracle"' in js and '"/api/oracle"' in js

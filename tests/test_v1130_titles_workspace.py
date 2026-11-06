@@ -252,7 +252,8 @@ class TestAppSwitchWorkspace:
 
 class TestFrontendContract:
     INDEX = server.read_static("index.html")[0]
-    JS = server.read_static("app.js")[0]
+    JS = "\n".join(server.read_static(n)[0] for n in
+                   ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
     CSS = server.read_static("style.css")[0]
 
     def test_workspace_picker_present(self):

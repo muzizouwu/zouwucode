@@ -12,7 +12,8 @@ from zouwucode.webui import server
 
 INDEX = server.read_static("index.html")[0]
 CSS = server.read_static("style.css")[0]
-JS = server.read_static("app.js")[0]
+JS = "\n".join(server.read_static(n)[0] for n in
+               ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
 
 
 def _ids(markup: str) -> set:

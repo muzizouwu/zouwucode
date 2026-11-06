@@ -163,7 +163,8 @@ class TestWebParity:
     @classmethod
     def setup_class(cls):
         cls.src = _read("zouwucode/webui/server.py")
-        cls.js = _read("zouwucode/webui/static/app.js")
+        cls.js = "\n".join(_read("zouwucode/webui/static/" + n) for n in
+                           ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
 
     @pytest.mark.parametrize("route", ["/api/memory", "/api/goal", "/api/decide",
                                        "/api/context", "/api/compress", "/api/agents"])

@@ -23,7 +23,8 @@ from zouwucode.webui import server as web_server
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 INDEX = web_server.read_static("index.html")[0]
-JS = web_server.read_static("app.js")[0]
+JS = "\n".join(web_server.read_static(n)[0] for n in
+               ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
 CSS = web_server.read_static("style.css")[0]
 
 

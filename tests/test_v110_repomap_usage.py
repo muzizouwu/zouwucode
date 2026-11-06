@@ -108,7 +108,8 @@ class TestUsageWiring:
     def test_web_endpoint_and_command(self):
         web = _read("zouwucode/webui/server.py")
         assert '"/api/usage"' in web
-        js = _read("zouwucode/webui/static/app.js")
+        js = "\n".join(_read("zouwucode/webui/static/" + n) for n in
+                       ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
         assert '{ cmd: "/usage"' in js and '"/api/usage"' in js
 
     def test_repo_map_injectable_into_prompt(self):

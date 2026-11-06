@@ -20,7 +20,8 @@ class TestWebBodyStreaming:
     @classmethod
     def setup_class(cls):
         cls.src = _read("zouwucode/webui/server.py")
-        cls.js = _read("zouwucode/webui/static/app.js")
+        cls.js = "\n".join(_read("zouwucode/webui/static/" + n) for n in
+                           ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
 
     def test_backend_emits_content_deltas(self):
         assert '"type": "content", "delta": delta' in self.src
@@ -48,7 +49,8 @@ class TestWebResume:
     @classmethod
     def setup_class(cls):
         cls.src = _read("zouwucode/webui/server.py")
-        cls.js = _read("zouwucode/webui/static/app.js")
+        cls.js = "\n".join(_read("zouwucode/webui/static/" + n) for n in
+                           ("app-core.js", "app-chat.js", "app-panels.js", "app.js"))
 
     def test_app_method_exists(self):
         assert "def resume_session(self, session_id" in _read("zouwucode/tui/app.py")
